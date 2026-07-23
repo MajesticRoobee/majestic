@@ -18,13 +18,9 @@
       "database_id": "584c76c0-293e-4dff-ba57-3506629a9076",
       "migrations_dir": "migrations"
     }
-  ],
-  "vars": {
-    // Development defaults — override in production:
-    //   wrangler secret put ADMIN_PASSWORD
-    //   wrangler secret put ADMIN_TOKEN_SECRET
-    //   wrangler secret put PAYSTACK_SECRET_KEY   (enables live Paystack)
-    "ADMIN_PASSWORD": "majestic-dev",
-    "ADMIN_TOKEN_SECRET": "dev-only-change-me"
-  }
+  ]
+  // Secrets (never committed): ADMIN_PASSWORD, ADMIN_TOKEN_SECRET, and
+  // optionally PAYSTACK_SECRET_KEY. Local dev reads them from .dev.vars
+  // (see .dev.vars.example); production is set via `wrangler secret put`
+  // or the GitHub Actions deploy workflow.
 }

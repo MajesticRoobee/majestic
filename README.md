@@ -28,16 +28,19 @@ For UI iteration with hot reload, run `npm run dev` (Vite on :5173, proxying `/a
 
 ## Deploying to Cloudflare
 
-1. `npx wrangler d1 create majestic-roobee` → paste the returned `database_id` into `wrangler.jsonc`.
-2. `npm run db:migrate:remote` — creates the schema and seeds the catalogue/demo data.
-3. Set production secrets:
-   ```bash
-   npx wrangler secret put ADMIN_PASSWORD       # admin login passphrase
-   npx wrangler secret put ADMIN_TOKEN_SECRET   # random string, signs admin session tokens
-   npx wrangler secret put PAYSTACK_SECRET_KEY  # optional — enables live Paystack checkout
-   ```
-4. `npm run deploy`.
-5. In the Paystack dashboard, point the webhook to `https://<your-domain>/api/paystack/webhook`.
+The production D1 database (`majestic-roobee`, id in `wrangler.jsonc`) is already provisioned and seeded. Deploys run through GitHub Actions (`.github/workflows/deploy.yml`) on every push to `main`, or manually via *Actions → Deploy to Cloudflare → Run workflow*.
+
+Required repository secrets (*Settings → Secrets and variables → Actions*):
+
+| Secret | Purpose |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | API token with the **Edit Cloudflare Workers** template |
+| `ADMIN_PASSWORD` | Admin portal login passphrase |
+| `ADMIN_TOKEN_SECRET` | Random string that signs admin session tokens |
+| `CLOUDFLARE_ACCOUNT_ID` | Only needed if the token can see multiple accounts |
+| `PAYSTACK_SECRET_KEY` | Optional — enables live Paystack checkout |
+
+To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above. After enabling Paystack, point its webhook to `https://<your-domain>/api/paystack/webhook`.
 
 Without `PAYSTACK_SECRET_KEY`, card orders are still recorded (as awaiting payment) so nothing breaks in development.
 
