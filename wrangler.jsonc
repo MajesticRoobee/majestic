@@ -15,8 +15,7 @@
     {
       "binding": "DB",
       "database_name": "majestic-roobee",
-      // Replace with the real database_id after `wrangler d1 create majestic-roobee`
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "584c76c0-293e-4dff-ba57-3506629a9076",
       "migrations_dir": "migrations"
     }
   ],
