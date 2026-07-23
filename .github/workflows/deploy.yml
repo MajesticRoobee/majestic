@@ -43,3 +43,22 @@ jobs:
           if [ -n "$ADMIN_PASSWORD" ]; then printf '%s' "$ADMIN_PASSWORD" | npx wrangler secret put ADMIN_PASSWORD; fi
           if [ -n "$ADMIN_TOKEN_SECRET" ]; then printf '%s' "$ADMIN_TOKEN_SECRET" | npx wrangler secret put ADMIN_TOKEN_SECRET; fi
           if [ -n "$PAYSTACK_SECRET_KEY" ]; then printf '%s' "$PAYSTACK_SECRET_KEY" | npx wrangler secret put PAYSTACK_SECRET_KEY; fi
+
+      - name: Smoke test live site
+        env:
+          SITE_URL: https://majestic-roobee.victorugwu4real.workers.dev
+        run: |
+          sleep 5
+          echo "— storefront shell —"
+          curl -sfS "$SITE_URL/" | grep -o '<title>[^<]*</title>'
+          echo "— admin shell —"
+          curl -sfS "$SITE_URL/admin/" | grep -o '<title>[^<]*</title>'
+          echo "— store bootstrap —"
+          products=$(curl -sfS "$SITE_URL/api/store" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['products']))")
+          echo "live products: $products"; test "$products" -ge 17
+          echo "— order tracking (seeded demo order) —"
+          curl -sfS "$SITE_URL/api/orders/track?no=MR-10234&contact=0803%202214409" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['no'], '·', d['status'], '·', len(d['steps']), 'timeline steps')"
+          echo "— admin auth rejects bad passphrase —"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/admin/login" -H 'content-type: application/json' -d '{"password":"definitely-wrong"}')
+          echo "bad login -> HTTP $code"; test "$code" = "401"
+          echo "All smoke tests passed."
