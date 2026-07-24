@@ -2,6 +2,7 @@
 // concierge chat, lead popup, footer. Markup ported from the design handoff.
 import React from "react";
 import { Eyebrow, Button } from "../ds/components.jsx";
+import { routeToPath } from "./router.js";
 
 const CITY_OPTIONS = [
   ["abuja", "Abuja"],
@@ -63,7 +64,7 @@ function CityGate({ ctx }) {
 
 function Header({ ctx }) {
   const navLink = (label, page, extra) => (
-    <a href={"#" + page} onClick={(e) => { e.preventDefault(); ctx.nav(page, extra); }}>{label}</a>
+    <a href={routeToPath(page, extra)} onClick={(e) => { e.preventDefault(); ctx.nav(page, extra); }}>{label}</a>
   );
   return (
     <header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(250,246,241,0.9)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--border-hairline)" }}>
@@ -73,7 +74,7 @@ function Header({ ctx }) {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-900)" strokeWidth="1.5" strokeLinecap="round"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></svg>
           </button>
         )}
-        <a href="#home" onClick={(e) => { e.preventDefault(); ctx.nav("home"); }} style={{ fontFamily: "var(--font-display)", fontSize: 21, color: "var(--mr-purple-900)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>Majestic Roobee</a>
+        <a href="/" onClick={(e) => { e.preventDefault(); ctx.nav("home"); }} style={{ fontFamily: "var(--font-display)", fontSize: 21, color: "var(--mr-purple-900)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>Majestic Roobee</a>
         {!ctx.isMobile && (
           <>
             <nav style={{ display: "flex", gap: 26, marginLeft: 18, fontSize: 13.5, fontWeight: 500, letterSpacing: "0.03em" }}>
@@ -106,7 +107,7 @@ function Header({ ctx }) {
       {ctx.mnav && ctx.isMobile && (
         <nav style={{ display: "flex", flexDirection: "column", borderTop: "1px solid var(--border-hairline)", background: "var(--mr-cream)", padding: "8px 0" }}>
           {[["Home", "home"], ["Shop", "shop"], ["Our House", "about"], ["Track Order", "track"], ["Contact", "contact"]].map(([label, page]) => (
-            <a key={page} href={"#" + page} onClick={(e) => { e.preventDefault(); ctx.nav(page); }} style={{ padding: "13px 24px", fontSize: 15, fontWeight: 500 }}>{label}</a>
+            <a key={page} href={routeToPath(page)} onClick={(e) => { e.preventDefault(); ctx.nav(page); }} style={{ padding: "13px 24px", fontSize: 15, fontWeight: 500 }}>{label}</a>
           ))}
           <div style={{ display: "flex", gap: 10, padding: "12px 24px", alignItems: "center" }}>
             <button onClick={ctx.toggleCurrency} style={{ background: "none", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", padding: "8px 14px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-800)", cursor: "pointer" }}>
@@ -207,7 +208,7 @@ function ChatWidget({ ctx }) {
 function Footer({ ctx }) {
   const { settings } = ctx;
   const link = (label, page, extra) => (
-    <a href={"#" + page} onClick={(e) => { e.preventDefault(); ctx.nav(page, extra); }} style={{ color: "var(--text-on-dark-muted)" }}>{label}</a>
+    <a href={routeToPath(page, extra)} onClick={(e) => { e.preventDefault(); ctx.nav(page, extra); }} style={{ color: "var(--text-on-dark-muted)" }}>{label}</a>
   );
   const colTitle = { fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--mr-gold-400)", marginBottom: 14 };
   return (
@@ -255,10 +256,27 @@ function Footer({ ctx }) {
   );
 }
 
+function ConsentBanner({ ctx }) {
+  if (!ctx.showConsent) return null;
+  return (
+    <div style={{ position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 180, maxWidth: 680, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "16px 18px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, lineHeight: 1.5, flex: 1, minWidth: 220 }}>
+        We use cookies for analytics and marketing to improve your experience. The store works either way — your choice.
+        {" "}<a href="/about" onClick={(e) => { e.preventDefault(); ctx.nav("about"); }} style={{ color: "var(--mr-gold-400)" }}>Learn more</a>
+      </span>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={ctx.denyConsent} style={{ background: "none", border: "1px solid var(--border-inverse)", borderRadius: "var(--radius-pill)", padding: "8px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-on-dark-muted)", cursor: "pointer" }}>Decline</button>
+        <Button variant="gold" size="sm" onClick={ctx.grantConsent}>Accept</Button>
+      </div>
+    </div>
+  );
+}
+
 export function Chrome({ ctx, children }) {
   return (
     <div style={{ fontFamily: "var(--font-sans)", color: "var(--text-body)", background: "var(--mr-cream)", minHeight: "100vh" }}>
       <PromoPopup ctx={ctx} />
+      <ConsentBanner ctx={ctx} />
       <div style={{ background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", fontSize: 12, letterSpacing: "0.06em", textAlign: "center", padding: "9px 16px" }}>
         {ctx.settings.announcement || " "}
       </div>

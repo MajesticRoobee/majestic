@@ -269,7 +269,14 @@ admin.get("/settings", async (c) => {
 admin.put("/settings", async (c) => {
   const { settings, locations } = await c.req.json();
   const db = c.env.DB;
-  const allowed = ["announcement", "heroHeadline", "heroSub", "footerTagline", "igUrl", "igHandle", "contactPhone", "contactEmail", "contactHours", "ngnPerUsd", "lowStockThreshold"];
+  const allowed = [
+    "announcement", "heroHeadline", "heroSub", "footerTagline", "igUrl", "igHandle",
+    "contactPhone", "contactEmail", "contactHours", "ngnPerUsd", "lowStockThreshold",
+    // SEO
+    "siteName", "metaDescription", "ogImage",
+    // Marketing & analytics tags
+    "ga4Id", "metaPixelId", "tiktokPixelId", "googleAdsId", "googleAdsPurchaseLabel", "clarityId", "gscVerification",
+  ];
   const patch = {};
   for (const k of allowed) if (settings && settings[k] !== undefined) patch[k] = settings[k];
   const next = await putSettings(db, patch);

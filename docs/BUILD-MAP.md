@@ -75,8 +75,8 @@ _foundations → features that ride them → polish._
 | Lifecycle automations | ⬜ | — | Post-purchase, birthday, repeat, back-in-stock (F2) |
 | Email marketing integration | 🔑⬜ | — | Provider decision (Resend / Klaviyo / Mailchimp) |
 | WhatsApp Business API | 🔑⬜ | Click-to-chat link only | Real 2-way API (Meta Cloud / 360dialog / Twilio) |
-| Analytics & pixels | ⬜ | — | GA4, Search Console, Clarity, Meta Pixel, Google Ads, TikTok Pixel + **consent banner** |
-| SEO | 🟡 | Edge-served, fast, titled | Pre-render/SSR meta, sitemap, robots, structured data (Product/Offer/Review) |
+| Analytics & pixels | 🟡 | **Consent-gated tag loader live** (GA4, Google Ads, Meta Pixel, TikTok, Clarity) + admin-managed IDs; canonical events (view_item/add_to_cart/begin_checkout/purchase) wired | Paste IDs in Admin → Settings to activate; GSC verify |
+| SEO | 🟡 | **Path-based URLs** (`/product/:id`), per-page title/meta/OG, JSON-LD (Product/Org/WebSite), `sitemap.xml`, `robots.txt` all live | Optional SSR/pre-render; review structured data once reviews exist |
 | Performance | 🟡 | Edge + code-split SPAs, small bundles | Image pipeline (R2 + resizing), Lighthouse pass, font strategy |
 
 ### E. Fragrance Discovery & Merchandising — *conversion features; several ride F1/F2*
@@ -112,16 +112,16 @@ _foundations → features that ride them → polish._
 | Admin 2FA | ⬜ | Single shared passphrase + signed token today | Per-user admin accounts + TOTP + roles (super/manager already in design) |
 | Secrets management | ✅ | Worker secrets, gitignored dev vars | — |
 | Observability | ⬜ | — | Structured logs, error alerting, uptime checks |
-| Consent / privacy | ⬜ | — | Cookie consent (legally gates the pixels) + privacy policy |
+| Consent / privacy | 🟡 | **Consent banner live** — gates every analytics/marketing tag; choice persisted | Privacy policy page copy |
 
 ---
 
 ## 3. Phase plan (sequenced by dependency × value ÷ effort)
 
 **Phase 0 — Instrument & harden (fast, low-risk, immediate value)**
-Pixels + analytics + consent banner · SEO baseline · security pass (WAF on, backup
-policy, admin accounts + 2FA) · lock provider decisions. *No foundations needed —
-starts returning data and safety on day one.*
+- ✅ **0a Instrument** — consent-gated analytics/pixels (GA4, Google Ads, Meta, TikTok, Clarity), admin-managed IDs, ecommerce event tracking.
+- ✅ **0b Discover** — path-based URLs, per-page SEO meta/OG, JSON-LD, sitemap, robots.
+- ⬜ **0c Harden** — Cloudflare WAF + rate limiting, backup policy + scheduled export, admin per-user accounts + TOTP 2FA, security headers, privacy policy page.
 
 **Phase 1 — Foundations**
 F1 Customer accounts (+2FA, addresses, order history, wishlist) · F2 event +
@@ -145,18 +145,23 @@ MCP server + POS / accounting / WMS connectors · mobile-app API.
 
 ## 4. Open decisions (needed before the phases they gate)
 
-| # | Decision | Options | Gates |
+| # | Decision | Resolution | Gates |
 |---|---|---|---|
-| D1 | Email marketing provider | Resend (dev-simple) · Klaviyo (ecommerce-rich) · Mailchimp | Phase 0/2 |
-| D2 | WhatsApp Business API route | Meta Cloud API direct · 360dialog · Twilio | Phase 2 |
-| D3 | International payments | Stay Paystack-NGN · add Stripe/PayPal for USD | Phase 1 |
+| D1 | Email marketing provider | **✅ Resend** (for now) | Phase 0/2 |
+| D2 | WhatsApp Business API route | **✅ Direction: real 2-way API later; stay heavy on click-to-chat now** | Phase 2 |
+| D3 | International payments | **✅ Integrate Paystack and/or Stripe** | Phase 1 |
 | D4 | Currency model | Display-only (keep) · real multi-currency settlement | Phase 1 |
 | D5 | Live chat | Build real-time · adopt Crisp/Intercom/Tawk | Phase 3 |
 | D6 | Loyalty engine | Build in-house · third-party | Phase 3 |
-| D7 | Customer auth method | Email OTP · password · social login | Phase 1 |
+| D7 | Customer auth method | **✅ Progressive & optional** — full guest commerce with no account; accounts encouraged with perks, never required | Phase 1 |
 | D8 | FX rate source | Manual · live API (openexchangerates etc.) | Phase 1 |
+
+Design principle from D7: **guest-first everywhere.** Every account touchpoint is a
+suggestive upsell ("save this / track faster / earn points"), never a gate.
 
 ---
 
 ## 5. Change log
 - _v1_ — Initial systems map and phase plan.
+- _v2_ — Locked decisions D1 (Resend), D2 (click-to-chat now), D3 (Paystack + Stripe), D7 (progressive/optional accounts). Started **Phase 0**.
+- _v3_ — Shipped **Phase 0a (instrument)** + **0b (discover)**: consent-gated analytics/pixels with admin-managed IDs, ecommerce event tracking, path-based routing, per-page SEO + JSON-LD, sitemap & robots. Remaining: **0c (harden)**.

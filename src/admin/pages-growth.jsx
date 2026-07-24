@@ -381,6 +381,30 @@ export function SettingsPage({ ctx }) {
           <Input label="Instagram handle" value={form.igHandle || ""} onChange={set("igHandle")} />
         </div>
       </div>
+      <div style={section}>
+        {sectionHead("SEO", "How the store appears in search results and when shared. Product pages generate their own tags automatically.")}
+        <Input label="Site name" value={form.siteName || ""} onChange={set("siteName")} placeholder="Majestic Roobee" />
+        <Textarea label="Default meta description" value={form.metaDescription || ""} onChange={set("metaDescription")} rows={2} hint="Used on the homepage and as a fallback (aim for 150–160 characters)." />
+        <Input label="Social share image URL" value={form.ogImage || ""} onChange={set("ogImage")} placeholder="https://…/share.jpg" hint="Shown when a link is shared on WhatsApp, Instagram, X, etc." />
+      </div>
+
+      <div style={section}>
+        {sectionHead("Marketing & analytics", "Paste your measurement IDs — tags load only after a shopper accepts cookies on the storefront. Leave blank to disable.")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Google Analytics 4 ID" value={form.ga4Id || ""} onChange={set("ga4Id")} placeholder="G-XXXXXXX" />
+          <Input label="Microsoft Clarity ID" value={form.clarityId || ""} onChange={set("clarityId")} placeholder="abcdefghij" />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Google Ads ID" value={form.googleAdsId || ""} onChange={set("googleAdsId")} placeholder="AW-XXXXXXXXX" />
+          <Input label="Google Ads purchase label" value={form.googleAdsPurchaseLabel || ""} onChange={set("googleAdsPurchaseLabel")} placeholder="conversion label" />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Meta (Facebook) Pixel ID" value={form.metaPixelId || ""} onChange={set("metaPixelId")} placeholder="1234567890" />
+          <Input label="TikTok Pixel ID" value={form.tiktokPixelId || ""} onChange={set("tiktokPixelId")} placeholder="CXXXXXXXXXXXX" />
+        </div>
+        <Input label="Google Search Console verification" value={form.gscVerification || ""} onChange={set("gscVerification")} placeholder="google-site-verification token" hint="From the 'HTML tag' method — paste only the content token. Or verify via your linked Google Analytics / DNS instead." />
+      </div>
+
       <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
         <Button variant="gold" onClick={save}>Save changes</Button>
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Saved to the store database — the storefront reads the same settings.</span>

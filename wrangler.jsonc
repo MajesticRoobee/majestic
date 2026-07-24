@@ -9,7 +9,7 @@
     // Storefront and admin are separate SPA entry pages; unknown paths fall
     // back to the storefront shell.
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/robots.txt", "/sitemap.xml"]
   },
   "d1_databases": [
     {

@@ -3,6 +3,9 @@ import { api } from "../lib/api.js";
 import { useWindowWidth, cap, initialsOf, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import { HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage } from "./pages.jsx";
+import { pathToRoute, routeToPath } from "./router.js";
+import { headFor, setHead, setGscVerification } from "./seo.js";
+import { hasTags, getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
 
 const SCOPE_CATS = {
   Storewide: null,
@@ -11,16 +14,14 @@ const SCOPE_CATS = {
   "Feminine care": ["care", "deo"],
 };
 
-const PAGES_FROM_HASH = ["shop", "about", "track", "contact"];
-
 export default function App() {
+  const initialRoute = pathToRoute();
   const [D, setD] = useState(null);
-  const [page, setPage] = useState(() => {
-    const h = (window.location.hash || "").replace("#", "");
-    return PAGES_FROM_HASH.includes(h) ? h : "home";
-  });
-  const [productId, setProductId] = useState(null);
+  const dataRef = useRef(null);
+  const [page, setPage] = useState(initialRoute.page);
+  const [productId, setProductId] = useState(initialRoute.productId || null);
   const [prSize, setPrSize] = useState(null);
+  const [consent, setConsentState] = useState(getConsent());
   const [prQty, setPrQty] = useState(1);
   const [city, setCity] = useState("abuja");
   const [gateOpen, setGateOpen] = useState(false);
@@ -31,7 +32,7 @@ export default function App() {
   const [cartOpen, setCartOpen] = useState(false);
   const [mnav, setMnav] = useState(false);
   const [search, setSearch] = useState("");
-  const [fCat, setFCat] = useState("all");
+  const [fCat, setFCat] = useState(initialRoute.fCat || "all");
   const [fFam, setFFam] = useState("all");
   const [fSort, setFSort] = useState("featured");
   const [co, setCo] = useState({ name: "", email: "", phone: "", address: "", fulfill: "delivery", pay: "paystack", promo: "" });
@@ -52,7 +53,7 @@ export default function App() {
 
   // Bootstrap
   useEffect(() => {
-    api.get("/api/store").then(setD).catch(() => {});
+    api.get("/api/store").then((d) => { dataRef.current = d; setD(d); }).catch(() => {});
     try {
       const c = localStorage.getItem("mr-city");
       const ok = localStorage.getItem("mr-city-ok") === "1";
@@ -102,8 +103,24 @@ export default function App() {
       setPrSize(extra.prSize ?? null);
       setPrQty(1);
     }
-    if (["home", ...PAGES_FROM_HASH].includes(p)) window.location.hash = p === "home" ? "" : p;
+    window.history.pushState({}, "", routeToPath(p, extra));
     window.scrollTo(0, 0);
+  }, []);
+
+  // Back/forward buttons
+  useEffect(() => {
+    const onPop = () => {
+      const r = pathToRoute();
+      setPage(r.page);
+      setProductId(r.productId || null);
+      if (r.page === "product") setPrSize(null);
+      if (r.fCat) setFCat(r.fCat);
+      setMnav(false);
+      setCartOpen(false);
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
 
   const settings = D ? D.settings : {};
@@ -139,6 +156,10 @@ export default function App() {
       return next;
     });
     setCartOpen(true);
+    const D0 = dataRef.current;
+    const p = D0 && D0.products.find((x) => x.id === id);
+    const v = p && p.variants.find((x) => x.size === size);
+    if (p && v) trackEvent("add_to_cart", { id, name: p.name, value: v.ngn * qty, items: [{ id, name: p.name, price: v.ngn, qty }] });
   }, []);
 
   const card = useCallback((p) => {
@@ -151,6 +172,7 @@ export default function App() {
       priceLabel: (multi ? "From " : "") + fmt(v0.ngn),
       avail: a.avail, badgeBg: a.badgeBg, badgeFg: a.badgeFg, outline: !!a.outline,
       soldOut: a.soldOut, addLabel: a.soldOut ? "Notify me" : "Add to cart",
+      href: "/product/" + p.id,
       open: () => nav("product", { productId: p.id, prSize: p.variants[0].size }),
       add: () => !a.soldOut && addToCart(p.id, v0.size, 1),
     };
@@ -193,6 +215,20 @@ export default function App() {
     }
     return { items, sub, ship, allInCity, discount, total: sub - discount + ship };
   }, [D, cart, city, co.fulfill, promoInfo, products, L, settings, fmt, cityName, bestAlt]);
+
+  // SEO head + consent-gated analytics
+  useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
+  useEffect(() => { if (D && consent === "granted") startAnalytics(D.settings); }, [D, consent]);
+  useEffect(() => {
+    if (!D) return;
+    const product = page === "product" ? products.find((p) => p.id === productId) : null;
+    setHead(headFor({ page, product, settings, categories }));
+    trackEvent("page_view");
+    if (product) trackEvent("view_item", { id: product.id, name: product.name, value: product.variants[0].ngn });
+    if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
+    if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, productId, D, consent]);
 
   const applyPromo = useCallback(async () => {
     const code = co.promo.trim().toUpperCase();
@@ -335,6 +371,9 @@ export default function App() {
     chat, setChat, sendChat,
     popup, setPopup, plEmail, setPlEmail, plDone, submitLead,
     closePopup: () => { try { localStorage.setItem("mr-popup-seen", "1"); } catch {} setPopup(false); },
+    consent, showConsent: hasTags(settings) && !consent,
+    grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
+    denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
   };
 
   const pageEl =
