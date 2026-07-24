@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { shop } from "./shop.js";
 import { admin } from "./admin.js";
+import { account } from "./customers.js";
 
 const app = new Hono();
 
 app.route("/api", shop);
 app.route("/api/admin", admin);
+app.route("/api/account", account);
 
 app.get("/robots.txt", (c) => {
   const origin = new URL(c.req.url).origin;

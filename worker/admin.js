@@ -24,13 +24,13 @@ admin.post("/login", async (c) => {
       if (!(await totpVerify(u.totp_secret, totp))) return c.json({ error: "That 2FA code isn't right.", needTotp: true }, 401);
     }
     await db.prepare("UPDATE admin_users SET last_login=datetime('now') WHERE id=?").bind(u.id).run();
-    const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { uid: u.id, role: u.role, scope: u.scope || null });
+    const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { typ: "admin", uid: u.id, role: u.role, scope: u.scope || null });
     return c.json({ token, role: roleLabel(u), name: u.name, scope: u.scope || null, mustChange: !!u.must_change, totpEnabled: !!u.totp_enabled });
   }
 
   // Master passphrase (break-glass super admin)
   if (password && c.env.ADMIN_PASSWORD && password === c.env.ADMIN_PASSWORD) {
-    const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { uid: 0, role: "super", scope: null, master: true });
+    const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { typ: "admin", uid: 0, role: "super", scope: null, master: true });
     return c.json({ token, role: "Super admin", name: "Master", scope: null, master: true });
   }
   return c.json({ error: "That's not the key to the house." }, 401);
@@ -41,7 +41,7 @@ admin.use("*", async (c, next) => {
   const auth = c.req.header("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   const claims = await verifyToken(c.env.ADMIN_TOKEN_SECRET, token);
-  if (!claims) return c.json({ error: "Unauthorized" }, 401);
+  if (!claims || claims.typ !== "admin") return c.json({ error: "Unauthorized" }, 401);
   c.set("admin", claims);
   return next();
 });
