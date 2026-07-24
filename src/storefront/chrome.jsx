@@ -249,24 +249,30 @@ function Footer({ ctx }) {
       <div style={{ borderTop: "1px solid var(--border-inverse)" }}>
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "18px clamp(16px, 4vw, 40px)", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 12 }}>
           <span>© 2026 Majestic Roobee — all rights reserved</span>
-          <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff portal —</a>
+          <span style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
+            <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff portal —</a>
+          </span>
         </div>
       </div>
     </footer>
   );
 }
 
+// A slim, non-blocking bottom bar (no backdrop — the whole store stays usable
+// while it's open). Welcomes every shopper and nudges them to start shopping.
 function ConsentBanner({ ctx }) {
   if (!ctx.showConsent) return null;
   return (
-    <div style={{ position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 180, maxWidth: 680, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "16px 18px", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+    <div style={{ position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 180, maxWidth: 720, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span style={{ fontSize: 13, lineHeight: 1.5, flex: 1, minWidth: 220 }}>
-        We use cookies for analytics and marketing to improve your experience. The store works either way — your choice.
-        {" "}<a href="/about" onClick={(e) => { e.preventDefault(); ctx.nav("about"); }} style={{ color: "var(--mr-gold-400)" }}>Learn more</a>
+        Welcome to Majestic Roobee — browse freely, the store works with or without cookies. We use them for analytics &amp; marketing to improve your experience.
+        {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--mr-gold-400)" }}>Privacy</a>
       </span>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={ctx.denyConsent} style={{ background: "none", border: "1px solid var(--border-inverse)", borderRadius: "var(--radius-pill)", padding: "8px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-on-dark-muted)", cursor: "pointer" }}>Decline</button>
-        <Button variant="gold" size="sm" onClick={ctx.grantConsent}>Accept</Button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Button variant="gold" size="sm" onClick={() => { ctx.grantConsent(); ctx.nav("shop"); }}>Start shopping</Button>
+        <button onClick={ctx.denyConsent} style={{ background: "none", border: "1px solid var(--border-inverse)", borderRadius: "var(--radius-pill)", padding: "8px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-on-dark-muted)", cursor: "pointer" }}>Decline cookies</button>
+        <button onClick={ctx.grantConsent} style={{ background: "none", border: "none", padding: "8px 10px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-gold-400)", cursor: "pointer" }}>Accept</button>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 // Path-based routing for the storefront so every page (and every product) has a
 // real, crawlable URL. The Worker serves the SPA shell for all these paths.
 
-const STATIC = ["home", "shop", "about", "track", "contact", "checkout", "confirm"];
+const STATIC = ["home", "shop", "about", "track", "contact", "checkout", "confirm", "privacy"];
 
 export function pathToRoute(pathname = window.location.pathname, search = window.location.search) {
   const parts = pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);

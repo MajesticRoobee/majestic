@@ -1,22 +1,150 @@
 // Admin API — Bearer-token protected.
 import { Hono } from "hono";
-import { getSettings, putSettings, loadProducts, issueToken, verifyToken, displayTime, displayDate } from "./util.js";
+import {
+  getSettings, putSettings, loadProducts, issueToken, verifyToken, displayTime, displayDate,
+  hashPassword, verifyPassword, randomPassphrase, randomTotpSecret, totpVerify, otpauthUri,
+} from "./util.js";
 
 export const admin = new Hono();
 
+const roleLabel = (u) => (u.role === "super" ? "Super admin" : `${(u.scope || "").charAt(0).toUpperCase() + (u.scope || "").slice(1)} manager`);
+
 admin.post("/login", async (c) => {
-  const { password } = await c.req.json();
-  if (!password || password !== c.env.ADMIN_PASSWORD) return c.json({ error: "That's not the key to the house." }, 401);
-  const token = await issueToken(c.env.ADMIN_TOKEN_SECRET);
-  return c.json({ token, role: "Super admin" });
+  const { username, password, totp } = await c.req.json();
+  const db = c.env.DB;
+
+  // Per-user account login
+  if (username) {
+    const u = await db.prepare("SELECT * FROM admin_users WHERE username=? AND active=1").bind(String(username).trim().toLowerCase()).first();
+    if (!u || !(await verifyPassword(password || "", u.pass_salt, u.pass_hash))) {
+      return c.json({ error: "That username or passphrase isn't right." }, 401);
+    }
+    if (u.totp_enabled) {
+      if (!totp) return c.json({ error: "2FA required.", needTotp: true }, 401);
+      if (!(await totpVerify(u.totp_secret, totp))) return c.json({ error: "That 2FA code isn't right.", needTotp: true }, 401);
+    }
+    await db.prepare("UPDATE admin_users SET last_login=datetime('now') WHERE id=?").bind(u.id).run();
+    const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { uid: u.id, role: u.role, scope: u.scope || null });
+    return c.json({ token, role: roleLabel(u), name: u.name, scope: u.scope || null, mustChange: !!u.must_change, totpEnabled: !!u.totp_enabled });
+  }
+
+  // Master passphrase (break-glass super admin)
+  if (password && c.env.ADMIN_PASSWORD && password === c.env.ADMIN_PASSWORD) {
+    const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { uid: 0, role: "super", scope: null, master: true });
+    return c.json({ token, role: "Super admin", name: "Master", scope: null, master: true });
+  }
+  return c.json({ error: "That's not the key to the house." }, 401);
 });
 
 admin.use("*", async (c, next) => {
   if (c.req.path.endsWith("/login")) return next();
   const auth = c.req.header("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!(await verifyToken(c.env.ADMIN_TOKEN_SECRET, token))) return c.json({ error: "Unauthorized" }, 401);
+  const claims = await verifyToken(c.env.ADMIN_TOKEN_SECRET, token);
+  if (!claims) return c.json({ error: "Unauthorized" }, 401);
+  c.set("admin", claims);
   return next();
+});
+
+const requireSuper = async (c, next) => {
+  if (c.get("admin").role !== "super") return c.json({ error: "Only a super admin can do that." }, 403);
+  return next();
+};
+
+// Managers are pinned to their own store; supers may pass any scope.
+function effectiveScope(c, requested) {
+  const a = c.get("admin");
+  if (a.role !== "super") return a.scope || "all";
+  return requested;
+}
+
+// ---- Current account (self-service) ----
+admin.get("/me", async (c) => {
+  const a = c.get("admin");
+  if (a.uid === 0) return c.json({ id: 0, username: "master", name: "Master", role: "super", scope: null, mustChange: false, totpEnabled: false, master: true });
+  const u = await c.env.DB.prepare("SELECT id, username, name, role, scope, must_change, totp_enabled FROM admin_users WHERE id=?").bind(a.uid).first();
+  if (!u) return c.json({ error: "Account not found." }, 404);
+  return c.json({ id: u.id, username: u.username, name: u.name, role: u.role, scope: u.scope, mustChange: !!u.must_change, totpEnabled: !!u.totp_enabled });
+});
+
+admin.post("/account/password", async (c) => {
+  const a = c.get("admin");
+  if (a.uid === 0) return c.json({ error: "The master passphrase is changed via the ADMIN_PASSWORD secret, not here." }, 400);
+  const { current, next: newPass } = await c.req.json();
+  if (!newPass || String(newPass).length < 8) return c.json({ error: "New passphrase must be at least 8 characters." }, 400);
+  const u = await c.env.DB.prepare("SELECT * FROM admin_users WHERE id=?").bind(a.uid).first();
+  if (!u || !(await verifyPassword(current || "", u.pass_salt, u.pass_hash))) return c.json({ error: "Your current passphrase isn't right." }, 401);
+  const { salt, hash } = await hashPassword(String(newPass));
+  await c.env.DB.prepare("UPDATE admin_users SET pass_hash=?, pass_salt=?, must_change=0 WHERE id=?").bind(hash, salt, a.uid).run();
+  return c.json({ ok: true });
+});
+
+// 2FA enrolment: init returns a secret + otpauth URI; enable verifies a code.
+admin.post("/account/totp/init", async (c) => {
+  const a = c.get("admin");
+  if (a.uid === 0) return c.json({ error: "Enable 2FA on a named account, not the master passphrase." }, 400);
+  const u = await c.env.DB.prepare("SELECT username FROM admin_users WHERE id=?").bind(a.uid).first();
+  const secret = randomTotpSecret();
+  await c.env.DB.prepare("UPDATE admin_users SET totp_secret=?, totp_enabled=0 WHERE id=?").bind(secret, a.uid).run();
+  return c.json({ secret, uri: otpauthUri(secret, u.username) });
+});
+admin.post("/account/totp/enable", async (c) => {
+  const a = c.get("admin");
+  const { code } = await c.req.json();
+  const u = await c.env.DB.prepare("SELECT totp_secret FROM admin_users WHERE id=?").bind(a.uid).first();
+  if (!u || !u.totp_secret) return c.json({ error: "Start 2FA setup first." }, 400);
+  if (!(await totpVerify(u.totp_secret, code))) return c.json({ error: "That code isn't right — check your authenticator." }, 400);
+  await c.env.DB.prepare("UPDATE admin_users SET totp_enabled=1 WHERE id=?").bind(a.uid).run();
+  return c.json({ ok: true });
+});
+admin.post("/account/totp/disable", async (c) => {
+  const a = c.get("admin");
+  const { code } = await c.req.json();
+  const u = await c.env.DB.prepare("SELECT totp_secret FROM admin_users WHERE id=?").bind(a.uid).first();
+  if (!u || !(await totpVerify(u.totp_secret, code))) return c.json({ error: "Confirm with a current 2FA code to turn it off." }, 400);
+  await c.env.DB.prepare("UPDATE admin_users SET totp_enabled=0, totp_secret=NULL WHERE id=?").bind(a.uid).run();
+  return c.json({ ok: true });
+});
+
+// ---- Staff management (super only) ----
+admin.get("/users", requireSuper, async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT id, username, name, role, scope, must_change, totp_enabled, active, created_at, last_login FROM admin_users ORDER BY created_at").all()).results;
+  return c.json({ users: rows.map((u) => ({ ...u, must_change: !!u.must_change, totp_enabled: !!u.totp_enabled, active: !!u.active })) });
+});
+
+admin.post("/users", requireSuper, async (c) => {
+  const { username, name, role, scope } = await c.req.json();
+  const uname = String(username || "").trim().toLowerCase().replace(/\s+/g, "");
+  if (!uname || !name) return c.json({ error: "A username and a name are required." }, 400);
+  if (!["super", "manager"].includes(role)) return c.json({ error: "Pick a role." }, 400);
+  if (role === "manager" && !["abuja", "lagos", "ibadan"].includes(scope)) return c.json({ error: "Managers need a store." }, 400);
+  const exists = await c.env.DB.prepare("SELECT id FROM admin_users WHERE username=?").bind(uname).first();
+  if (exists) return c.json({ error: "That username is taken." }, 400);
+  const passphrase = randomPassphrase();
+  const { salt, hash } = await hashPassword(passphrase);
+  const by = c.get("admin");
+  await c.env.DB.prepare(
+    "INSERT INTO admin_users (username, name, role, scope, pass_hash, pass_salt, must_change, created_by) VALUES (?, ?, ?, ?, ?, ?, 1, ?)"
+  ).bind(uname, name.trim(), role, role === "manager" ? scope : null, hash, salt, by.master ? "master" : String(by.uid)).run();
+  // Passphrase is returned exactly once — the super admin passes it to the employee.
+  return c.json({ ok: true, username: uname, passphrase });
+});
+
+admin.post("/users/:id/reset", requireSuper, async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const u = await c.env.DB.prepare("SELECT id FROM admin_users WHERE id=?").bind(id).first();
+  if (!u) return c.json({ error: "No such user." }, 404);
+  const passphrase = randomPassphrase();
+  const { salt, hash } = await hashPassword(passphrase);
+  await c.env.DB.prepare("UPDATE admin_users SET pass_hash=?, pass_salt=?, must_change=1, totp_enabled=0, totp_secret=NULL WHERE id=?").bind(hash, salt, id).run();
+  return c.json({ ok: true, passphrase });
+});
+
+admin.patch("/users/:id", requireSuper, async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const { active } = await c.req.json();
+  await c.env.DB.prepare("UPDATE admin_users SET active=? WHERE id=?").bind(active ? 1 : 0, id).run();
+  return c.json({ ok: true });
 });
 
 function scopeFilter(scope) {
@@ -35,7 +163,7 @@ function relTime(iso) {
 
 admin.get("/overview", async (c) => {
   const db = c.env.DB;
-  const scope = scopeFilter(c.req.query("scope"));
+  const scope = scopeFilter(effectiveScope(c, c.req.query("scope")));
   const settings = await getSettings(db);
   const TH = settings.lowStockThreshold ?? 5;
   const locations = (await db.prepare("SELECT * FROM locations ORDER BY sort").all()).results;

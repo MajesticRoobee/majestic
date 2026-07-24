@@ -106,13 +106,14 @@ _foundations → features that ride them → polish._
 |---|---|---|---|
 | SSL / TLS | ✅ | Automatic via Cloudflare | — |
 | DDoS protection | ✅ | Cloudflare default | — |
-| WAF / firewall | 🟡 | Available on Cloudflare | Enable + tune managed rules, rate-limit admin/API |
-| Backups | 🟡 | D1 Time Travel (30-day point-in-time) | Documented policy + scheduled off-site exports |
+| WAF / firewall | 🟡 | Cloudflare WAF available; needs dashboard enablement (see §6) | Turn on managed ruleset + admin/API rate-limit rule |
+| Backups | ✅ | D1 Time Travel (30-day PITR) **plus** a daily GitHub Action `wrangler d1 export` artifact | — |
+| Security headers | ✅ | `_headers`: nosniff, HSTS, frame-options, referrer-policy, permissions-policy; `/admin` noindex | Tuned CSP (later, once pixel domains settle) |
 | Malware scanning | 🟡 | No server surface; matters for **uploads** (review/product images) | Scan-on-upload once media uploads exist |
-| Admin 2FA | ⬜ | Single shared passphrase + signed token today | Per-user admin accounts + TOTP + roles (super/manager already in design) |
+| Admin 2FA & accounts | ✅ | **Per-user staff accounts** (super/manager + store scope), issued one-time passphrases w/ forced change, **TOTP 2FA**, deactivate; **master passphrase** break-glass via `ADMIN_PASSWORD` | Full per-endpoint manager scoping (overview done; inventory/products next) |
 | Secrets management | ✅ | Worker secrets, gitignored dev vars | — |
 | Observability | ⬜ | — | Structured logs, error alerting, uptime checks |
-| Consent / privacy | 🟡 | **Consent banner live** — gates every analytics/marketing tag; choice persisted | Privacy policy page copy |
+| Consent / privacy | ✅ | Non-blocking consent banner (shown to all, welcomes + invites shopping) gates every tag; **privacy & cookies page** live at `/privacy` | — |
 
 ---
 
@@ -121,7 +122,7 @@ _foundations → features that ride them → polish._
 **Phase 0 — Instrument & harden (fast, low-risk, immediate value)**
 - ✅ **0a Instrument** — consent-gated analytics/pixels (GA4, Google Ads, Meta, TikTok, Clarity), admin-managed IDs, ecommerce event tracking.
 - ✅ **0b Discover** — path-based URLs, per-page SEO meta/OG, JSON-LD, sitemap, robots.
-- ⬜ **0c Harden** — Cloudflare WAF + rate limiting, backup policy + scheduled export, admin per-user accounts + TOTP 2FA, security headers, privacy policy page.
+- 🟡 **0c Harden** — ✅ admin per-user accounts + TOTP 2FA + master passphrase · ✅ security headers · ✅ scheduled D1 backup export · ✅ privacy policy page · ⬜ Cloudflare WAF + rate limiting (needs dashboard action, §6).
 
 **Phase 1 — Foundations**
 F1 Customer accounts (+2FA, addresses, order history, wishlist) · F2 event +
@@ -161,7 +162,18 @@ suggestive upsell ("save this / track faster / earn points"), never a gate.
 
 ---
 
+## 6. Action needed from you — Cloudflare WAF (dashboard-only)
+
+The API token can't toggle zone security, so these are quick clicks in the Cloudflare dashboard (Workers project → the site's zone/route). Once the site is on a real domain:
+1. **Security → WAF → Managed rules** → deploy the *Cloudflare Managed Ruleset* (and OWASP core if on Pro+).
+2. **Security → WAF → Rate limiting rules** → add a rule: path contains `/api/admin/login`, > 10 requests / 1 min per IP → Block for 10 min (throttles passphrase guessing).
+3. Optionally a broader `/api/*` rate limit (e.g. 100/min/IP).
+4. `workers.dev` subdomains get Cloudflare's baseline DDoS/edge protection automatically; full WAF applies once a custom domain/zone is attached.
+
+---
+
 ## 5. Change log
 - _v1_ — Initial systems map and phase plan.
 - _v2_ — Locked decisions D1 (Resend), D2 (click-to-chat now), D3 (Paystack + Stripe), D7 (progressive/optional accounts). Started **Phase 0**.
 - _v3_ — Shipped **Phase 0a (instrument)** + **0b (discover)**: consent-gated analytics/pixels with admin-managed IDs, ecommerce event tracking, path-based routing, per-page SEO + JSON-LD, sitemap & robots. Remaining: **0c (harden)**.
+- _v4_ — Shipped most of **0c (harden)**: per-user admin accounts with issued passphrases + forced change, TOTP 2FA, master passphrase break-glass, manager store-scoping; security headers; daily D1 backup export; privacy page; non-blocking consent banner that invites shopping. WAF left as a dashboard action (§6). **Next: Phase 1 — customer accounts (progressive/optional), event backbone, integration layer.**

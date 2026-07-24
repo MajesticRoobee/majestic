@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../lib/api.js";
 import { useWindowWidth, cap, initialsOf, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
-import { HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage } from "./pages.jsx";
+import { HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage } from "./pages.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
 import { hasTags, getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
@@ -371,7 +371,7 @@ export default function App() {
     chat, setChat, sendChat,
     popup, setPopup, plEmail, setPlEmail, plDone, submitLead,
     closePopup: () => { try { localStorage.setItem("mr-popup-seen", "1"); } catch {} setPopup(false); },
-    consent, showConsent: hasTags(settings) && !consent,
+    consent, showConsent: !consent,
     grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
     denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
   };
@@ -385,6 +385,7 @@ export default function App() {
     page === "confirm" ? <ConfirmPage ctx={ctx} /> :
     page === "track" ? <TrackPage ctx={ctx} /> :
     page === "contact" ? <ContactPage ctx={ctx} /> :
+    page === "privacy" ? <PrivacyPage ctx={ctx} /> :
     <HomePage ctx={ctx} />;
 
   return <Chrome ctx={ctx}>{pageEl}</Chrome>;

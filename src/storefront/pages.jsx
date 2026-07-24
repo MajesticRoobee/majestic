@@ -588,3 +588,37 @@ export function ContactPage({ ctx }) {
     </main>
   );
 }
+
+export function PrivacyPage({ ctx }) {
+  const { settings } = ctx;
+  const h = { fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "28px 0 8px" };
+  const p = { fontFamily: "var(--font-editorial)", fontSize: 15.5, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 12px" };
+  return (
+    <main style={{ maxWidth: 760, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
+      <Eyebrow>The house keeps confidence</Eyebrow>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 6px" }}>Privacy &amp; cookies</h1>
+      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 8px" }}>Last updated July 2026</p>
+      <GildedRule style={{ margin: "18px 0 4px" }} />
+
+      <p style={p}>Majestic Roobee ("we") respects your privacy. This notice explains what we collect, why, and the choices you have. You can shop as a guest without creating an account.</p>
+
+      <h2 style={h}>What we collect</h2>
+      <p style={p}>To fulfil an order we collect your name, phone, email and delivery address, plus the items and amounts in your order. If you contact us or start a live chat, we keep that conversation so we can help. If you join our list, we keep your email until you unsubscribe.</p>
+
+      <h2 style={h}>Payments</h2>
+      <p style={p}>Card payments are processed by our payment provider (Paystack). We never see or store your full card details — payment is confirmed to us by the provider.</p>
+
+      <h2 style={h}>Cookies &amp; analytics</h2>
+      <p style={p}>We use cookies for two things: essential store function (your cart, your chosen city) and — only if you accept — analytics and marketing tools that help us understand and improve the experience. You can decline the optional cookies from the banner and still shop normally. Optional tools we may use include Google Analytics, Google Ads, Meta Pixel, TikTok Pixel and Microsoft Clarity.</p>
+
+      <h2 style={h}>How we use your information</h2>
+      <p style={p}>To process and deliver orders, provide support, prevent fraud, and — where you've opted in — send you offers and updates. We do not sell your personal information.</p>
+
+      <h2 style={h}>Your choices</h2>
+      <p style={p}>You can decline optional cookies, unsubscribe from marketing at any time, and ask us to access or delete the information we hold about you.</p>
+
+      <h2 style={h}>Contact</h2>
+      <p style={p}>Questions about your privacy? Reach us at {settings.contactEmail || "hello@majesticroobee.com"} or {settings.contactPhone || "+234 906 227 7470"}.</p>
+    </main>
+  );
+}

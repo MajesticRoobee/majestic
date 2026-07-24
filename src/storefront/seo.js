@@ -119,6 +119,7 @@ export function headFor({ page, product, settings, categories = [] }) {
     about: { title: `Our house — ${siteName}`, path: "/about", desc: "A ruby you carry, a mark you leave. The story of Majestic Roobee — Abuja, Lagos and Ibadan." },
     track: { title: `Track your order — ${siteName}`, path: "/track", desc: "Follow your Majestic Roobee order with your order number and contact." },
     contact: { title: `Contact & support — ${siteName}`, path: "/contact", desc: "Speak with the house — live chat, WhatsApp, phone and our three stores." },
+    privacy: { title: `Privacy & cookies — ${siteName}`, path: "/privacy", desc: "How Majestic Roobee collects, uses and protects your information." },
     checkout: { title: `Checkout — ${siteName}`, path: "/checkout", desc: "", noindex: true },
     confirm: { title: `Order confirmed — ${siteName}`, path: "/confirm", desc: "", noindex: true },
   }[page] || { title: siteName, path: "/", desc: baseDesc };
