@@ -3,6 +3,7 @@ import { api } from "../lib/api.js";
 import { useWindowWidth, cap, initialsOf, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import { HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage } from "./pages.jsx";
+import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
 import { hasTags, getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
@@ -48,6 +49,9 @@ export default function App() {
   const [popup, setPopup] = useState(false);
   const [plEmail, setPlEmail] = useState("");
   const [plDone, setPlDone] = useState(false);
+  const [custToken, setCustToken] = useState(() => localStorage.getItem("mr-cust-token") || "");
+  const [cust, setCust] = useState(null);
+  const [custData, setCustData] = useState({ addresses: [], wishlist: [], orders: [] });
   const w = useWindowWidth();
   const isMobile = w < 860;
 
@@ -123,6 +127,29 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  // ---- Customer accounts (optional, guest-first) ----
+  const loadCust = useCallback(() => {
+    if (!custToken) { setCust(null); return; }
+    api.get("/api/account/me", custToken)
+      .then((d) => { setCust(d.customer); setCustData({ addresses: d.addresses, wishlist: d.wishlist, orders: d.orders }); })
+      .catch((e) => { if (e.status === 401) { localStorage.removeItem("mr-cust-token"); setCustToken(""); setCust(null); } });
+  }, [custToken]);
+  useEffect(() => { loadCust(); }, [loadCust]);
+
+  const custRegister = useCallback(async (payload) => { const r = await api.post("/api/account/register", payload); localStorage.setItem("mr-cust-token", r.token); setCustToken(r.token); setCust(r.customer); }, []);
+  const custLogin = useCallback(async (email, password) => { const r = await api.post("/api/account/login", { email, password }); localStorage.setItem("mr-cust-token", r.token); setCustToken(r.token); setCust(r.customer); }, []);
+  const custLogout = useCallback(() => { localStorage.removeItem("mr-cust-token"); setCustToken(""); setCust(null); setCustData({ addresses: [], wishlist: [], orders: [] }); nav("home"); }, [nav]);
+  const updateProfile = useCallback(async (p) => { await api.patch("/api/account/me", p, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
+  const addAddress = useCallback(async (a) => { await api.post("/api/account/addresses", a, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
+  const removeAddress = useCallback(async (id) => { await api.del(`/api/account/addresses/${id}`, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
+  const toggleWishlist = useCallback(async (productId) => {
+    const tok = localStorage.getItem("mr-cust-token");
+    if (!tok) { nav("account"); return; }
+    const has = custData.wishlist.includes(productId);
+    setCustData((d) => ({ ...d, wishlist: has ? d.wishlist.filter((x) => x !== productId) : d.wishlist.concat(productId) }));
+    try { if (has) await api.del(`/api/account/wishlist/${productId}`, tok); else await api.post("/api/account/wishlist", { productId }, tok); } catch { loadCust(); }
+  }, [custData.wishlist, nav, loadCust]);
+
   const settings = D ? D.settings : {};
   const locations = D ? D.locations : [];
   const products = D ? D.products : [];
@@ -173,10 +200,12 @@ export default function App() {
       avail: a.avail, badgeBg: a.badgeBg, badgeFg: a.badgeFg, outline: !!a.outline,
       soldOut: a.soldOut, addLabel: a.soldOut ? "Notify me" : "Add to cart",
       href: "/product/" + p.id,
+      wished: custData.wishlist.includes(p.id),
+      toggleWish: () => toggleWishlist(p.id),
       open: () => nav("product", { productId: p.id, prSize: p.variants[0].size }),
       add: () => !a.soldOut && addToCart(p.id, v0.size, 1),
     };
-  }, [availInfo, catLabel, fmt, nav, addToCart]);
+  }, [availInfo, catLabel, fmt, nav, addToCart, custData.wishlist, toggleWishlist]);
 
   // Cart derivation (subtotal, shipping, discount, routing)
   const cc = useMemo(() => {
@@ -229,6 +258,23 @@ export default function App() {
     if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, productId, D, consent]);
+
+  // Prefill checkout for a signed-in customer, once per visit to the page.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (page !== "checkout") { prefilled.current = false; return; }
+    if (cust && !prefilled.current) {
+      prefilled.current = true;
+      const def = custData.addresses.find((a) => a.is_default) || custData.addresses[0];
+      setCo((s) => ({
+        ...s,
+        name: s.name || cust.name || "",
+        email: s.email || cust.email || "",
+        phone: s.phone || cust.phone || "",
+        address: s.address || (def ? def.address : ""),
+      }));
+    }
+  }, [page, cust, custData]);
 
   const applyPromo = useCallback(async () => {
     const code = co.promo.trim().toUpperCase();
@@ -374,6 +420,7 @@ export default function App() {
     consent, showConsent: !consent,
     grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
     denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
+    cust, custData, custRegister, custLogin, custLogout, updateProfile, addAddress, removeAddress, toggleWishlist,
   };
 
   const pageEl =
@@ -386,6 +433,7 @@ export default function App() {
     page === "track" ? <TrackPage ctx={ctx} /> :
     page === "contact" ? <ContactPage ctx={ctx} /> :
     page === "privacy" ? <PrivacyPage ctx={ctx} /> :
+    page === "account" ? <AccountPage ctx={ctx} /> :
     <HomePage ctx={ctx} />;
 
   return <Chrome ctx={ctx}>{pageEl}</Chrome>;

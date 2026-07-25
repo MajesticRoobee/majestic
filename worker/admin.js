@@ -268,9 +268,38 @@ admin.post("/products", async (c) => {
   return c.json({ ok: true, id, name: String(name).trim() });
 });
 
+// Edit any product field (live toggle, name, category, family, gender, notes,
+// description, image). Only the fields present in the body are changed.
 admin.patch("/products/:id", async (c) => {
-  const { live } = await c.req.json();
-  await c.env.DB.prepare("UPDATE products SET live=? WHERE id=?").bind(live ? 1 : 0, c.req.param("id")).run();
+  const b = await c.req.json();
+  const map = { live: "live", name: "name", cat: "cat", family: "family", gender: "gender", notes: "notes", desc: "descr", imageUrl: "image_url" };
+  const sets = [], vals = [];
+  for (const [k, col] of Object.entries(map)) {
+    if (b[k] !== undefined) { sets.push(`${col}=?`); vals.push(k === "live" ? (b[k] ? 1 : 0) : b[k]); }
+  }
+  if (!sets.length) return c.json({ ok: true });
+  vals.push(c.req.param("id"));
+  await c.env.DB.prepare(`UPDATE products SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+admin.patch("/variants/:id", async (c) => {
+  const { price } = await c.req.json();
+  const p = parseInt(price, 10);
+  if (!p || p < 0) return c.json({ error: "A valid price is required." }, 400);
+  await c.env.DB.prepare("UPDATE variants SET price_ngn=? WHERE id=?").bind(p, parseInt(c.req.param("id"), 10)).run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/products/:id", async (c) => {
+  const id = c.req.param("id");
+  const db = c.env.DB;
+  const vs = (await db.prepare("SELECT id FROM variants WHERE product_id=?").bind(id).all()).results;
+  const stmts = vs.map((v) => db.prepare("DELETE FROM stock WHERE variant_id=?").bind(v.id));
+  stmts.push(db.prepare("DELETE FROM variants WHERE product_id=?").bind(id));
+  stmts.push(db.prepare("DELETE FROM wishlists WHERE product_id=?").bind(id));
+  stmts.push(db.prepare("DELETE FROM products WHERE id=?").bind(id));
+  await db.batch(stmts);
   return c.json({ ok: true });
 });
 
@@ -404,6 +433,8 @@ admin.put("/settings", async (c) => {
     "siteName", "metaDescription", "ogImage",
     // Marketing & analytics tags
     "ga4Id", "metaPixelId", "tiktokPixelId", "googleAdsId", "googleAdsPurchaseLabel", "clarityId", "gscVerification",
+    // Storefront look & behaviour
+    "heroDirection", "promoPopup", "defaultCity", "crossCityShipNGN", "crossCityEta", "freeShipAbujaOver",
   ];
   const patch = {};
   for (const k of allowed) if (settings && settings[k] !== undefined) patch[k] = settings[k];

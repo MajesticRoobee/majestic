@@ -1,7 +1,7 @@
 // Admin — Sales & promos, Notifications, Customer service, Settings.
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
-import { Button, Input, Select, Textarea } from "../ds/components.jsx";
+import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { statusBadge } from "./App.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
@@ -350,6 +350,19 @@ export function SettingsPage({ ctx }) {
         <Input label="Announcement bar" value={form.announcement || ""} onChange={set("announcement")} />
         <Textarea label="Hero headline" value={form.heroHeadline || ""} onChange={set("heroHeadline")} rows={2} hint="A line break shows as two lines on the storefront." />
         <Textarea label="Hero subtext" value={form.heroSub || ""} onChange={set("heroSub")} rows={2} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Select label="Homepage layout" value={form.heroDirection || "editorial split"} onChange={set("heroDirection")}>
+            <option value="editorial split">Editorial split (image + copy)</option>
+            <option value="royal statement">Royal statement (full-bleed)</option>
+            <option value="product-led">Product-led (top picks)</option>
+          </Select>
+          <Select label="Default city" value={form.defaultCity || "abuja"} onChange={set("defaultCity")}>
+            <option value="abuja">Abuja</option>
+            <option value="lagos">Lagos</option>
+            <option value="ibadan">Ibadan</option>
+          </Select>
+        </div>
+        <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => { setForm({ ...form, promoPopup: e.target.checked }); setSaved(false); }} />
       </div>
       <div style={{ ...section, gap: 14 }}>
         {sectionHead("Store locations", "Names, addresses, delivery windows and phone lines shown across the storefront.")}

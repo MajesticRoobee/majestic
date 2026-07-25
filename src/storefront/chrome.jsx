@@ -1,8 +1,56 @@
 // Storefront chrome: announcement bar, city gate, header, cart drawer,
 // concierge chat, lead popup, footer. Markup ported from the design handoff.
-import React from "react";
+import React, { useState } from "react";
 import { Eyebrow, Button } from "../ds/components.jsx";
 import { routeToPath } from "./router.js";
+
+// Profile menu — sign in / create account when logged out, the customer's name
+// and account actions when logged in, and always the gateway to the staff portal.
+function ProfileMenu({ ctx }) {
+  const [open, setOpen] = useState(false);
+  const cust = ctx.cust;
+  const firstName = cust ? (cust.name || cust.email).trim().split(" ")[0] : "";
+  const initial = cust ? (cust.name || cust.email || "?").trim().charAt(0).toUpperCase() : "";
+  const item = (label, onClick, color) => (
+    <button onClick={() => { setOpen(false); onClick(); }} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, color: color || "var(--mr-purple-800)", padding: "9px 12px", borderRadius: "var(--radius-sm)" }}>{label}</button>
+  );
+  return (
+    <div style={{ position: "relative" }}>
+      <button onClick={() => setOpen((o) => !o)} title={cust ? cust.name : "Sign in"} aria-label="Account" style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", alignItems: "center", gap: 8 }}>
+        {cust ? (
+          <>
+            <span style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--mr-purple-900)", color: "var(--mr-cream)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13 }}>{initial}</span>
+            {!ctx.isMobile && <span style={{ fontSize: 13, fontWeight: 500, color: "var(--mr-purple-900)" }}>{firstName}</span>}
+          </>
+        ) : (
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-900)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+        )}
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 170 }} />
+          <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 224, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", zIndex: 171, padding: 8 }}>
+            {cust ? (
+              <>
+                <div style={{ padding: "8px 12px 10px", fontSize: 12.5, color: "var(--text-muted)" }}>Signed in as<br /><strong style={{ color: "var(--text-strong)", fontSize: 13.5 }}>{cust.name || cust.email}</strong></div>
+                {item("My account & orders", () => ctx.nav("account"))}
+                {item("Sign out", () => ctx.custLogout(), "var(--mr-orchid-600)")}
+              </>
+            ) : (
+              <>
+                <div style={{ padding: "8px 12px 6px", fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Your account</div>
+                {item("Sign in", () => ctx.nav("account"))}
+                {item("Create account", () => ctx.nav("account"))}
+              </>
+            )}
+            <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "6px 4px" }} />
+            <a href="/admin/" style={{ display: "block", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-muted)", padding: "9px 12px" }}>Staff portal →</a>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 const CITY_OPTIONS = [
   ["abuja", "Abuja"],
@@ -95,6 +143,7 @@ function Header({ ctx }) {
           </>
         )}
         {ctx.isMobile && <div style={{ flex: 1 }} />}
+        <ProfileMenu ctx={ctx} />
         <button onClick={() => ctx.setCartOpen(true)} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} aria-label="Cart">
           <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-900)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
           {ctx.cc.items.length > 0 && (

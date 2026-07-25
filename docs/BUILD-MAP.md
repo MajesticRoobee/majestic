@@ -37,7 +37,7 @@ _foundations → features that ride them → polish._
 ### A. Commerce Core — *mostly done; deepen where noted*
 | Capability | Status | Current capacity | Gap to close |
 |---|---|---|---|
-| Product catalogue & variants | ✅ | Products, sizes, notes, draft/live | Product *types* (sets/samples), media gallery, richer attributes |
+| Product catalogue & variants | ✅ | Products, sizes, notes, draft/live; **admin now fully edits existing products** (name, category, family, notes, description, per-size price) and can delete; storefront look (homepage layout, first-order popup, default city) is admin-controlled | Product *types* (sets/samples), media/image upload (R2), richer attributes |
 | Multi-location inventory | ✅ | Per-store stock, order routing, manual restock | Reservations, stock transfers, purchase orders, audit log |
 | Cart & checkout | ✅ | Guest checkout, server-side pricing | Account-linked checkout (rides F1) |
 | Payments — Paystack | ✅ | Init + verify + signed webhook | — (add live key) |
@@ -53,10 +53,11 @@ _foundations → features that ride them → polish._
 ### B. Customer Identity — **Foundation F1**
 | Capability | Status | Notes |
 |---|---|---|
-| Customer accounts | ⬜ | Email/OTP or password + social; the keystone for pillar C/D/E |
-| Saved addresses & order history | ⬜ | Rides accounts |
-| Wishlists | ⬜ | Device-local first, then account-synced |
-| Customer 2FA | ⬜ | TOTP/email once accounts exist |
+| Customer accounts | ✅ | **Live** — password register/login (guest-first & optional), a guest record is *claimed* into an account, profile edit, marketing opt-in. Profile menu in the header doubles as sign-in and the staff-portal gateway. Email verification deferred to Resend (Phase 2). |
+| Saved addresses & order history | ✅ | Orders auto-linked by email; addresses CRUD; checkout prefills for signed-in shoppers |
+| Wishlists | ✅ | Heart on cards + product page; synced to the account; shown on the dashboard |
+| Progressive prompts | ✅ | Confirmation page offers one-tap account creation from the just-placed order |
+| Customer 2FA | ⬜ | Optional later; password reset via email comes with Resend |
 
 ### C. CRM & Engagement — *rides F1*
 | Capability | Status | Current capacity | Gap |
@@ -176,4 +177,5 @@ The API token can't toggle zone security, so these are quick clicks in the Cloud
 - _v1_ — Initial systems map and phase plan.
 - _v2_ — Locked decisions D1 (Resend), D2 (click-to-chat now), D3 (Paystack + Stripe), D7 (progressive/optional accounts). Started **Phase 0**.
 - _v3_ — Shipped **Phase 0a (instrument)** + **0b (discover)**: consent-gated analytics/pixels with admin-managed IDs, ecommerce event tracking, path-based routing, per-page SEO + JSON-LD, sitemap & robots. Remaining: **0c (harden)**.
-- _v4_ — Shipped most of **0c (harden)**: per-user admin accounts with issued passphrases + forced change, TOTP 2FA, master passphrase break-glass, manager store-scoping; security headers; daily D1 backup export; privacy page; non-blocking consent banner that invites shopping. WAF left as a dashboard action (§6). **Next: Phase 1 — customer accounts (progressive/optional), event backbone, integration layer.**
+- _v4_ — Shipped most of **0c (harden)**: per-user admin accounts with issued passphrases + forced change, TOTP 2FA, master passphrase break-glass, manager store-scoping; security headers; daily D1 backup export; privacy page; non-blocking consent banner that invites shopping. WAF left as a dashboard action (§6).
+- _v5_ — Shipped **Phase 1 F1 — customer accounts** (guest-first, optional): register/login, guest-record claiming, order history (auto-linked by email), saved addresses, wishlists, checkout prefill, confirmation-page account nudge, and a header **profile menu** that is sign-in when logged-out, shows the name when logged-in, and gateways the staff portal. Tokens namespaced (customer vs admin). Also broadened admin control: **edit/reprice/delete existing products** and admin-controlled homepage layout / popup / default city. Deploy pipeline now applies D1 migrations to production (`wrangler d1 migrations apply --remote`). **Next: F2 event/automation backbone, F3 integration layer; then Phase 2 (CRM, reviews, first automations, Resend email, GIG).**

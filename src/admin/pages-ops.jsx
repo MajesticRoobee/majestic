@@ -280,10 +280,74 @@ export function Inventory({ ctx }) {
   );
 }
 
+function EditProduct({ ctx, product, onClose }) {
+  const [f, setF] = useState({ name: product.name, cat: product.cat, family: product.family, gender: product.gender, notes: product.notes, desc: product.desc });
+  const [prices, setPrices] = useState(Object.fromEntries(product.variants.map((v) => [v.id, String(v.ngn)])));
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true); setMsg("");
+    try {
+      await api.patch(`/api/admin/products/${encodeURIComponent(product.id)}`, f, ctx.token);
+      for (const v of product.variants) {
+        const np = parseInt(prices[v.id], 10);
+        if (np && np !== v.ngn) await api.patch(`/api/admin/variants/${v.id}`, { price: np }, ctx.token);
+      }
+      ctx.flash("Product updated");
+      ctx.loadProducts();
+      onClose();
+    } catch (e) { ctx.authFail(e); setMsg(e.message); } finally { setBusy(false); }
+  };
+  const del = async () => {
+    if (!window.confirm(`Delete "${product.name}"? It will be removed from the storefront. Past orders keep their record.`)) return;
+    try { await api.del(`/api/admin/products/${encodeURIComponent(product.id)}`, ctx.token); ctx.flash("Product deleted"); ctx.loadProducts(); onClose(); }
+    catch (e) { ctx.authFail(e); setMsg(e.message); }
+  };
+  return (
+    <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Edit product</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--text-muted)" }}>Close</button>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 18px" }}>Changes go live on the storefront immediately.</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Input label="Product name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <Select label="Category" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>
+          {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </Select>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Scent family" value={f.family} onChange={(e) => setF({ ...f, family: e.target.value })} />
+          <Input label="Gender" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })} />
+        </div>
+        <div>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Prices (₦) by size</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {product.variants.map((v) => (
+              <div key={v.id} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ width: 60, fontSize: 13, color: "var(--text-body)" }}>{v.size}</span>
+                <input value={prices[v.id]} onChange={(e) => setPrices({ ...prices, [v.id]: e.target.value.replace(/\D/g, "") })} style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 14, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} />
+        <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} />
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <Button variant="primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save changes"}</Button>
+          <button onClick={del} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#c0587a", fontFamily: "var(--font-sans)", marginLeft: "auto" }}>Delete product</button>
+        </div>
+        {msg && <div style={{ fontSize: 12, color: "#c0587a" }}>{msg}</div>}
+      </div>
+    </div>
+  );
+}
+
 export function Catalogue({ ctx }) {
   const [np, setNp] = useState({ name: "", cat: "extrait", size: "", price: "", notes: "", desc: "" });
   const [npErr, setNpErr] = useState("");
   const [npDone, setNpDone] = useState("");
+  const [editId, setEditId] = useState(null);
+  const editing = ctx.products.find((p) => p.id === editId);
   const toggleLive = async (p) => {
     ctx.setProducts((cur) => cur.map((x) => (x.id === p.id ? { ...x, live: !x.live } : x)));
     try {
@@ -322,15 +386,19 @@ export function Catalogue({ ctx }) {
                   <Switch checked={p.live} onChange={() => toggleLive(p)} />
                 </div>
                 <div style={{ fontSize: 13, color: "var(--text-body)" }}>{(multi ? "From " : "") + fmtN(p.variants[0].ngn)} · {p.variants.map((v) => v.size).join(" / ")}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2, alignItems: "center" }}>
                   <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: "var(--surface-sunken)", color: "var(--mr-purple-800)" }}>{total} in stock</span>
                   <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: p.live ? "#e4efe4" : "var(--mr-gold-200)", color: p.live ? "#3f6b45" : "var(--mr-gold-600)" }}>{p.live ? "Live on storefront" : "Draft — hidden"}</span>
+                  <button onClick={() => setEditId(p.id)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--mr-purple-700)", fontFamily: "var(--font-sans)", padding: 0 }}>Edit →</button>
                 </div>
               </div>
             );
           })}
         </div>
       </div>
+      {editing ? (
+        <EditProduct ctx={ctx} product={editing} onClose={() => setEditId(null)} />
+      ) : (
       <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Add a product</div>
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>New pieces enter the catalogue as drafts — set stock per store before going live.</div>
@@ -355,6 +423,7 @@ export function Catalogue({ ctx }) {
           {npErr && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{npErr}</div>}
         </div>
       </div>
+      )}
     </main>
   );
 }
