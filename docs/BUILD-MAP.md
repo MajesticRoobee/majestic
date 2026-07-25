@@ -37,7 +37,7 @@ _foundations → features that ride them → polish._
 ### A. Commerce Core — *mostly done; deepen where noted*
 | Capability | Status | Current capacity | Gap to close |
 |---|---|---|---|
-| Product catalogue & variants | ✅ | Products, sizes, notes, draft/live | Product *types* (sets/samples), media gallery, richer attributes |
+| Product catalogue & variants | ✅ | Products, sizes, notes, draft/live; **admin now fully edits existing products** (name, category, family, notes, description, per-size price) and can delete; storefront look (homepage layout, first-order popup, default city) is admin-controlled | Product *types* (sets/samples), media/image upload (R2), richer attributes |
 | Multi-location inventory | ✅ | Per-store stock, order routing, manual restock | Reservations, stock transfers, purchase orders, audit log |
 | Cart & checkout | ✅ | Guest checkout, server-side pricing | Account-linked checkout (rides F1) |
 | Payments — Paystack | ✅ | Init + verify + signed webhook | — (add live key) |
@@ -53,10 +53,11 @@ _foundations → features that ride them → polish._
 ### B. Customer Identity — **Foundation F1**
 | Capability | Status | Notes |
 |---|---|---|
-| Customer accounts | ⬜ | Email/OTP or password + social; the keystone for pillar C/D/E |
-| Saved addresses & order history | ⬜ | Rides accounts |
-| Wishlists | ⬜ | Device-local first, then account-synced |
-| Customer 2FA | ⬜ | TOTP/email once accounts exist |
+| Customer accounts | ✅ | **Live** — password register/login (guest-first & optional), a guest record is *claimed* into an account, profile edit, marketing opt-in. Profile menu in the header doubles as sign-in and the staff-portal gateway. Email verification deferred to Resend (Phase 2). |
+| Saved addresses & order history | ✅ | Orders auto-linked by email; addresses CRUD; checkout prefills for signed-in shoppers |
+| Wishlists | ✅ | Heart on cards + product page; synced to the account; shown on the dashboard |
+| Progressive prompts | ✅ | Confirmation page offers one-tap account creation from the just-placed order |
+| Customer 2FA | ⬜ | Optional later; password reset via email comes with Resend |
 
 ### C. CRM & Engagement — *rides F1*
 | Capability | Status | Current capacity | Gap |
@@ -106,13 +107,14 @@ _foundations → features that ride them → polish._
 |---|---|---|---|
 | SSL / TLS | ✅ | Automatic via Cloudflare | — |
 | DDoS protection | ✅ | Cloudflare default | — |
-| WAF / firewall | 🟡 | Available on Cloudflare | Enable + tune managed rules, rate-limit admin/API |
-| Backups | 🟡 | D1 Time Travel (30-day point-in-time) | Documented policy + scheduled off-site exports |
+| WAF / firewall | 🟡 | Cloudflare WAF available; needs dashboard enablement (see §6) | Turn on managed ruleset + admin/API rate-limit rule |
+| Backups | ✅ | D1 Time Travel (30-day PITR) **plus** a daily GitHub Action `wrangler d1 export` artifact | — |
+| Security headers | ✅ | `_headers`: nosniff, HSTS, frame-options, referrer-policy, permissions-policy; `/admin` noindex | Tuned CSP (later, once pixel domains settle) |
 | Malware scanning | 🟡 | No server surface; matters for **uploads** (review/product images) | Scan-on-upload once media uploads exist |
-| Admin 2FA | ⬜ | Single shared passphrase + signed token today | Per-user admin accounts + TOTP + roles (super/manager already in design) |
+| Admin 2FA & accounts | ✅ | **Per-user staff accounts** (super/manager + store scope), issued one-time passphrases w/ forced change, **TOTP 2FA**, deactivate; **master passphrase** break-glass via `ADMIN_PASSWORD` | Full per-endpoint manager scoping (overview done; inventory/products next) |
 | Secrets management | ✅ | Worker secrets, gitignored dev vars | — |
 | Observability | ⬜ | — | Structured logs, error alerting, uptime checks |
-| Consent / privacy | 🟡 | **Consent banner live** — gates every analytics/marketing tag; choice persisted | Privacy policy page copy |
+| Consent / privacy | ✅ | Non-blocking consent banner (shown to all, welcomes + invites shopping) gates every tag; **privacy & cookies page** live at `/privacy` | — |
 
 ---
 
@@ -121,7 +123,7 @@ _foundations → features that ride them → polish._
 **Phase 0 — Instrument & harden (fast, low-risk, immediate value)**
 - ✅ **0a Instrument** — consent-gated analytics/pixels (GA4, Google Ads, Meta, TikTok, Clarity), admin-managed IDs, ecommerce event tracking.
 - ✅ **0b Discover** — path-based URLs, per-page SEO meta/OG, JSON-LD, sitemap, robots.
-- ⬜ **0c Harden** — Cloudflare WAF + rate limiting, backup policy + scheduled export, admin per-user accounts + TOTP 2FA, security headers, privacy policy page.
+- 🟡 **0c Harden** — ✅ admin per-user accounts + TOTP 2FA + master passphrase · ✅ security headers · ✅ scheduled D1 backup export · ✅ privacy policy page · ⬜ Cloudflare WAF + rate limiting (needs dashboard action, §6).
 
 **Phase 1 — Foundations**
 F1 Customer accounts (+2FA, addresses, order history, wishlist) · F2 event +
@@ -161,7 +163,19 @@ suggestive upsell ("save this / track faster / earn points"), never a gate.
 
 ---
 
+## 6. Action needed from you — Cloudflare WAF (dashboard-only)
+
+The API token can't toggle zone security, so these are quick clicks in the Cloudflare dashboard (Workers project → the site's zone/route). Once the site is on a real domain:
+1. **Security → WAF → Managed rules** → deploy the *Cloudflare Managed Ruleset* (and OWASP core if on Pro+).
+2. **Security → WAF → Rate limiting rules** → add a rule: path contains `/api/admin/login`, > 10 requests / 1 min per IP → Block for 10 min (throttles passphrase guessing).
+3. Optionally a broader `/api/*` rate limit (e.g. 100/min/IP).
+4. `workers.dev` subdomains get Cloudflare's baseline DDoS/edge protection automatically; full WAF applies once a custom domain/zone is attached.
+
+---
+
 ## 5. Change log
 - _v1_ — Initial systems map and phase plan.
 - _v2_ — Locked decisions D1 (Resend), D2 (click-to-chat now), D3 (Paystack + Stripe), D7 (progressive/optional accounts). Started **Phase 0**.
 - _v3_ — Shipped **Phase 0a (instrument)** + **0b (discover)**: consent-gated analytics/pixels with admin-managed IDs, ecommerce event tracking, path-based routing, per-page SEO + JSON-LD, sitemap & robots. Remaining: **0c (harden)**.
+- _v4_ — Shipped most of **0c (harden)**: per-user admin accounts with issued passphrases + forced change, TOTP 2FA, master passphrase break-glass, manager store-scoping; security headers; daily D1 backup export; privacy page; non-blocking consent banner that invites shopping. WAF left as a dashboard action (§6).
+- _v5_ — Shipped **Phase 1 F1 — customer accounts** (guest-first, optional): register/login, guest-record claiming, order history (auto-linked by email), saved addresses, wishlists, checkout prefill, confirmation-page account nudge, and a header **profile menu** that is sign-in when logged-out, shows the name when logged-in, and gateways the staff portal. Tokens namespaced (customer vs admin). Also broadened admin control: **edit/reprice/delete existing products** and admin-controlled homepage layout / popup / default city. Deploy pipeline now applies D1 migrations to production (`wrangler d1 migrations apply --remote`). **Next: F2 event/automation backbone, F3 integration layer; then Phase 2 (CRM, reviews, first automations, Resend email, GIG).**

@@ -3,6 +3,7 @@ import { api } from "../lib/api.js";
 import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue } from "./pages-ops.jsx";
 import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
+import { TeamPage, AccountPage } from "./team.jsx";
 
 export const CAT_LABELS = {
   extrait: "Extrait Perfumes",
@@ -30,33 +31,83 @@ const PAGES = [
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
   { id: "notif", label: "Notifications", title: "Notifications & pop-ups" },
   { id: "inq", label: "Customer Service", title: "Customer service" },
+  { id: "team", label: "Team", title: "Team & access", super: true },
   { id: "settings", label: "Settings", title: "Store & content settings" },
+  { id: "account", label: "My account", title: "My account" },
 ];
 
-function Login({ onToken }) {
+const shell = { minHeight: "100vh", background: "var(--royal-wash)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "var(--font-sans)" };
+const panel = { background: "var(--surface-card)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", maxWidth: 400, width: "100%", padding: "40px 36px", textAlign: "center" };
+const brand = (
+  <>
+    <div style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--mr-purple-900)" }}>Majestic Roobee</div>
+    <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", margin: "6px 0 26px" }}>Operations</div>
+  </>
+);
+
+function Login({ onAuth }) {
+  const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
+  const [totp, setTotp] = useState("");
+  const [needTotp, setNeedTotp] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     setBusy(true);
     setErr("");
     try {
-      const r = await api.post("/api/admin/login", { password: pw });
-      onToken(r.token);
+      const body = { password: pw };
+      if (username.trim()) body.username = username.trim();
+      if (needTotp) body.totp = totp;
+      const r = await api.post("/api/admin/login", body);
+      onAuth(r.token);
     } catch (e) {
+      if (e.message && e.message.toLowerCase().includes("2fa")) setNeedTotp(true);
       setErr(e.message);
     } finally {
       setBusy(false);
     }
   };
   return (
-    <div style={{ minHeight: "100vh", background: "var(--royal-wash)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "var(--font-sans)" }}>
-      <div style={{ background: "var(--surface-card)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", maxWidth: 400, width: "100%", padding: "40px 36px", textAlign: "center" }}>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--mr-purple-900)" }}>Majestic Roobee</div>
-        <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", margin: "6px 0 26px" }}>Operations</div>
+    <div style={shell}>
+      <div style={panel}>
+        {brand}
         <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 14 }}>
-          <Input label="Passphrase" type="password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="••••••••" error={err || undefined} />
+          <Input label="Username" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="your handle" hint="Leave blank to use the master passphrase." />
+          <Input label="Passphrase" type="password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="••••••••" />
+          {needTotp && (
+            <Input label="2FA code" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="123456" />
+          )}
+          {err && <div style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
           <Button variant="primary" block disabled={busy} onClick={submit}>{busy ? "Opening…" : "Enter the house"}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ForceChange({ ctx }) {
+  const [f, setF] = useState({ current: "", next: "", confirm: "" });
+  const [err, setErr] = useState("");
+  const submit = async () => {
+    setErr("");
+    if (f.next !== f.confirm) return setErr("The two new passphrases don't match.");
+    try {
+      await api.post("/api/admin/account/password", { current: f.current, next: f.next }, ctx.token);
+      ctx.loadMe();
+    } catch (e) { ctx.authFail(e); setErr(e.message); }
+  };
+  return (
+    <div style={shell}>
+      <div style={panel}>
+        {brand}
+        <div style={{ fontSize: 13.5, color: "var(--text-body)", marginBottom: 16 }}>Welcome, {ctx.me.name}. Set your own passphrase to continue.</div>
+        <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 14 }}>
+          <Input label="Passphrase you were given" type="password" value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} />
+          <Input label="New passphrase" type="password" value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} hint="At least 8 characters." />
+          <Input label="Confirm new passphrase" type="password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          {err && <div style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
+          <Button variant="primary" block onClick={submit}>Set passphrase &amp; continue</Button>
         </div>
       </div>
     </div>
@@ -74,13 +125,23 @@ export default function App() {
   const [inquiries, setInquiries] = useState([]);
   const [settingsData, setSettingsData] = useState(null);
   const [toast, setToast] = useState("");
+  const [me, setMe] = useState(null);
 
   const authFail = useCallback((e) => {
     if (e && e.status === 401) {
       localStorage.removeItem("mr-admin-token");
       setToken("");
+      setMe(null);
     }
   }, []);
+
+  const loadMe = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/me", token).then(setMe).catch(authFail);
+  }, [token, authFail]);
+  useEffect(() => { loadMe(); }, [loadMe]);
+  // Managers are pinned to their own store.
+  useEffect(() => { if (me && me.role !== "super" && me.scope) setScope(me.scope); }, [me]);
 
   const loadOverview = useCallback((s = scope) => {
     if (!token) return;
@@ -126,22 +187,29 @@ export default function App() {
   };
 
   if (!token) {
-    return <Login onToken={(t) => { localStorage.setItem("mr-admin-token", t); setToken(t); }} />;
+    return <Login onAuth={(t) => { localStorage.setItem("mr-admin-token", t); setToken(t); }} />;
   }
 
   const settings = settingsData ? settingsData.settings : {};
   const TH = settings.lowStockThreshold ?? 5;
   const openInq = inquiries.filter((q) => q.status !== "Resolved").length;
+  const isSuper = !me || me.role === "super";
   const scopeLabel = scope === "all" ? "All locations" : { abuja: "Abuja", lagos: "Lagos", ibadan: "Ibadan" }[scope];
 
   const ctx = {
-    token, page, setPage, scope, setScope, scopeLabel, TH,
+    token, page, setPage, scope, setScope, scopeLabel, TH, me, loadMe,
     overview, products, promos, campaigns, inquiries, settingsData,
     loadOverview, loadProducts, loadPromos, loadCampaigns, loadInquiries, loadSettings,
     setProducts, setInquiries, authFail, flash,
   };
 
-  const title = (PAGES.find((p) => p.id === page) || {}).title || "";
+  // First-login: force the employee to set their own passphrase.
+  if (me && me.mustChange) return <ForceChange ctx={ctx} />;
+
+  const visiblePages = PAGES.filter((p) => !p.super || isSuper);
+  const activePage = (visiblePages.find((p) => p.id === page) ? page : "dash");
+  const title = (PAGES.find((p) => p.id === activePage) || {}).title || "";
+  const initials = (me && me.name ? me.name : "MR").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
   return (
     <div style={{ fontFamily: "var(--font-sans)", color: "var(--text-body)", background: "var(--mr-cream)", minHeight: "100vh", display: "flex" }}>
@@ -151,8 +219,8 @@ export default function App() {
           <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10.5, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--mr-gold-400)", marginTop: 4 }}>Operations</div>
         </div>
         <nav style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 12px" }}>
-          {PAGES.map((p) => {
-            const on = page === p.id;
+          {visiblePages.map((p) => {
+            const on = activePage === p.id;
             return (
               <button key={p.id} onClick={() => setPage(p.id)} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, padding: "11px 14px", borderRadius: "var(--radius-md)", border: "none", cursor: "pointer", background: on ? "rgba(255,255,255,0.1)" : "transparent", color: on ? "var(--mr-cream)" : "var(--text-on-dark-muted)", transition: "background var(--dur-fast) var(--ease-standard)" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: on ? "var(--accent-gold)" : "transparent" }} />
@@ -165,10 +233,10 @@ export default function App() {
           })}
         </nav>
         <div style={{ marginTop: "auto", padding: "18px 22px", borderTop: "1px solid var(--border-inverse)" }}>
-          <div style={{ fontSize: 12.5, color: "var(--mr-cream)", fontWeight: 500 }}>Super admin</div>
-          <div style={{ fontSize: 11, marginTop: 2 }}>Full access — every store</div>
+          <div style={{ fontSize: 12.5, color: "var(--mr-cream)", fontWeight: 500 }}>{me ? (me.master ? "Master (super admin)" : me.name) : "…"}</div>
+          <div style={{ fontSize: 11, marginTop: 2 }}>{isSuper ? "Full access — every store" : `Scoped to ${scopeLabel} store`}</div>
           <a href="/" style={{ display: "inline-block", fontSize: 11.5, color: "var(--mr-gold-400)", marginTop: 12 }}>View storefront —</a>
-          <button onClick={() => { localStorage.removeItem("mr-admin-token"); setToken(""); }} style={{ display: "block", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--text-on-dark-muted)", padding: 0, marginTop: 8 }}>Sign out</button>
+          <button onClick={() => { localStorage.removeItem("mr-admin-token"); setToken(""); setMe(null); }} style={{ display: "block", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--text-on-dark-muted)", padding: 0, marginTop: 8 }}>Sign out</button>
         </div>
       </aside>
 
@@ -177,22 +245,28 @@ export default function App() {
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: 21, color: "var(--text-strong)", margin: 0, letterSpacing: "var(--ls-heading)" }}>{title}</h1>
           <div style={{ flex: 1 }} />
           {toast && <Badge tone="success">{toast}</Badge>}
-          <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", outline: "none" }}>
-            <option value="all">All locations</option>
-            <option value="abuja">Abuja — Life Camp</option>
-            <option value="lagos">Lagos — Lekki</option>
-            <option value="ibadan">Ibadan — Bodija</option>
-          </select>
-          <span style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--mr-lavender-300)", color: "var(--mr-purple-900)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 14 }}>SA</span>
+          {isSuper ? (
+            <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", outline: "none" }}>
+              <option value="all">All locations</option>
+              <option value="abuja">Abuja — Life Camp</option>
+              <option value="lagos">Lagos — Lekki</option>
+              <option value="ibadan">Ibadan — Bodija</option>
+            </select>
+          ) : (
+            <Badge tone="neutral">{scopeLabel} only</Badge>
+          )}
+          <span style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--mr-lavender-300)", color: "var(--mr-purple-900)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 14 }}>{initials}</span>
         </header>
 
-        {page === "dash" && <Dashboard ctx={ctx} />}
-        {page === "inv" && <Inventory ctx={ctx} />}
-        {page === "cat" && <Catalogue ctx={ctx} />}
-        {page === "sales" && <Sales ctx={ctx} />}
-        {page === "notif" && <Notifications ctx={ctx} />}
-        {page === "inq" && <Inquiries ctx={ctx} />}
-        {page === "settings" && <SettingsPage ctx={ctx} />}
+        {activePage === "dash" && <Dashboard ctx={ctx} />}
+        {activePage === "inv" && <Inventory ctx={ctx} />}
+        {activePage === "cat" && <Catalogue ctx={ctx} />}
+        {activePage === "sales" && <Sales ctx={ctx} />}
+        {activePage === "notif" && <Notifications ctx={ctx} />}
+        {activePage === "inq" && <Inquiries ctx={ctx} />}
+        {activePage === "team" && <TeamPage ctx={ctx} />}
+        {activePage === "settings" && <SettingsPage ctx={ctx} />}
+        {activePage === "account" && <AccountPage ctx={ctx} />}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 // Storefront pages — ported from "Majestic Roobee Storefront.dc.html".
-import React from "react";
+import React, { useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "../ds/components.jsx";
 
 const PAD = "clamp(16px, 4vw, 40px)";
@@ -12,11 +12,23 @@ function AvailBadge({ p }) {
   );
 }
 
+function WishHeart({ wished, onClick, size = 32 }) {
+  return (
+    <button onClick={(e) => { e.stopPropagation(); onClick(); }} aria-label={wished ? "Remove from wishlist" : "Save to wishlist"} title={wished ? "Saved" : "Save to wishlist"}
+      style={{ position: "absolute", top: 10, right: 10, width: size, height: size, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill={wished ? "var(--mr-orchid-500)" : "none"} stroke={wished ? "var(--mr-orchid-500)" : "var(--mr-purple-800)"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>
+    </button>
+  );
+}
+
 export function ProductCard({ p, height = 230 }) {
   return (
     <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
-      <div onClick={p.open} style={{ cursor: "pointer" }}>
-        <ImageSlot src={p.imageUrl} name={p.name} style={{ width: "100%", height }} />
+      <div style={{ position: "relative" }}>
+        <div onClick={p.open} style={{ cursor: "pointer" }}>
+          <ImageSlot src={p.imageUrl} name={p.name} style={{ width: "100%", height }} />
+        </div>
+        {p.toggleWish && <WishHeart wished={p.wished} onClick={p.toggleWish} />}
       </div>
       <div style={{ padding: "16px 18px 18px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
         <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
@@ -256,6 +268,10 @@ export function ProductPage({ ctx }) {
             <Button variant="primary" size="lg" disabled={soldOut} onClick={() => ctx.addToCart(pr.id, prV.size, ctx.prQty)}>
               {soldOut ? "Notify me when back" : "Add to cart — " + ctx.fmt(prV.ngn * ctx.prQty)}
             </Button>
+            <button onClick={() => ctx.toggleWishlist(pr.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "12px 18px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, color: "var(--mr-purple-800)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill={ctx.custData.wishlist.includes(pr.id) ? "var(--mr-orchid-500)" : "none"} stroke={ctx.custData.wishlist.includes(pr.id) ? "var(--mr-orchid-500)" : "var(--mr-purple-800)"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>
+              {ctx.custData.wishlist.includes(pr.id) ? "Saved" : "Save"}
+            </button>
           </div>
           <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "18px 20px", marginBottom: 18 }}>
             <div style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: "0.04em", color: "var(--text-strong)", marginBottom: 10 }}>AVAILABILITY BY STORE</div>
@@ -481,11 +497,45 @@ export function ConfirmPage({ ctx }) {
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>{p.eta}</div>
         </div>
       )}
+      {!ctx.cust && ctx.co.email && <AccountNudge ctx={ctx} />}
       <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-        <Button variant="primary" onClick={() => { ctx.setTrack((t) => ({ ...t, no: p.no, err: "" })); ctx.nav("track"); }}>Track this order</Button>
+        <Button variant="primary" onClick={() => { ctx.setTrack((t) => ({ ...t, no: p.no, contact: ctx.co.email || ctx.co.phone, err: "" })); ctx.nav("track"); }}>Track this order</Button>
         <Button variant="ghost" onClick={() => ctx.nav("shop")}>Keep browsing</Button>
       </div>
     </main>
+  );
+}
+
+// Progressive nudge shown on the confirmation page for guests — turns the order
+// they just placed into a saved account with one tap (email already known).
+function AccountNudge({ ctx }) {
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const create = async () => {
+    if (pw.length < 8) return setErr("Choose a password of at least 8 characters.");
+    setBusy(true); setErr("");
+    try {
+      await ctx.custRegister({ email: ctx.co.email, password: pw, name: ctx.co.name, phone: ctx.co.phone, city: ctx.city, marketingOptIn: true });
+      setDone(true);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  if (done) return (
+    <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "18px 22px", marginBottom: 24, fontSize: 14, color: "var(--mr-purple-900)" }}>
+      Account created — this order is now saved to <strong>{ctx.co.email}</strong>. Welcome to the house. 💜
+    </div>
+  );
+  return (
+    <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "20px 22px", marginBottom: 24, textAlign: "left" }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)", marginBottom: 4 }}>Save this order — create an account</div>
+      <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>Track faster next time, save your address, build a wishlist and earn perks. We'll use <strong>{ctx.co.email}</strong>.</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <Input label="Choose a password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} style={{ flex: 1, minWidth: 200 }} />
+        <Button variant="gold" disabled={busy} onClick={create}>{busy ? "Saving…" : "Create account"}</Button>
+      </div>
+      {err && <div style={{ fontSize: 12.5, color: "#c0587a", marginTop: 8 }}>{err}</div>}
+    </div>
   );
 }
 
@@ -585,6 +635,40 @@ export function ContactPage({ ctx }) {
           </div>
         </div>
       </div>
+    </main>
+  );
+}
+
+export function PrivacyPage({ ctx }) {
+  const { settings } = ctx;
+  const h = { fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "28px 0 8px" };
+  const p = { fontFamily: "var(--font-editorial)", fontSize: 15.5, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 12px" };
+  return (
+    <main style={{ maxWidth: 760, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
+      <Eyebrow>The house keeps confidence</Eyebrow>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 6px" }}>Privacy &amp; cookies</h1>
+      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 8px" }}>Last updated July 2026</p>
+      <GildedRule style={{ margin: "18px 0 4px" }} />
+
+      <p style={p}>Majestic Roobee ("we") respects your privacy. This notice explains what we collect, why, and the choices you have. You can shop as a guest without creating an account.</p>
+
+      <h2 style={h}>What we collect</h2>
+      <p style={p}>To fulfil an order we collect your name, phone, email and delivery address, plus the items and amounts in your order. If you contact us or start a live chat, we keep that conversation so we can help. If you join our list, we keep your email until you unsubscribe.</p>
+
+      <h2 style={h}>Payments</h2>
+      <p style={p}>Card payments are processed by our payment provider (Paystack). We never see or store your full card details — payment is confirmed to us by the provider.</p>
+
+      <h2 style={h}>Cookies &amp; analytics</h2>
+      <p style={p}>We use cookies for two things: essential store function (your cart, your chosen city) and — only if you accept — analytics and marketing tools that help us understand and improve the experience. You can decline the optional cookies from the banner and still shop normally. Optional tools we may use include Google Analytics, Google Ads, Meta Pixel, TikTok Pixel and Microsoft Clarity.</p>
+
+      <h2 style={h}>How we use your information</h2>
+      <p style={p}>To process and deliver orders, provide support, prevent fraud, and — where you've opted in — send you offers and updates. We do not sell your personal information.</p>
+
+      <h2 style={h}>Your choices</h2>
+      <p style={p}>You can decline optional cookies, unsubscribe from marketing at any time, and ask us to access or delete the information we hold about you.</p>
+
+      <h2 style={h}>Contact</h2>
+      <p style={p}>Questions about your privacy? Reach us at {settings.contactEmail || "hello@majesticroobee.com"} or {settings.contactPhone || "+234 906 227 7470"}.</p>
     </main>
   );
 }
