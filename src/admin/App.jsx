@@ -4,6 +4,7 @@ import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue } from "./pages-ops.jsx";
 import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
+import { IntegrationsPage } from "./integrations.jsx";
 
 export const CAT_LABELS = {
   extrait: "Extrait Perfumes",
@@ -31,6 +32,7 @@ const PAGES = [
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
   { id: "notif", label: "Notifications", title: "Notifications & pop-ups" },
   { id: "inq", label: "Customer Service", title: "Customer service" },
+  { id: "integrations", label: "Integrations", title: "Integrations & automations", super: true },
   { id: "team", label: "Team", title: "Team & access", super: true },
   { id: "settings", label: "Settings", title: "Store & content settings" },
   { id: "account", label: "My account", title: "My account" },
@@ -264,6 +266,7 @@ export default function App() {
         {activePage === "sales" && <Sales ctx={ctx} />}
         {activePage === "notif" && <Notifications ctx={ctx} />}
         {activePage === "inq" && <Inquiries ctx={ctx} />}
+        {activePage === "integrations" && <IntegrationsPage ctx={ctx} />}
         {activePage === "team" && <TeamPage ctx={ctx} />}
         {activePage === "settings" && <SettingsPage ctx={ctx} />}
         {activePage === "account" && <AccountPage ctx={ctx} />}

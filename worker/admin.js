@@ -2,8 +2,11 @@
 import { Hono } from "hono";
 import {
   getSettings, putSettings, loadProducts, issueToken, verifyToken, displayTime, displayDate,
-  hashPassword, verifyPassword, randomPassphrase, randomTotpSecret, totpVerify, otpauthUri,
+  hashPassword, verifyPassword, randomPassphrase, randomTotpSecret, totpVerify, otpauthUri, sha256hex,
 } from "./util.js";
+import { emitEvent } from "./events.js";
+
+const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
 export const admin = new Hono();
 
@@ -308,11 +311,17 @@ admin.patch("/stock", async (c) => {
   const db = c.env.DB;
   const v = await db.prepare("SELECT id FROM variants WHERE product_id=? AND size=?").bind(productId, size).first();
   if (!v || !["abuja", "lagos", "ibadan"].includes(location)) return c.json({ error: "Unknown variant." }, 400);
+  const before = await db.prepare("SELECT qty FROM stock WHERE variant_id=? AND location_id=?").bind(v.id, location).first();
   await db.prepare(
     `INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, MAX(0, ?))
      ON CONFLICT(variant_id, location_id) DO UPDATE SET qty = MAX(0, qty + ?)`
   ).bind(v.id, location, delta, delta).run();
   const row = await db.prepare("SELECT qty FROM stock WHERE variant_id=? AND location_id=?").bind(v.id, location).first();
+  // Restock crossing 0 → in stock triggers the back-in-stock automation.
+  if ((before ? before.qty : 0) === 0 && row.qty > 0) {
+    const p = await db.prepare("SELECT name FROM products WHERE id=?").bind(productId).first();
+    await emitEvent(c.env, "product_restocked", { entity: productId, payload: { productId, size, productName: p ? p.name : productId, city: location }, ctx: c.executionCtx });
+  }
   return c.json({ ok: true, qty: row.qty });
 });
 
@@ -411,6 +420,8 @@ admin.patch("/orders/:no", async (c) => {
     await db.prepare("INSERT INTO order_events (order_no, step, detail, at, done, current, sort) VALUES (?, ?, '', ?, 1, 1, ?)")
       .bind(no, status, displayTime(), last.s + 1).run();
   }
+  const o = await db.prepare("SELECT customer, email, phone FROM orders WHERE no=?").bind(no).first();
+  await emitEvent(c.env, "order_status_changed", { entity: no, payload: { orderNo: no, status, name: o ? o.customer : "", email: o ? o.email : "", phone: o ? o.phone : "", contact: o ? (o.email || o.phone) : "" }, ctx: c.executionCtx });
   return c.json({ ok: true });
 });
 
@@ -445,4 +456,68 @@ admin.put("/settings", async (c) => {
       .map((l) => db.prepare("UPDATE locations SET store=?, address=?, eta=?, phone=? WHERE id=?").bind(l.store, l.address, l.eta, l.phone, l.id)));
   }
   return c.json({ ok: true, settings: next });
+});
+
+// ---- F2: automations & activity ----
+admin.get("/automations", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT * FROM automations ORDER BY rowid").all()).results;
+  const runs = (await c.env.DB.prepare("SELECT automation_id, status, COUNT(*) AS n FROM automation_runs GROUP BY automation_id, status").all()).results;
+  return c.json({ automations: rows.map((a) => ({ ...a, enabled: !!a.enabled })), runStats: runs });
+});
+
+admin.patch("/automations/:id", async (c) => {
+  const { enabled } = await c.req.json();
+  await c.env.DB.prepare("UPDATE automations SET enabled=? WHERE id=?").bind(enabled ? 1 : 0, c.req.param("id")).run();
+  return c.json({ ok: true });
+});
+
+admin.get("/automation-runs", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT r.*, a.name AS automation FROM automation_runs r JOIN automations a ON a.id=r.automation_id ORDER BY r.created_at DESC LIMIT 40").all()).results;
+  return c.json({ runs: rows });
+});
+
+admin.get("/events", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT id, type, entity, at FROM events ORDER BY id DESC LIMIT 40").all()).results;
+  return c.json({ events: rows });
+});
+
+// ---- F3: webhooks & API keys (super only) ----
+admin.get("/webhooks", requireSuper, async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT id, url, events, enabled, last_status, created_at FROM webhooks ORDER BY id DESC").all()).results;
+  return c.json({ webhooks: rows.map((w) => ({ ...w, enabled: !!w.enabled })) });
+});
+
+admin.post("/webhooks", requireSuper, async (c) => {
+  const { url, events } = await c.req.json();
+  if (!url || !/^https?:\/\//.test(url)) return c.json({ error: "A valid https URL is required." }, 400);
+  const secret = "whsec_" + randHex(20);
+  await c.env.DB.prepare("INSERT INTO webhooks (url, secret, events) VALUES (?, ?, ?)").bind(url.trim(), secret, (events || "*").trim() || "*").run();
+  // Secret shown once so the receiver can verify the x-mr-signature HMAC.
+  return c.json({ ok: true, secret });
+});
+
+admin.delete("/webhooks/:id", requireSuper, async (c) => {
+  await c.env.DB.prepare("DELETE FROM webhooks WHERE id=?").bind(parseInt(c.req.param("id"), 10)).run();
+  return c.json({ ok: true });
+});
+
+admin.get("/api-keys", requireSuper, async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT id, name, prefix, scopes, enabled, last_used, created_at FROM api_keys ORDER BY id DESC").all()).results;
+  return c.json({ keys: rows.map((k) => ({ ...k, enabled: !!k.enabled })) });
+});
+
+admin.post("/api-keys", requireSuper, async (c) => {
+  const { name, scopes } = await c.req.json();
+  if (!name || !String(name).trim()) return c.json({ error: "Name the key." }, 400);
+  const scope = ["read", "write"].includes(scopes) ? scopes : "read";
+  const key = "mr_" + randHex(24);
+  await c.env.DB.prepare("INSERT INTO api_keys (name, key_hash, prefix, scopes) VALUES (?, ?, ?, ?)")
+    .bind(String(name).trim(), await sha256hex(key), key.slice(0, 10), scope).run();
+  // Full key returned exactly once.
+  return c.json({ ok: true, key });
+});
+
+admin.delete("/api-keys/:id", requireSuper, async (c) => {
+  await c.env.DB.prepare("DELETE FROM api_keys WHERE id=?").bind(parseInt(c.req.param("id"), 10)).run();
+  return c.json({ ok: true });
 });

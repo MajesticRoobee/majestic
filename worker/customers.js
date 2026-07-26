@@ -2,6 +2,7 @@
 // namespaced with typ:"cust" so they can never authenticate against admin.
 import { Hono } from "hono";
 import { issueToken, verifyToken, hashPassword, verifyPassword, displayDate, fmtNaira } from "./util.js";
+import { emitEvent } from "./events.js";
 
 export const account = new Hono();
 
@@ -44,6 +45,7 @@ account.post("/register", async (c) => {
   await linkOrders(db, cust.id, cust.email);
   const token = await issueCustomerToken(c.env, cust);
   const u = await db.prepare("SELECT * FROM customers WHERE id=?").bind(cust.id).first();
+  await emitEvent(c.env, "customer_registered", { entity: String(u.id), payload: { name: u.name, email: u.email, contact: u.email }, ctx: c.executionCtx });
   return c.json({ token, customer: publicProfile(u) });
 });
 

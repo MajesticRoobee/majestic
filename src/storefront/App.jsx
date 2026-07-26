@@ -150,6 +150,13 @@ export default function App() {
     try { if (has) await api.del(`/api/account/wishlist/${productId}`, tok); else await api.post("/api/account/wishlist", { productId }, tok); } catch { loadCust(); }
   }, [custData.wishlist, nav, loadCust]);
 
+  const joinWaitlist = useCallback(async (productId, size) => {
+    const contact = (cust && cust.email) || window.prompt("Enter your email and we'll tell you the moment it's back in stock:");
+    if (!contact) return;
+    try { await api.post("/api/waitlist", { productId, size, contact, city: cityName }); window.alert("You're on the list — we'll let you know when it's back."); }
+    catch { window.alert("Couldn't add you just now — please try again."); }
+  }, [cust, cityName]);
+
   const settings = D ? D.settings : {};
   const locations = D ? D.locations : [];
   const products = D ? D.products : [];
@@ -203,9 +210,9 @@ export default function App() {
       wished: custData.wishlist.includes(p.id),
       toggleWish: () => toggleWishlist(p.id),
       open: () => nav("product", { productId: p.id, prSize: p.variants[0].size }),
-      add: () => !a.soldOut && addToCart(p.id, v0.size, 1),
+      add: () => (a.soldOut ? joinWaitlist(p.id, v0.size) : addToCart(p.id, v0.size, 1)),
     };
-  }, [availInfo, catLabel, fmt, nav, addToCart, custData.wishlist, toggleWishlist]);
+  }, [availInfo, catLabel, fmt, nav, addToCart, custData.wishlist, toggleWishlist, joinWaitlist]);
 
   // Cart derivation (subtotal, shipping, discount, routing)
   const cc = useMemo(() => {
@@ -420,7 +427,7 @@ export default function App() {
     consent, showConsent: !consent,
     grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
     denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
-    cust, custData, custRegister, custLogin, custLogout, updateProfile, addAddress, removeAddress, toggleWishlist,
+    cust, custData, custRegister, custLogin, custLogout, updateProfile, addAddress, removeAddress, toggleWishlist, joinWaitlist,
   };
 
   const pageEl =

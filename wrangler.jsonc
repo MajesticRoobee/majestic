@@ -11,6 +11,10 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/robots.txt", "/sitemap.xml"]
   },
+  "triggers": {
+    // Drain the automation outbox and enqueue time-based automations.
+    "crons": ["*/15 * * * *"]
+  },
   "d1_databases": [
     {
       "binding": "DB",

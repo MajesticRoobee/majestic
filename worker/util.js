@@ -122,6 +122,11 @@ export function normalizeContact(s) {
   return String(s || "").toLowerCase().replace(/[\s\-()]/g, "");
 }
 
+export async function sha256hex(s) {
+  const buf = await crypto.subtle.digest("SHA-256", te.encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export function fmtNaira(n) {
   return "₦" + Number(n).toLocaleString("en-US");
 }
