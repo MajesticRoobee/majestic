@@ -153,9 +153,9 @@ export default function App() {
   const joinWaitlist = useCallback(async (productId, size) => {
     const contact = (cust && cust.email) || window.prompt("Enter your email and we'll tell you the moment it's back in stock:");
     if (!contact) return;
-    try { await api.post("/api/waitlist", { productId, size, contact, city: cityName }); window.alert("You're on the list — we'll let you know when it's back."); }
+    try { await api.post("/api/waitlist", { productId, size, contact, city: cap(city) }); window.alert("You're on the list — we'll let you know when it's back."); }
     catch { window.alert("Couldn't add you just now — please try again."); }
-  }, [cust, cityName]);
+  }, [cust, city]);
 
   const settings = D ? D.settings : {};
   const locations = D ? D.locations : [];
