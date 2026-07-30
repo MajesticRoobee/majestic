@@ -1,7 +1,7 @@
 // Admin — Dashboard, Inventory, Product catalogue.
 import React, { useState } from "react";
 import { api } from "../lib/api.js";
-import { Switch } from "../ds/components.jsx";
+import { Switch, EmptyRow } from "../ds/components.jsx";
 import { CAT_LABELS, fmtN, statusBadge } from "./App.jsx";
 import { NewProduct, EditProductPanel } from "./product-form.jsx";
 
@@ -62,7 +62,12 @@ export function Dashboard({ ctx }) {
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Revenue — last 14 days</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{ctx.scopeLabel}</div>
           </div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 170 }}>
+          <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 6, height: 170 }}>
+            {!o.series.some((s) => s.value > 0) && (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, color: "var(--text-muted)", textAlign: "center" }}>
+                No revenue recorded in this window yet.
+              </div>
+            )}
             {o.series.map((b, i) => (
               <div key={b.date} className="mr-bar" title={`${b.label} — ${fmtN(b.value)}`} style={{ flex: 1, height: Math.max(2, Math.round((b.value / max) * 100)) + "%", background: i === o.series.length - 1 ? "var(--accent-gold)" : "var(--mr-purple-700)", borderRadius: "4px 4px 0 0" }} />
             ))}
@@ -90,6 +95,7 @@ export function Dashboard({ ctx }) {
           </div>
           <div style={{ ...card, padding: 22, flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 12 }}>Top products — 30 days</div>
+            {!o.topProducts.length && <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>No sales in the last 30 days yet — your best sellers will rank here.</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
               {o.topProducts.map((t, i) => (
                 <div key={t.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5 }}>
@@ -114,6 +120,7 @@ export function Dashboard({ ctx }) {
             <div style={th}>METHOD · PAYMENT</div>
             <div style={th}>TOTAL</div>
             <div style={{ ...th, paddingRight: 22 }}>STATUS</div>
+            {!o.orders.length && <EmptyRow span={6}>No orders yet — the moment someone checks out, the order lands here and you can move it through packing, transit and delivery.</EmptyRow>}
             {o.orders.map((or) => {
               const fromCity = { abuja: "Abuja", lagos: "Lagos", ibadan: "Ibadan" }[or.fulfilledFrom] || or.fulfilledFrom;
               const cross = or.city.toLowerCase() !== fromCity.toLowerCase();
@@ -155,6 +162,7 @@ export function Dashboard({ ctx }) {
             <div style={th}>VALUE</div>
             <div style={th}>STAGE · WHEN</div>
             <div style={{ ...th, paddingRight: 22 }}>OUTCOME</div>
+            {!abandonedRows.length && <EmptyRow span={5}>Nothing here yet — both completed orders and carts left at checkout will show up, with the shopper&apos;s contact details so you can follow up.</EmptyRow>}
             {abandonedRows.map((c, i) => {
               const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)", display: "flex", alignItems: "center" };
               return (
@@ -253,6 +261,15 @@ export function Inventory({ ctx }) {
           {["SIZE", "ABUJA", "LAGOS", "IBADAN", "STATUS", ""].map((h, i) => (
             <div key={i} style={{ ...th, borderTop: "none", paddingTop: 12, paddingBottom: 12, ...(i === 5 ? { paddingRight: 22 } : {}) }}>{h}</div>
           ))}
+          {!rows.length && (
+            <EmptyRow span={7}>
+              {!ctx.products.length
+                ? "No products yet — add them under Products and every size will appear here with its stock in each store."
+                : q || lowOnly
+                  ? "Nothing matches that filter."
+                  : "Every size is well stocked — nothing low or out."}
+            </EmptyRow>
+          )}
           {rows.map(({ p, v, ab, la, ib, st }) => {
             const badge = statusBadge(st);
             return (

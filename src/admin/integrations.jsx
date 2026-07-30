@@ -105,6 +105,7 @@ export function IntegrationsPage({ ctx }) {
         <div style={{ ...card, overflow: "hidden" }}>
           <div style={{ padding: "16px 22px", fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Activity — recent events</div>
           <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {events.length === 0 && <div style={{ padding: "0 22px 18px", fontSize: 13, color: "var(--text-muted)" }}>Nothing yet — events log here as shoppers browse, order and check out.</div>}
             {events.map((e) => (
               <div key={e.id} style={{ padding: "10px 22px", borderTop: "1px solid var(--border-hairline)", display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5 }}>
                 <span style={{ color: "var(--mr-purple-800)", fontFamily: "var(--font-condensed)", letterSpacing: "0.04em" }}>{e.type}</span>
@@ -126,6 +127,7 @@ export function IntegrationsPage({ ctx }) {
           <Input label="Events (csv or *)" value={wh.events} onChange={(e) => setWh({ ...wh, events: e.target.value })} placeholder="order_paid,order_placed" style={{ flex: 1, minWidth: 160 }} />
           <Button variant="secondary" onClick={addWebhook}>Add webhook</Button>
         </div>
+        {webhooks.length === 0 && <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, fontSize: 12.5, color: "var(--text-muted)" }}>No webhooks yet.</div>}
         {webhooks.map((w) => (
           <div key={w.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--border-hairline)", fontSize: 13, alignItems: "center" }}>
             <div><div style={{ color: "var(--text-strong)" }}>{w.url}</div><div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{w.events} · {w.last_status || "no deliveries yet"}</div></div>
@@ -150,6 +152,7 @@ export function IntegrationsPage({ ctx }) {
           </Select>
           <Button variant="primary" onClick={createKey}>Create key</Button>
         </div>
+        {keys.length === 0 && <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, fontSize: 12.5, color: "var(--text-muted)" }}>No API keys yet — create one when you connect a POS, accounting tool or AI agent.</div>}
         {keys.map((k) => (
           <div key={k.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--border-hairline)", fontSize: 13, alignItems: "center" }}>
             <div><div style={{ color: "var(--text-strong)" }}>{k.name} <span style={{ fontSize: 11, color: "var(--text-muted)" }}>· {k.scopes}</span></div><div style={{ fontSize: 11.5, color: "var(--text-muted)", fontFamily: "monospace" }}>{k.prefix}… · {k.last_used ? "used " + k.last_used : "unused"}</div></div>

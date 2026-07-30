@@ -4,12 +4,20 @@
 import { chromium } from "playwright";
 
 const base = process.env.SITE_URL || "https://majestic-roobee.victorugwu4real.workers.dev";
+
+// Pull a product page from whatever is actually live rather than naming one.
+// The demo catalogue gets cleared at go-live, and a hardcoded slug would quietly
+// start testing a 404 instead of a real product page.
+const store = await fetch(base + "/api/store").then((r) => r.json()).catch(() => ({}));
+const sample = (store.products || [])[0];
+
 const targets = [
   { path: "/", needsRoot: true },
   { path: "/shop", needsRoot: true },
-  { path: "/product/hypnotic-poison", needsRoot: true },
+  ...(sample ? [{ path: "/product/" + sample.id, needsRoot: true }] : []),
   { path: "/admin/", needsRoot: true },
 ];
+if (!sample) console.log("• catalogue is empty — skipping the product-page check");
 
 // CHROME_PATH lets this run against a preinstalled browser (handy locally);
 // CI leaves it unset so Playwright resolves its own download.
@@ -40,7 +48,6 @@ for (const t of targets) {
 // back mangled still yields a 200, so check the browser can actually decode one.
 const imgPage = await browser.newPage();
 try {
-  const store = await fetch(base + "/api/store").then((r) => r.json());
   const withPhoto = (store.products || []).find((p) => (p.imageUrl || "").startsWith("/images/"));
   if (!withPhoto) {
     console.log("• no uploaded product photos yet — skipping image decode check");

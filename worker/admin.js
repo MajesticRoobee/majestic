@@ -620,26 +620,56 @@ admin.delete("/api-keys/:id", requireSuper, async (c) => {
 // ---- Go-live: purge demo/seed data (super only) ----
 // Selective so the owner decides exactly what goes. Each key maps to a set of
 // deletes; nothing is removed unless explicitly requested.
-const PURGE = {
-  orders: ["DELETE FROM order_events", "DELETE FROM order_items", "DELETE FROM orders"],
-  customers: ["DELETE FROM wishlists", "DELETE FROM customer_addresses", "DELETE FROM customers"],
-  inquiries: ["DELETE FROM inquiry_messages", "DELETE FROM inquiries"],
-  checkouts: ["DELETE FROM abandoned_checkouts"],
-  marketing: ["DELETE FROM promos", "DELETE FROM campaigns", "DELETE FROM leads"],
-  activity: ["DELETE FROM automation_runs", "DELETE FROM events", "DELETE FROM stock_waitlist"],
-  products: ["DELETE FROM stock", "DELETE FROM variants", "DELETE FROM wishlists", "DELETE FROM products"],
+// Two families of scope, kept apart on purpose.
+//
+// DEMO_PURGE removes only rows migration 0002 seeded (tagged by 0007). It can
+// never touch a product, order or promo the shop created itself, so it is safe
+// to run at any point — including after real trading has started.
+//
+// REAL_PURGE deletes genuine records. `customers` and `leads` were never seeded,
+// so there is no demo version of them to clear; the only thing these scopes can
+// delete is real data. The UI keeps them in a separate, clearly-marked group.
+const DEMO_PURGE = {
+  orders: ["DELETE FROM orders WHERE seeded = 1"], // order_items / order_events cascade
+  inquiries: ["DELETE FROM inquiries WHERE seeded = 1"], // inquiry_messages cascade
+  checkouts: ["DELETE FROM abandoned_checkouts WHERE seeded = 1"],
+  marketing: ["DELETE FROM promos WHERE seeded = 1", "DELETE FROM campaigns WHERE seeded = 1"],
+  products: [
+    "DELETE FROM wishlists WHERE product_id IN (SELECT id FROM products WHERE seeded = 1)",
+    "DELETE FROM products WHERE seeded = 1", // variants -> stock cascade
+  ],
 };
+
+const REAL_PURGE = {
+  customers: ["DELETE FROM wishlists", "DELETE FROM customer_addresses", "DELETE FROM customers"],
+  leads: ["DELETE FROM leads"],
+  activity: ["DELETE FROM automation_runs", "DELETE FROM events", "DELETE FROM stock_waitlist"],
+};
+
+const PURGE = { ...DEMO_PURGE, ...REAL_PURGE };
 
 admin.get("/data-counts", requireSuper, async (c) => {
   const q = async (sql) => (await c.env.DB.prepare(sql).first()).n;
+  // `demo` is what a scope would actually delete; `real` is what it would leave
+  // behind, so the Go-live page can say "17 samples, 1 of yours stays".
   return c.json({
-    orders: await q("SELECT COUNT(*) AS n FROM orders"),
-    customers: await q("SELECT COUNT(*) AS n FROM customers"),
-    inquiries: await q("SELECT COUNT(*) AS n FROM inquiries"),
-    checkouts: await q("SELECT COUNT(*) AS n FROM abandoned_checkouts"),
-    marketing: await q("SELECT (SELECT COUNT(*) FROM promos)+(SELECT COUNT(*) FROM campaigns)+(SELECT COUNT(*) FROM leads) AS n"),
-    activity: await q("SELECT (SELECT COUNT(*) FROM events)+(SELECT COUNT(*) FROM automation_runs) AS n"),
-    products: await q("SELECT COUNT(*) AS n FROM products"),
+    demo: {
+      orders: await q("SELECT COUNT(*) AS n FROM orders WHERE seeded = 1"),
+      inquiries: await q("SELECT COUNT(*) AS n FROM inquiries WHERE seeded = 1"),
+      checkouts: await q("SELECT COUNT(*) AS n FROM abandoned_checkouts WHERE seeded = 1"),
+      marketing: await q("SELECT (SELECT COUNT(*) FROM promos WHERE seeded=1)+(SELECT COUNT(*) FROM campaigns WHERE seeded=1) AS n"),
+      products: await q("SELECT COUNT(*) AS n FROM products WHERE seeded = 1"),
+    },
+    real: {
+      orders: await q("SELECT COUNT(*) AS n FROM orders WHERE seeded = 0"),
+      inquiries: await q("SELECT COUNT(*) AS n FROM inquiries WHERE seeded = 0"),
+      checkouts: await q("SELECT COUNT(*) AS n FROM abandoned_checkouts WHERE seeded = 0"),
+      marketing: await q("SELECT (SELECT COUNT(*) FROM promos WHERE seeded=0)+(SELECT COUNT(*) FROM campaigns WHERE seeded=0) AS n"),
+      products: await q("SELECT COUNT(*) AS n FROM products WHERE seeded = 0"),
+      customers: await q("SELECT COUNT(*) AS n FROM customers"),
+      leads: await q("SELECT COUNT(*) AS n FROM leads"),
+      activity: await q("SELECT (SELECT COUNT(*) FROM events)+(SELECT COUNT(*) FROM automation_runs) AS n"),
+    },
   });
 });
 
