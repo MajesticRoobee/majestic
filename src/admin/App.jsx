@@ -5,6 +5,7 @@ import { Dashboard, Inventory, Catalogue } from "./pages-ops.jsx";
 import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
+import { GoLivePage } from "./golive.jsx";
 
 export const CAT_LABELS = {
   extrait: "Extrait Perfumes",
@@ -34,6 +35,7 @@ const PAGES = [
   { id: "inq", label: "Customer Service", title: "Customer service" },
   { id: "integrations", label: "Integrations", title: "Integrations & automations", super: true },
   { id: "team", label: "Team", title: "Team & access", super: true },
+  { id: "golive", label: "Go live", title: "Go live & data", super: true },
   { id: "settings", label: "Settings", title: "Store & content settings" },
   { id: "account", label: "My account", title: "My account" },
 ];
@@ -268,6 +270,7 @@ export default function App() {
         {activePage === "inq" && <Inquiries ctx={ctx} />}
         {activePage === "integrations" && <IntegrationsPage ctx={ctx} />}
         {activePage === "team" && <TeamPage ctx={ctx} />}
+        {activePage === "golive" && <GoLivePage ctx={ctx} />}
         {activePage === "settings" && <SettingsPage ctx={ctx} />}
         {activePage === "account" && <AccountPage ctx={ctx} />}
       </div>

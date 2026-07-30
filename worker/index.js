@@ -13,6 +13,21 @@ app.route("/api/account", account);
 app.route("/api/v1", v1);
 app.post("/api/mcp", (c) => handleMcp(c));
 
+// Product imagery. Content-addressed by id, so it can cache forever at the edge.
+app.get("/images/:id", async (c) => {
+  const row = await c.env.DB.prepare("SELECT mime, bytes FROM media WHERE id=?").bind(c.req.param("id")).first();
+  if (!row) return c.text("Not found", 404);
+  // D1 returns a BLOB as a plain number array — Response() would stringify that,
+  // so it has to be wrapped back into bytes before it goes out.
+  const bytes = row.bytes instanceof ArrayBuffer ? row.bytes : new Uint8Array(row.bytes);
+  return new Response(bytes, {
+    headers: {
+      "content-type": row.mime,
+      "cache-control": "public, max-age=31536000, immutable",
+    },
+  });
+});
+
 app.get("/robots.txt", (c) => {
   const origin = new URL(c.req.url).origin;
   const body = [

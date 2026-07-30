@@ -11,7 +11,9 @@ const targets = [
   { path: "/admin/", needsRoot: true },
 ];
 
-const browser = await chromium.launch();
+// CHROME_PATH lets this run against a preinstalled browser (handy locally);
+// CI leaves it unset so Playwright resolves its own download.
+const browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
 let failed = false;
 for (const t of targets) {
   const page = await browser.newPage();
@@ -34,6 +36,30 @@ for (const t of targets) {
   }
   await page.close();
 }
+// Product photos live in D1 and are served from /images/<id>. A blob that comes
+// back mangled still yields a 200, so check the browser can actually decode one.
+const imgPage = await browser.newPage();
+try {
+  const store = await fetch(base + "/api/store").then((r) => r.json());
+  const withPhoto = (store.products || []).find((p) => (p.imageUrl || "").startsWith("/images/"));
+  if (!withPhoto) {
+    console.log("• no uploaded product photos yet — skipping image decode check");
+  } else {
+    await imgPage.goto(base + "/product/" + withPhoto.id, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await imgPage.waitForTimeout(3000);
+    const w = await imgPage.evaluate((src) => {
+      const el = [...document.images].find((i) => i.src.includes(src));
+      return el ? el.naturalWidth : -1;
+    }, withPhoto.imageUrl);
+    if (w > 0) console.log(`✓ ${withPhoto.imageUrl} decoded (${w}px wide)`);
+    else { failed = true; console.error(`✗ ${withPhoto.imageUrl} — image did not decode (naturalWidth ${w})`); }
+  }
+} catch (e) {
+  failed = true;
+  console.error(`✗ image decode check — ${e.message}`);
+}
+await imgPage.close();
+
 await browser.close();
 if (failed) { console.error("Render check FAILED"); process.exit(1); }
 console.log("Render check passed.");
