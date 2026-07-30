@@ -255,20 +255,94 @@ admin.get("/overview", async (c) => {
 
 admin.get("/products", async (c) => c.json({ products: await loadProducts(c.env.DB) }));
 
+const LOCS = ["abuja", "lagos", "ibadan"];
+
+// Create a real product: any number of sizes, each with its own price and
+// opening stock per store, plus an image and an immediate live/draft choice.
 admin.post("/products", async (c) => {
-  const { name, cat, size, price, notes, desc } = await c.req.json();
-  if (!name || !String(name).trim() || !price || !parseInt(price, 10))
-    return c.json({ error: "A name and a price are the minimum for a draft." }, 400);
+  const b = await c.req.json();
+  const name = String(b.name || "").trim();
+  if (!name) return c.json({ error: "A product name is required." }, 400);
+
+  // Accept the new multi-variant shape, or the older single size/price fields.
+  let variants = Array.isArray(b.variants) && b.variants.length
+    ? b.variants
+    : [{ size: b.size, price: b.price, stock: {} }];
+  variants = variants
+    .map((v) => ({ size: String(v.size || "").trim(), price: parseInt(v.price, 10) || 0, stock: v.stock || {} }))
+    .filter((v) => v.size || v.price);
+  if (!variants.length) return c.json({ error: "Add at least one size with a price." }, 400);
+  for (const v of variants) {
+    if (!v.size) return c.json({ error: "Every size needs a label (e.g. 30ml)." }, 400);
+    if (!v.price || v.price < 0) return c.json({ error: `Give "${v.size}" a price.` }, 400);
+  }
+  const sizes = variants.map((v) => v.size.toLowerCase());
+  if (new Set(sizes).size !== sizes.length) return c.json({ error: "Each size must be unique." }, 400);
+
   const db = c.env.DB;
-  const id = "new-" + String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") + "-" + Date.now().toString(36);
+  // cat is a foreign key into categories — check it here so a bad value reads as
+  // a sentence rather than surfacing as a constraint failure.
+  const cat = String(b.cat || "extrait").trim();
+  const catRow = await db.prepare("SELECT id FROM categories WHERE id=?").bind(cat).first();
+  if (!catRow) {
+    const all = await db.prepare("SELECT id FROM categories ORDER BY sort").all();
+    return c.json({ error: `"${cat}" isn't one of the categories. Pick one of: ${all.results.map((r) => r.id).join(", ")}.` }, 400);
+  }
+
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "product";
+  const exists = await db.prepare("SELECT id FROM products WHERE id=?").bind(slug).first();
+  const id = exists ? `${slug}-${Date.now().toString(36)}` : slug;
+
   await db.prepare(
-    "INSERT INTO products (id, name, cat, gender, family, notes, descr, live) VALUES (?, ?, ?, 'Unisex', 'Amber', ?, ?, 0)"
-  ).bind(id, String(name).trim(), cat || "extrait", notes || "—", (desc || "").trim() || "A new addition to the house — description coming soon.").run();
-  const vr = await db.prepare("INSERT INTO variants (product_id, size, price_ngn) VALUES (?, ?, ?)").bind(id, size || "30ml", parseInt(price, 10)).run();
-  await db.batch(["abuja", "lagos", "ibadan"].map((l) =>
-    db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, 0)").bind(vr.meta.last_row_id, l)
+    "INSERT INTO products (id, name, cat, gender, family, notes, descr, image_url, live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    id, name, cat, b.gender || "Unisex", b.family || "Amber",
+    (b.notes || "").trim() || "—",
+    (b.desc || "").trim() || "A new addition to the house — description coming soon.",
+    (b.imageUrl || "").trim() || null,
+    b.live ? 1 : 0
+  ).run();
+
+  for (const v of variants) {
+    const vr = await db.prepare("INSERT INTO variants (product_id, size, price_ngn) VALUES (?, ?, ?)").bind(id, v.size, v.price).run();
+    await db.batch(LOCS.map((l) =>
+      db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, ?)")
+        .bind(vr.meta.last_row_id, l, Math.max(0, parseInt(v.stock[l], 10) || 0))
+    ));
+  }
+  return c.json({ ok: true, id, name, live: !!b.live });
+});
+
+// Add a size to an existing product.
+admin.post("/products/:id/variants", async (c) => {
+  const { size, price, stock } = await c.req.json();
+  const pid = c.req.param("id");
+  const s = String(size || "").trim();
+  const p = parseInt(price, 10) || 0;
+  if (!s || !p) return c.json({ error: "A size and a price are required." }, 400);
+  const db = c.env.DB;
+  const dupe = await db.prepare("SELECT id FROM variants WHERE product_id=? AND lower(size)=lower(?)").bind(pid, s).first();
+  if (dupe) return c.json({ error: "That size already exists on this product." }, 400);
+  const vr = await db.prepare("INSERT INTO variants (product_id, size, price_ngn) VALUES (?, ?, ?)").bind(pid, s, p).run();
+  await db.batch(LOCS.map((l) =>
+    db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, ?)")
+      .bind(vr.meta.last_row_id, l, Math.max(0, parseInt((stock || {})[l], 10) || 0))
   ));
-  return c.json({ ok: true, id, name: String(name).trim() });
+  return c.json({ ok: true, id: vr.meta.last_row_id });
+});
+
+admin.delete("/variants/:id", async (c) => {
+  const vid = parseInt(c.req.param("id"), 10);
+  const db = c.env.DB;
+  const v = await db.prepare("SELECT product_id FROM variants WHERE id=?").bind(vid).first();
+  if (!v) return c.json({ error: "No such size." }, 404);
+  const count = await db.prepare("SELECT COUNT(*) AS n FROM variants WHERE product_id=?").bind(v.product_id).first();
+  if (count.n <= 1) return c.json({ error: "A product needs at least one size — delete the product instead." }, 400);
+  await db.batch([
+    db.prepare("DELETE FROM stock WHERE variant_id=?").bind(vid),
+    db.prepare("DELETE FROM variants WHERE id=?").bind(vid),
+  ]);
+  return c.json({ ok: true });
 });
 
 // Edit any product field (live toggle, name, category, family, gender, notes,
@@ -458,6 +532,27 @@ admin.put("/settings", async (c) => {
   return c.json({ ok: true, settings: next });
 });
 
+// ---- Media (product imagery) ----
+// Upload the raw file as the request body with its content-type. Stored in D1
+// and served from /images/<id>; the URL shape is stable if storage moves to R2.
+const MAX_IMAGE_BYTES = 1_500_000;
+
+admin.post("/media", async (c) => {
+  const mime = (c.req.header("content-type") || "").split(";")[0].trim();
+  if (!/^image\/(jpeg|png|webp|avif|gif)$/.test(mime)) {
+    return c.json({ error: "Upload a JPEG, PNG, WebP, AVIF or GIF image." }, 400);
+  }
+  const buf = await c.req.arrayBuffer();
+  if (!buf.byteLength) return c.json({ error: "That file was empty." }, 400);
+  if (buf.byteLength > MAX_IMAGE_BYTES) {
+    return c.json({ error: `Image is ${(buf.byteLength / 1e6).toFixed(1)}MB — please use one under 1.5MB (resize or compress it first).` }, 413);
+  }
+  const id = "img_" + randHex(8);
+  await c.env.DB.prepare("INSERT INTO media (id, mime, bytes, size, alt) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, mime, buf, buf.byteLength, (c.req.header("x-alt") || "").slice(0, 200)).run();
+  return c.json({ ok: true, id, url: `/images/${id}`, size: buf.byteLength });
+});
+
 // ---- F2: automations & activity ----
 admin.get("/automations", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT * FROM automations ORDER BY rowid").all()).results;
@@ -520,4 +615,41 @@ admin.post("/api-keys", requireSuper, async (c) => {
 admin.delete("/api-keys/:id", requireSuper, async (c) => {
   await c.env.DB.prepare("DELETE FROM api_keys WHERE id=?").bind(parseInt(c.req.param("id"), 10)).run();
   return c.json({ ok: true });
+});
+
+// ---- Go-live: purge demo/seed data (super only) ----
+// Selective so the owner decides exactly what goes. Each key maps to a set of
+// deletes; nothing is removed unless explicitly requested.
+const PURGE = {
+  orders: ["DELETE FROM order_events", "DELETE FROM order_items", "DELETE FROM orders"],
+  customers: ["DELETE FROM wishlists", "DELETE FROM customer_addresses", "DELETE FROM customers"],
+  inquiries: ["DELETE FROM inquiry_messages", "DELETE FROM inquiries"],
+  checkouts: ["DELETE FROM abandoned_checkouts"],
+  marketing: ["DELETE FROM promos", "DELETE FROM campaigns", "DELETE FROM leads"],
+  activity: ["DELETE FROM automation_runs", "DELETE FROM events", "DELETE FROM stock_waitlist"],
+  products: ["DELETE FROM stock", "DELETE FROM variants", "DELETE FROM wishlists", "DELETE FROM products"],
+};
+
+admin.get("/data-counts", requireSuper, async (c) => {
+  const q = async (sql) => (await c.env.DB.prepare(sql).first()).n;
+  return c.json({
+    orders: await q("SELECT COUNT(*) AS n FROM orders"),
+    customers: await q("SELECT COUNT(*) AS n FROM customers"),
+    inquiries: await q("SELECT COUNT(*) AS n FROM inquiries"),
+    checkouts: await q("SELECT COUNT(*) AS n FROM abandoned_checkouts"),
+    marketing: await q("SELECT (SELECT COUNT(*) FROM promos)+(SELECT COUNT(*) FROM campaigns)+(SELECT COUNT(*) FROM leads) AS n"),
+    activity: await q("SELECT (SELECT COUNT(*) FROM events)+(SELECT COUNT(*) FROM automation_runs) AS n"),
+    products: await q("SELECT COUNT(*) AS n FROM products"),
+  });
+});
+
+admin.post("/purge", requireSuper, async (c) => {
+  const { scopes, confirm } = await c.req.json();
+  if (confirm !== "DELETE") return c.json({ error: 'Type DELETE to confirm.' }, 400);
+  const want = (Array.isArray(scopes) ? scopes : []).filter((s) => PURGE[s]);
+  if (!want.length) return c.json({ error: "Pick at least one thing to clear." }, 400);
+  const stmts = [];
+  for (const s of want) for (const sql of PURGE[s]) stmts.push(c.env.DB.prepare(sql));
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true, cleared: want });
 });

@@ -1,8 +1,9 @@
 // Admin — Dashboard, Inventory, Product catalogue.
 import React, { useState } from "react";
 import { api } from "../lib/api.js";
-import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
+import { Switch } from "../ds/components.jsx";
 import { CAT_LABELS, fmtN, statusBadge } from "./App.jsx";
+import { NewProduct, EditProductPanel } from "./product-form.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const th = { padding: "10px 14px", fontWeight: 600, color: "var(--text-muted)", borderTop: "1px solid var(--border-hairline)", fontSize: 11, letterSpacing: "0.06em" };
@@ -280,115 +281,55 @@ export function Inventory({ ctx }) {
   );
 }
 
-function EditProduct({ ctx, product, onClose }) {
-  const [f, setF] = useState({ name: product.name, cat: product.cat, family: product.family, gender: product.gender, notes: product.notes, desc: product.desc });
-  const [prices, setPrices] = useState(Object.fromEntries(product.variants.map((v) => [v.id, String(v.ngn)])));
-  const [msg, setMsg] = useState("");
-  const [busy, setBusy] = useState(false);
-  const save = async () => {
-    setBusy(true); setMsg("");
-    try {
-      await api.patch(`/api/admin/products/${encodeURIComponent(product.id)}`, f, ctx.token);
-      for (const v of product.variants) {
-        const np = parseInt(prices[v.id], 10);
-        if (np && np !== v.ngn) await api.patch(`/api/admin/variants/${v.id}`, { price: np }, ctx.token);
-      }
-      ctx.flash("Product updated");
-      ctx.loadProducts();
-      onClose();
-    } catch (e) { ctx.authFail(e); setMsg(e.message); } finally { setBusy(false); }
-  };
-  const del = async () => {
-    if (!window.confirm(`Delete "${product.name}"? It will be removed from the storefront. Past orders keep their record.`)) return;
-    try { await api.del(`/api/admin/products/${encodeURIComponent(product.id)}`, ctx.token); ctx.flash("Product deleted"); ctx.loadProducts(); onClose(); }
-    catch (e) { ctx.authFail(e); setMsg(e.message); }
-  };
-  return (
-    <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Edit product</div>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--text-muted)" }}>Close</button>
-      </div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 18px" }}>Changes go live on the storefront immediately.</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Input label="Product name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        <Select label="Category" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>
-          {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </Select>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Scent family" value={f.family} onChange={(e) => setF({ ...f, family: e.target.value })} />
-          <Input label="Gender" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })} />
-        </div>
-        <div>
-          <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Prices (₦) by size</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {product.variants.map((v) => (
-              <div key={v.id} style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <span style={{ width: 60, fontSize: 13, color: "var(--text-body)" }}>{v.size}</span>
-                <input value={prices[v.id]} onChange={(e) => setPrices({ ...prices, [v.id]: e.target.value.replace(/\D/g, "") })} style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 14, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
-              </div>
-            ))}
-          </div>
-        </div>
-        <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} />
-        <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} />
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <Button variant="primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save changes"}</Button>
-          <button onClick={del} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#c0587a", fontFamily: "var(--font-sans)", marginLeft: "auto" }}>Delete product</button>
-        </div>
-        {msg && <div style={{ fontSize: 12, color: "#c0587a" }}>{msg}</div>}
-      </div>
-    </div>
-  );
-}
 
 export function Catalogue({ ctx }) {
-  const [np, setNp] = useState({ name: "", cat: "extrait", size: "", price: "", notes: "", desc: "" });
-  const [npErr, setNpErr] = useState("");
-  const [npDone, setNpDone] = useState("");
   const [editId, setEditId] = useState(null);
+  const [q, setQ] = useState("");
   const editing = ctx.products.find((p) => p.id === editId);
   const toggleLive = async (p) => {
     ctx.setProducts((cur) => cur.map((x) => (x.id === p.id ? { ...x, live: !x.live } : x)));
-    try {
-      await api.patch(`/api/admin/products/${encodeURIComponent(p.id)}`, { live: !p.live }, ctx.token);
-    } catch (e) { ctx.authFail(e); ctx.loadProducts(); }
-  };
-  const addProduct = async () => {
-    try {
-      const r = await api.post("/api/admin/products", np, ctx.token);
-      setNp({ name: "", cat: "extrait", size: "", price: "", notes: "", desc: "" });
-      setNpErr("");
-      setNpDone(r.name);
-      ctx.loadProducts();
-    } catch (e) {
-      ctx.authFail(e);
-      setNpErr(e.message);
-      setNpDone("");
-    }
+    try { await api.patch(`/api/admin/products/${encodeURIComponent(p.id)}`, { live: !p.live }, ctx.token); }
+    catch (e) { ctx.authFail(e); ctx.loadProducts(); }
   };
   const variants = ctx.products.reduce((n, p) => n + p.variants.length, 0);
+  const shown = ctx.products.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()));
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 20, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{ctx.products.length} products · {variants} variants across 3 stores</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 14 }}>
-          {ctx.products.map((p) => {
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…"
+            style={{ fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)", width: 220 }} />
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{ctx.products.length} products · {variants} variants</div>
+        </div>
+        {ctx.products.length === 0 && (
+          <div style={{ ...card, padding: 24, textAlign: "center" }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>No products yet</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Add your first product with the form beside this — set it live and it appears on the storefront straight away.</div>
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+          {shown.map((p) => {
             const total = p.variants.reduce((n, v) => n + (v.stock.abuja || 0) + (v.stock.lagos || 0) + (v.stock.ibadan || 0), 0);
             const multi = p.variants.length > 1;
             return (
-              <div key={p.id} style={{ ...card, padding: 18, display: "flex", flexDirection: "column", gap: 8, opacity: p.live ? 1 : 0.62 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                  <div>
-                    <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)" }}>{p.name}</div>
+              <div key={p.id} style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 8, opacity: p.live ? 1 : 0.62 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ width: 52, height: 52, borderRadius: "var(--radius-sm)", overflow: "hidden", background: "var(--surface-sunken)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {p.imageUrl
+                      ? <img src={p.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <span style={{ fontFamily: "var(--font-display)", fontSize: 15, color: "var(--mr-purple-500)" }}>{initialsOf(p.name)}</span>}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "var(--font-display)", fontSize: 16.5, color: "var(--text-strong)" }}>{p.name}</div>
                     <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>{CAT_LABELS[p.cat] || p.cat} · {p.family}</div>
                   </div>
                   <Switch checked={p.live} onChange={() => toggleLive(p)} />
                 </div>
                 <div style={{ fontSize: 13, color: "var(--text-body)" }}>{(multi ? "From " : "") + fmtN(p.variants[0].ngn)} · {p.variants.map((v) => v.size).join(" / ")}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                   <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: "var(--surface-sunken)", color: "var(--mr-purple-800)" }}>{total} in stock</span>
-                  <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: p.live ? "#e4efe4" : "var(--mr-gold-200)", color: p.live ? "#3f6b45" : "var(--mr-gold-600)" }}>{p.live ? "Live on storefront" : "Draft — hidden"}</span>
+                  <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: p.live ? "#e4efe4" : "var(--mr-gold-200)", color: p.live ? "#3f6b45" : "var(--mr-gold-600)" }}>{p.live ? "Live" : "Draft"}</span>
+                  {!p.imageUrl && <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: "#f7e3ea", color: "#c0587a" }}>No photo</span>}
                   <button onClick={() => setEditId(p.id)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--mr-purple-700)", fontFamily: "var(--font-sans)", padding: 0 }}>Edit →</button>
                 </div>
               </div>
@@ -396,34 +337,11 @@ export function Catalogue({ ctx }) {
           })}
         </div>
       </div>
-      {editing ? (
-        <EditProduct ctx={ctx} product={editing} onClose={() => setEditId(null)} />
-      ) : (
       <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Add a product</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>New pieces enter the catalogue as drafts — set stock per store before going live.</div>
-        {npDone && (
-          <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: 16, textAlign: "center", marginBottom: 16 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--mr-purple-900)" }}>Added — quietly.</div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{npDone} is now a draft in the catalogue.</div>
-          </div>
-        )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Input label="Product name" value={np.name} onChange={(e) => setNp({ ...np, name: e.target.value })} placeholder="e.g. Velvet Reign" />
-          <Select label="Category" value={np.cat} onChange={(e) => setNp({ ...np, cat: e.target.value })}>
-            {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Input label="Size" value={np.size} onChange={(e) => setNp({ ...np, size: e.target.value })} placeholder="30ml" />
-            <Input label="Price (₦)" value={np.price} onChange={(e) => setNp({ ...np, price: e.target.value })} placeholder="35000" />
-          </div>
-          <Textarea label="Scent notes" value={np.notes} onChange={(e) => setNp({ ...np, notes: e.target.value })} rows={2} placeholder="Oud, saffron, smoked amber" />
-          <Textarea label="Product description" value={np.desc} onChange={(e) => setNp({ ...np, desc: e.target.value })} rows={2} placeholder="A short, evocative description shoppers read on the product page." hint="Shown to shoppers on the product page." />
-          <Button variant="primary" block onClick={addProduct}>Add to catalogue</Button>
-          {npErr && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{npErr}</div>}
-        </div>
+        {editing
+          ? <EditProductPanel ctx={ctx} product={editing} onClose={() => setEditId(null)} />
+          : <NewProduct ctx={ctx} />}
       </div>
-      )}
     </main>
   );
 }
