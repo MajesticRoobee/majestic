@@ -174,6 +174,40 @@ The API token can't toggle zone security, so these are quick clicks in the Cloud
 
 ---
 
+## 7. Deployment pipelines — important
+
+There are (or were) **two** CI systems pointed at this repo, both firing on every push:
+
+| Pipeline | What it does | Status |
+|---|---|---|
+| **GitHub Actions** (`.github/workflows/deploy.yml`) | lint → build → **apply D1 migrations** → deploy → sync secrets → smoke tests → **headless render check** | ✅ the source of truth |
+| **Cloudflare Workers Builds** (dashboard-connected) | `npm clean-install` → `npx wrangler deploy` — **no build step** | ❌ was failing |
+
+Workers Builds failed with `The directory specified by the "assets.directory" field
+does not exist: /opt/buildhome/repo/dist` because `dist/` is a gitignored build
+artifact and that pipeline never ran `npm run build`.
+
+**Recommendation: disable Workers Builds and keep GitHub Actions.** Two pipelines on
+one push means double deploys and a race — and Workers Builds skips database
+migrations, linting and the render check, so it can ship code ahead of its schema.
+Disable it in the dashboard: **Workers & Pages → majestic-roobee → Settings → Builds
+→ disconnect the repository** (or toggle off automatic builds).
+
+**If you'd rather keep Workers Builds instead**, set one of these in that same
+Builds panel (Workers Builds deliberately ignores the `build` block in
+`wrangler.jsonc`, so it must be configured there):
+- **Build command:** `npm run build`, or
+- **Deploy command:** `npm run deploy` (the script already does `npm run build && wrangler deploy`)
+
+…and then disable the GitHub Actions workflow so only one pipeline deploys — but note
+you'd lose the migration/lint/render-check gates unless you re-add them there.
+
+Note: `wrangler.jsonc` now carries a `build.command`, which makes a **manual/local**
+`wrangler deploy` build first (that path used to hit the same error). It does not
+affect Workers Builds.
+
+---
+
 ## 5. Change log
 - _v1_ — Initial systems map and phase plan.
 - _v2_ — Locked decisions D1 (Resend), D2 (click-to-chat now), D3 (Paystack + Stripe), D7 (progressive/optional accounts). Started **Phase 0**.
