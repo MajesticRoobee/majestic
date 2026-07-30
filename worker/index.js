@@ -2,12 +2,16 @@ import { Hono } from "hono";
 import { shop } from "./shop.js";
 import { admin } from "./admin.js";
 import { account } from "./customers.js";
+import { v1, handleMcp } from "./integrations.js";
+import { runScheduled } from "./events.js";
 
 const app = new Hono();
 
 app.route("/api", shop);
 app.route("/api/admin", admin);
 app.route("/api/account", account);
+app.route("/api/v1", v1);
+app.post("/api/mcp", (c) => handleMcp(c));
 
 app.get("/robots.txt", (c) => {
   const origin = new URL(c.req.url).origin;
@@ -51,4 +55,8 @@ app.onError((err, c) => {
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export default app;
+export default {
+  fetch: (req, env, ctx) => app.fetch(req, env, ctx),
+  // Cron: drain the automation outbox and enqueue time-based automations.
+  scheduled: (event, env, ctx) => ctx.waitUntil(runScheduled(env)),
+};

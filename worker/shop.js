@@ -1,6 +1,7 @@
 // Public storefront API.
 import { Hono } from "hono";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate } from "./util.js";
+import { emitEvent } from "./events.js";
 
 export const shop = new Hono();
 
@@ -109,6 +110,16 @@ shop.post("/inquiries/:id/messages", async (c) => {
   if (!inq || !inq.guest_key || inq.guest_key !== key) return c.json({ error: "Not found." }, 404);
   await db.prepare("INSERT INTO inquiry_messages (inquiry_id, from_us, text) VALUES (?, 0, ?)").bind(inq.id, String(message).trim()).run();
   await db.prepare("UPDATE inquiries SET status='Open' WHERE id=? AND status='Resolved'").bind(inq.id).run();
+  return c.json({ ok: true });
+});
+
+// Back-in-stock waitlist — "Notify me" on sold-out products.
+shop.post("/waitlist", async (c) => {
+  const { productId, size, contact, city } = await c.req.json();
+  if (!productId || !contact || !String(contact).trim()) return c.json({ error: "Product and a contact are required." }, 400);
+  await c.env.DB.prepare("INSERT INTO stock_waitlist (product_id, size, contact, city) VALUES (?, ?, ?, ?)")
+    .bind(productId, size || null, String(contact).trim(), city || null).run();
+  await emitEvent(c.env, "waitlist_joined", { entity: productId, payload: { productId, contact: String(contact).trim() }, ctx: c.executionCtx });
   return c.json({ ok: true });
 });
 
@@ -229,6 +240,12 @@ shop.post("/orders", async (c) => {
   }
   await db.batch(statements);
 
+  await emitEvent(c.env, "order_placed", {
+    entity: no,
+    payload: { orderNo: no, name: customer.name.trim(), email: (customer.email || "").trim(), phone: customer.phone.trim(), contact: (customer.email || "").trim() || customer.phone.trim(), total, city },
+    ctx: c.executionCtx,
+  });
+
   const order = {
     no,
     totalLabel: fmtNaira(total),
@@ -269,12 +286,15 @@ shop.post("/orders", async (c) => {
   return c.json({ order });
 });
 
-async function markPaid(db, no, refDetail) {
+async function markPaid(env, no) {
+  const db = env.DB;
   await db.prepare("UPDATE orders SET pay_status='paid' WHERE no=?").bind(no).run();
   await db
     .prepare("UPDATE order_events SET detail = detail || ' — payment confirmed' WHERE order_no=? AND sort=1")
     .bind(no)
     .run();
+  const o = await db.prepare("SELECT customer, email, phone, total FROM orders WHERE no=?").bind(no).first();
+  if (o) await emitEvent(env, "order_paid", { entity: no, payload: { orderNo: no, name: o.customer, email: o.email, phone: o.phone, contact: o.email || o.phone, total: o.total } });
 }
 
 // Paystack redirects back here (client calls this to confirm).
@@ -290,7 +310,7 @@ shop.get("/paystack/verify", async (c) => {
   });
   const data = await res.json().catch(() => null);
   const paid = !!(data && data.status && data.data && data.data.status === "success");
-  if (paid) await markPaid(db, no);
+  if (paid) await markPaid(c.env, no);
   return c.json({ ok: true, paid });
 });
 
@@ -307,7 +327,7 @@ shop.post("/paystack/webhook", async (c) => {
   const event = JSON.parse(raw);
   if (event.event === "charge.success") {
     const no = event.data?.metadata?.order_no;
-    if (no) await markPaid(c.env.DB, no);
+    if (no) await markPaid(c.env, no);
   }
   return c.text("ok");
 });

@@ -3,6 +3,13 @@
   "name": "majestic-roobee",
   "main": "worker/index.js",
   "compatibility_date": "2026-01-01",
+  // `dist/` is a build artifact (gitignored), so any deploy must build first or
+  // the assets.directory below won't exist. This makes a bare `wrangler deploy`
+  // self-contained. NOTE: Cloudflare Workers Builds (dashboard CI) does NOT
+  // honour this block — see docs/BUILD-MAP.md §7 for its required setting.
+  "build": {
+    "command": "npm run build"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
@@ -10,6 +17,10 @@
     // back to the storefront shell.
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/robots.txt", "/sitemap.xml"]
+  },
+  "triggers": {
+    // Drain the automation outbox and enqueue time-based automations.
+    "crons": ["*/15 * * * *"]
   },
   "d1_databases": [
     {

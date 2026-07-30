@@ -24,8 +24,8 @@ on top of them gets re-invented in a one-off way:
 | # | Foundation | Why it's load-bearing | Unlocks |
 |---|------------|----------------------|---------|
 | **F1** | **Customer identity** — accounts, unified profile, auth | Nothing on the list about *knowing a customer over time* works without a persistent customer record | CRM, loyalty, referral, wishlist-sync, order history, birthday campaigns, personalized recs, review attribution, back-in-stock, customer 2FA |
-| **F2** | **Event + automation backbone** — record "what happened", trigger actions | Every automated workflow is the same engine: *event → rule → action*. Pixels and analytics also tap this stream | Abandoned-cart recovery, post-purchase follow-ups, birthday/repeat campaigns, back-in-stock alerts, analytics events |
-| **F3** | **Integration layer (incl. the MCP)** — one normalized way to push/pull with the outside world | Shipping, email, WhatsApp, POS, accounting, WMS, and AI agents are all "external systems we exchange data with." Build the plane once | GIG shipping, email marketing, WhatsApp Business, POS/accounting/WMS connectors, mobile app API, MCP server |
+| **F2** ✅ | **Event + automation backbone** — record "what happened", trigger actions | Every automated workflow is the same engine: *event → rule → action*. Pixels and analytics also tap this stream | **LIVE**: event log, 6 seeded automations (abandoned-cart, post-purchase, back-in-stock, order-status, welcome, birthday), outbox + cron drain, waitlist. Sends activate when Resend connects. |
+| **F3** ✅ | **Integration layer (incl. the MCP)** — one normalized way to push/pull with the outside world | Shipping, email, WhatsApp, POS, accounting, WMS, and AI agents are all "external systems we exchange data with." Build the plane once | **LIVE**: signed outbound webhooks, scoped API keys, `/api/v1` partner API, `/api/mcp` MCP endpoint (tools). Individual connectors (GIG, Resend, WhatsApp) plug in on top. |
 
 Everything else is a **feature that plugs into F1–F3**. So the sequencing rule is:
 _foundations → features that ride them → polish._
@@ -72,8 +72,8 @@ _foundations → features that ride them → polish._
 | Capability | Status | Current capacity | Gap |
 |---|---|---|---|
 | Campaign composer | 🟡 | Banner **publishes**; email/push are **preview-only** | Real sends via connectors (F3) |
-| Abandoned-cart recovery | 🟡 | Capture ✅ (shown in admin) | The **automated recovery** itself (F2 → email/WhatsApp) |
-| Lifecycle automations | ⬜ | — | Post-purchase, birthday, repeat, back-in-stock (F2) |
+| Abandoned-cart recovery | ✅ | Capture ✅ + **cron enqueues a recovery** per stale cart into the outbox | Email send flips on with Resend |
+| Lifecycle automations | ✅ | **Engine live** — post-purchase, back-in-stock (waitlist-driven), order-status, welcome all enqueue; birthday scaffolded | Email/WhatsApp dispatch via connectors |
 | Email marketing integration | 🔑⬜ | — | Provider decision (Resend / Klaviyo / Mailchimp) |
 | WhatsApp Business API | 🔑⬜ | Click-to-chat link only | Real 2-way API (Meta Cloud / 360dialog / Twilio) |
 | Analytics & pixels | 🟡 | **Consent-gated tag loader live** (GA4, Google Ads, Meta Pixel, TikTok, Clarity) + admin-managed IDs; canonical events (view_item/add_to_cart/begin_checkout/purchase) wired | Paste IDs in Admin → Settings to activate; GSC verify |
@@ -95,12 +95,13 @@ _foundations → features that ride them → polish._
 ### F. Integration Platform — **Foundation F3 (incl. MCP)**
 | Capability | Status | Notes |
 |---|---|---|
-| Internal API surface | 🟡 | Clean Hono API exists; make it a documented, key-scoped **integration API** with outbound webhooks |
-| Shipping / GIG connector | 🔑⬜ | Rates, label, tracking sync |
-| Email marketing connector | 🔑⬜ | Contact sync + transactional/marketing sends |
+| Integration API (`/api/v1`) | ✅ | Key-scoped REST: products, inventory, orders, customers |
+| Outbound webhooks | ✅ | HMAC-signed POST of any/all events to external URLs (Zapier/Make/n8n/CRM) |
+| MCP endpoint (`/api/mcp`) | ✅ | JSON-RPC (initialize/tools/list/tools/call) exposing list_products, get_inventory, list_orders, get_order as **tools** to AI agents — the "MCP tool for connections" |
+| Shipping / GIG connector | 🔑⬜ | Rides F3 — rates, label, tracking sync |
+| Email marketing connector (Resend) | 🔑⬜ | Dispatcher stub in place; add `RESEND_API_KEY` to activate sends |
 | WhatsApp Business connector | 🔑⬜ | Templated + session messages |
-| MCP server for the store | ⬜ | Exposes catalogue / orders / customers / inventory as **tools** to AI agents & external automation — this is the "MCP tool for connections" the client asked for |
-| POS / accounting / WMS / mobile | ⬜ | Future connectors on the same API/MCP plane |
+| POS / accounting / WMS / mobile | 🟢 | Can integrate today via `/api/v1` + webhooks + MCP |
 
 ### G. Platform, Security & Ops
 | Capability | Status | Current capacity | Gap |
@@ -173,9 +174,44 @@ The API token can't toggle zone security, so these are quick clicks in the Cloud
 
 ---
 
+## 7. Deployment pipelines — important
+
+There are (or were) **two** CI systems pointed at this repo, both firing on every push:
+
+| Pipeline | What it does | Status |
+|---|---|---|
+| **GitHub Actions** (`.github/workflows/deploy.yml`) | lint → build → **apply D1 migrations** → deploy → sync secrets → smoke tests → **headless render check** | ✅ the source of truth |
+| **Cloudflare Workers Builds** (dashboard-connected) | `npm clean-install` → `npx wrangler deploy` — **no build step** | ❌ was failing |
+
+Workers Builds failed with `The directory specified by the "assets.directory" field
+does not exist: /opt/buildhome/repo/dist` because `dist/` is a gitignored build
+artifact and that pipeline never ran `npm run build`.
+
+**Recommendation: disable Workers Builds and keep GitHub Actions.** Two pipelines on
+one push means double deploys and a race — and Workers Builds skips database
+migrations, linting and the render check, so it can ship code ahead of its schema.
+Disable it in the dashboard: **Workers & Pages → majestic-roobee → Settings → Builds
+→ disconnect the repository** (or toggle off automatic builds).
+
+**If you'd rather keep Workers Builds instead**, set one of these in that same
+Builds panel (Workers Builds deliberately ignores the `build` block in
+`wrangler.jsonc`, so it must be configured there):
+- **Build command:** `npm run build`, or
+- **Deploy command:** `npm run deploy` (the script already does `npm run build && wrangler deploy`)
+
+…and then disable the GitHub Actions workflow so only one pipeline deploys — but note
+you'd lose the migration/lint/render-check gates unless you re-add them there.
+
+Note: `wrangler.jsonc` now carries a `build.command`, which makes a **manual/local**
+`wrangler deploy` build first (that path used to hit the same error). It does not
+affect Workers Builds.
+
+---
+
 ## 5. Change log
 - _v1_ — Initial systems map and phase plan.
 - _v2_ — Locked decisions D1 (Resend), D2 (click-to-chat now), D3 (Paystack + Stripe), D7 (progressive/optional accounts). Started **Phase 0**.
 - _v3_ — Shipped **Phase 0a (instrument)** + **0b (discover)**: consent-gated analytics/pixels with admin-managed IDs, ecommerce event tracking, path-based routing, per-page SEO + JSON-LD, sitemap & robots. Remaining: **0c (harden)**.
 - _v4_ — Shipped most of **0c (harden)**: per-user admin accounts with issued passphrases + forced change, TOTP 2FA, master passphrase break-glass, manager store-scoping; security headers; daily D1 backup export; privacy page; non-blocking consent banner that invites shopping. WAF left as a dashboard action (§6).
+- _v6_ — Shipped **Phase 1 F2 + F3**. F2: event log, 6 automations (abandoned-cart, post-purchase, back-in-stock, order-status, welcome, birthday), outbox + 15-min cron drain, back-in-stock waitlist ("Notify me"). F3: signed outbound webhooks, scoped API keys, `/api/v1` partner API, and an `/api/mcp` MCP endpoint (tools). Admin **Integrations & automations** page manages it all. Cron trigger added to the Worker. All three foundations (F1/F2/F3) are now live — **the platform can automate lifecycle messaging and be integrated by external systems and AI agents.** Next: Phase 2 (Resend to activate email sends, GIG, CRM view, reviews).
 - _v5_ — Shipped **Phase 1 F1 — customer accounts** (guest-first, optional): register/login, guest-record claiming, order history (auto-linked by email), saved addresses, wishlists, checkout prefill, confirmation-page account nudge, and a header **profile menu** that is sign-in when logged-out, shows the name when logged-in, and gateways the staff portal. Tokens namespaced (customer vs admin). Also broadened admin control: **edit/reprice/delete existing products** and admin-controlled homepage layout / popup / default city. Deploy pipeline now applies D1 migrations to production (`wrangler d1 migrations apply --remote`). **Next: F2 event/automation backbone, F3 integration layer; then Phase 2 (CRM, reviews, first automations, Resend email, GIG).**

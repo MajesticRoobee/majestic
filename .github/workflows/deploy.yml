@@ -22,6 +22,11 @@ jobs:
 
       - run: npm ci
 
+      # Static analysis first — `vite build` only transpiles, so it cannot catch
+      # things like a hook dep referencing a const declared later (the bug that
+      # once shipped a blank storefront). Lint failing blocks the deploy.
+      - run: npm run lint
+
       - run: npm run build
 
       # Apply any pending D1 migrations to production before the new Worker
@@ -71,3 +76,11 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/admin/login" -H 'content-type: application/json' -d '{"password":"definitely-wrong"}')
           echo "bad login -> HTTP $code"; test "$code" = "401"
           echo "All smoke tests passed."
+
+      - name: Render check (headless browser)
+        env:
+          SITE_URL: https://majestic-roobee.victorugwu4real.workers.dev
+        run: |
+          npm i -D playwright@1.48.0 >/dev/null 2>&1
+          npx playwright install --with-deps chromium
+          node scripts/render-check.mjs
