@@ -230,9 +230,12 @@ export function Inquiries({ ctx }) {
   const inqs = ctx.inquiries;
   const sel = inqs.find((q) => q.id === selId) || inqs[0];
   const threadRef = useRef(null);
+  // Extracted so the deps are statically checkable (scroll to the newest reply).
+  const selKey = sel ? sel.id : null;
+  const threadLen = sel ? sel.thread.length : 0;
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
-  }, [sel && sel.thread.length, sel && sel.id]);
+  }, [selKey, threadLen]);
   useEffect(() => {
     const t = setInterval(ctx.loadInquiries, 20000); // pick up new storefront chats
     return () => clearInterval(t);

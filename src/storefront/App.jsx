@@ -6,7 +6,7 @@ import { HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, 
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
-import { hasTags, getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
+import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
 
 const SCOPE_CATS = {
   Storewide: null,
@@ -14,6 +14,10 @@ const SCOPE_CATS = {
   "Gift packages": ["package"],
   "Feminine care": ["care", "deo"],
 };
+
+// Stable empty fallbacks — a fresh {} / [] each render would break memoisation.
+const EMPTY_OBJ = {};
+const EMPTY_ARR = [];
 
 export default function App() {
   const initialRoute = pathToRoute();
@@ -157,11 +161,13 @@ export default function App() {
     catch { window.alert("Couldn't add you just now — please try again."); }
   }, [cust, city]);
 
-  const settings = D ? D.settings : {};
-  const locations = D ? D.locations : [];
-  const products = D ? D.products : [];
-  const categories = D ? D.categories : [];
-  const L = locations.find((l) => l.id === city) || null;
+  // Memoised so the fallbacks ({} / []) keep a stable identity across renders —
+  // otherwise every downstream useMemo/useCallback dep changes on every render.
+  const settings = useMemo(() => (D ? D.settings : EMPTY_OBJ), [D]);
+  const locations = useMemo(() => (D ? D.locations : EMPTY_ARR), [D]);
+  const products = useMemo(() => (D ? D.products : EMPTY_ARR), [D]);
+  const categories = useMemo(() => (D ? D.categories : EMPTY_ARR), [D]);
+  const L = useMemo(() => locations.find((l) => l.id === city) || null, [locations, city]);
   const cityName = cap(city);
 
   const fmt = useCallback((ngn) => fmtCurrency(ngn, currency, settings.ngnPerUsd || 1550), [currency, settings.ngnPerUsd]);

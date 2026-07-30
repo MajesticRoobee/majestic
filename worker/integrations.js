@@ -2,7 +2,7 @@
 // and an MCP-compatible JSON-RPC endpoint (/api/mcp) exposing store data as
 // tools to AI agents and external automation.
 import { Hono } from "hono";
-import { sha256hex, loadProducts, displayDate, fmtNaira } from "./util.js";
+import { sha256hex, loadProducts, displayDate } from "./util.js";
 
 // ---- shared API-key auth ----
 async function authKey(env, req, ctx) {

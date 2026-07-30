@@ -3,7 +3,6 @@
 // emitEvent() records a domain event, fans it out to registered webhooks, and
 // enqueues any matching automations into the outbox. A scheduled (cron) handler
 // drains time-based automations (abandoned carts, birthdays) and the outbox.
-import { displayTime } from "./util.js";
 
 const te = new TextEncoder();
 
@@ -98,7 +97,6 @@ async function dispatchRun(env, run, automation) {
 
 // Cron: enqueue time-based automations, then drain the outbox.
 export async function runScheduled(env) {
-  const now = Date.now();
 
   // Abandoned-cart recovery — one chase per cart, after its delay.
   const cartAuto = await env.DB.prepare("SELECT * FROM automations WHERE id='abandoned_cart' AND enabled=1").first();
