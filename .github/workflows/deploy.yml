@@ -69,9 +69,15 @@ jobs:
           curl -sfS "$SITE_URL/admin/" | grep -o '<title>[^<]*</title>'
           echo "— store bootstrap —"
           products=$(curl -sfS "$SITE_URL/api/store" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['products']))")
-          echo "live products: $products"; test "$products" -ge 17
-          echo "— order tracking (seeded demo order) —"
-          curl -sfS "$SITE_URL/api/orders/track?no=MR-10234&contact=0803%202214409" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['no'], '·', d['status'], '·', len(d['steps']), 'timeline steps')"
+          echo "live products: $products"; test "$products" -ge 1
+          # Tracking is checked through its rejection path, not a known order.
+          # The sample data is gone, and a real order number can't be asserted
+          # here anyway — this still exercises the route, the database read and
+          # the JSON error contract the storefront relies on.
+          echo "— order tracking (unknown order rejects cleanly) —"
+          code=$(curl -s -o "${RUNNER_TEMP:-.}/track.json" -w '%{http_code}' "$SITE_URL/api/orders/track?no=MR-00000&contact=none@example.com")
+          echo "unknown order -> HTTP $code"; test "$code" = "404"
+          python3 -c "import json; d=json.load(open('${RUNNER_TEMP:-.}/track.json')); assert d.get('error'), d; print('error surfaced:', d['error'])"
           echo "— admin auth rejects bad passphrase —"
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/admin/login" -H 'content-type: application/json' -d '{"password":"definitely-wrong"}')
           echo "bad login -> HTTP $code"; test "$code" = "401"
