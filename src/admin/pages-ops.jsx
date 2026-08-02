@@ -338,7 +338,7 @@ export function Catalogue({ ctx }) {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: "var(--font-display)", fontSize: 16.5, color: "var(--text-strong)" }}>{p.name}</div>
-                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>{CAT_LABELS[p.cat] || p.cat} · {p.family}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>{CAT_LABELS[p.cat] || p.cat}</div>
                   </div>
                   <Switch checked={p.live} onChange={() => toggleLive(p)} />
                 </div>

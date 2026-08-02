@@ -276,7 +276,7 @@ function Footer({ ctx }) {
           <div style={colTitle}>Shop</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
             {link("All products", "shop", { fCat: "all" })}
-            {link("Gift packages", "shop", { fCat: "package" })}
+            {link("Gift & fragrance sets", "shop", { fCat: "fragrance-set" })}
             {link("Feminine care", "shop", { fCat: "care" })}
           </div>
         </div>

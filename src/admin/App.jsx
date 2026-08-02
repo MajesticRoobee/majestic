@@ -7,14 +7,21 @@ import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
 import { GoLivePage } from "./golive.jsx";
 
+// Mirrors the `categories` table (migration 0008) in shelf order.
 export const CAT_LABELS = {
   extrait: "Extrait Perfumes",
-  designer: "Designer Fragrances",
-  sensual: "Sensual Fragrances",
+  designer: "Designer Oils",
+  "custom-oil": "Custom Oils",
   mist: "Body Mists",
+  home: "Home Fragrance",
   deo: "Deodorants",
   care: "Feminine Care",
-  package: "Gift Packages",
+  massage: "Massage Oils",
+  health: "Health Drinks",
+  "fragrance-set": "Fragrance Sets",
+  "mist-set": "Body Mist Sets",
+  "custom-oil-set": "Custom Oil Sets",
+  "gift-set": "Gift Sets",
 };
 
 export const fmtN = (n) => "₦" + Number(n || 0).toLocaleString("en-US");

@@ -296,7 +296,7 @@ admin.post("/products", async (c) => {
   await db.prepare(
     "INSERT INTO products (id, name, cat, gender, family, notes, descr, image_url, live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
-    id, name, cat, b.gender || "Unisex", b.family || "Amber",
+    id, name, cat, b.gender || "Unisex", b.family || "",
     (b.notes || "").trim() || "—",
     (b.desc || "").trim() || "A new addition to the house — description coming soon.",
     (b.imageUrl || "").trim() || null,

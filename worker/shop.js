@@ -8,10 +8,12 @@ export const shop = new Hono();
 const LOCATION_ORDER = ["abuja", "lagos", "ibadan"];
 
 // Category groups a promo scope applies to.
+// Home fragrance, massage oils and the health drink sit outside these groups, so
+// a promo aimed at them is written Storewide.
 const SCOPE_CATS = {
   Storewide: null,
-  Fragrances: ["extrait", "designer", "sensual", "mist"],
-  "Gift packages": ["package"],
+  Fragrances: ["extrait", "designer", "custom-oil", "mist"],
+  "Gift packages": ["fragrance-set", "mist-set", "custom-oil-set", "gift-set"],
   "Feminine care": ["care", "deo"],
 };
 

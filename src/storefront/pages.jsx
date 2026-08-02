@@ -32,7 +32,7 @@ export function ProductCard({ p, height = 230 }) {
       </div>
       <div style={{ padding: "16px 18px 18px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
         <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-          {p.catLabel}{p.family ? " · " + p.family : ""}
+          {p.catLabel}
         </div>
         <a href={p.href} onClick={(e) => { e.preventDefault(); p.open(); }} style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", lineHeight: 1.25 }}>
           {p.name} {p.sizeLabel && <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>{p.sizeLabel}</span>}
@@ -51,8 +51,11 @@ export function HomePage({ ctx }) {
   const { settings, products, categories, cityName, L } = ctx;
   const dir = settings.heroDirection || "editorial split";
   const inCity = products.filter((p) => ctx.availInfo(p).inCity).slice(0, 4).map(ctx.card);
-  const heroPicks = ["hypnotic-poison", "flames", "addictive-ambergris"]
-    .map((id) => products.find((p) => p.id === id)).filter(Boolean).map(ctx.card);
+  // Three picks from whatever is live, city stock first — never named ids, which
+  // would break the moment the catalogue changes.
+  const heroPicks = products
+    .slice().sort((a, b) => (ctx.availInfo(b).inCity ? 1 : 0) - (ctx.availInfo(a).inCity ? 1 : 0))
+    .slice(0, 3).map(ctx.card);
   const perk = (icon, title, sub) => (
     <div style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "18px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
       {icon}
@@ -151,12 +154,15 @@ export function HomePage({ ctx }) {
           <Eyebrow>Shop by moment</Eyebrow>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 14 }}>
-          {categories.map((c) => (
-            <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--mr-purple-900)" }}>{c.label}</div>
-              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 5 }}>{products.filter((p) => p.cat === c.id).length} pieces</div>
-            </button>
-          ))}
+          {categories.map((c) => {
+            const n = products.filter((p) => p.cat === c.id).length;
+            return (
+              <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--mr-purple-900)" }}>{c.label}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 5 }}>{n} {n === 1 ? "piece" : "pieces"}</div>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -177,8 +183,7 @@ export function ShopPage({ ctx }) {
   const { products, categories, cityName } = ctx;
   let list = products.filter((p) => {
     if (ctx.fCat !== "all" && p.cat !== ctx.fCat) return false;
-    if (ctx.fFam !== "all" && p.family !== ctx.fFam) return false;
-    if (ctx.search && !(p.name + " " + p.notes + " " + p.family).toLowerCase().includes(ctx.search.toLowerCase())) return false;
+    if (ctx.search && !(p.name + " " + p.notes).toLowerCase().includes(ctx.search.toLowerCase())) return false;
     return true;
   });
   const price0 = (p) => p.variants[0].ngn;
@@ -186,7 +191,7 @@ export function ShopPage({ ctx }) {
   else if (ctx.fSort === "high") list = list.slice().sort((a, b) => price0(b) - price0(a));
   else if (ctx.fSort === "name") list = list.slice().sort((a, b) => a.name.localeCompare(b.name));
   else list = list.slice().sort((a, b) => (ctx.availInfo(b).inCity ? 1 : 0) - (ctx.availInfo(a).inCity ? 1 : 0));
-  const filtersDirty = ctx.fCat !== "all" || ctx.fFam !== "all" || !!ctx.search;
+  const filtersDirty = ctx.fCat !== "all" || !!ctx.search;
   const filterCats = [{ id: "all", label: "Everything" }].concat(categories);
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", outline: "none", cursor: "pointer" };
   return (
@@ -205,10 +210,6 @@ export function ShopPage({ ctx }) {
         })}
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 28 }}>
-        <select value={ctx.fFam} onChange={(e) => ctx.setFFam(e.target.value)} style={selStyle}>
-          <option value="all">All scent families</option>
-          {["Amber", "Floral", "Fresh", "Gourmand", "Woody", "Care"].map((f) => <option key={f} value={f}>{f}</option>)}
-        </select>
         <select value={ctx.fSort} onChange={(e) => ctx.setFSort(e.target.value)} style={selStyle}>
           <option value="featured">Sort — {cityName} first</option>
           <option value="low">Price · low to high</option>
@@ -234,7 +235,7 @@ export function ProductPage({ ctx }) {
   const prA = ctx.availInfo(pr);
   const { cityName, L } = ctx;
   const soldOut = Object.values(prV.stock).every((n) => !n);
-  const related = ctx.products.filter((p) => p.id !== pr.id && (p.cat === pr.cat || p.family === pr.family)).slice(0, 3).map(ctx.card);
+  const related = ctx.products.filter((p) => p.id !== pr.id && p.cat === pr.cat).slice(0, 3).map(ctx.card);
   return (
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>
       <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to the collection</button>
@@ -243,7 +244,7 @@ export function ProductPage({ ctx }) {
           <ImageSlot src={pr.imageUrl} shape="rounded" radius={16} name={pr.name} label={pr.name + " — product photo"} style={{ width: "100%", height: 520 }} />
         </div>
         <div>
-          <Eyebrow>{ctx.catLabel(pr.cat)} · {pr.family}</Eyebrow>
+          <Eyebrow>{ctx.catLabel(pr.cat)}</Eyebrow>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 42px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>{pr.name}</h1>
           <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontStyle: "italic", color: "var(--text-muted)", marginBottom: 14 }}>{pr.notes}</div>
           <div style={{ fontSize: 24, fontWeight: 600, color: "var(--mr-purple-900)", marginBottom: 18 }}>{ctx.fmt(prV.ngn)}</div>
