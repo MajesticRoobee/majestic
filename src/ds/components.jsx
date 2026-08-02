@@ -180,3 +180,13 @@ export function ImageSlot({ src, name = "", label, shape = "rect", radius = 0, s
     </div>
   );
 }
+
+// A quiet line for a table or panel that has nothing in it yet. Tables here are
+// CSS grids, so this spans every column rather than sitting in one cell.
+export function EmptyRow({ children, span = 1, pad = "26px 22px" }) {
+  return (
+    <div style={{ gridColumn: `span ${span}`, padding: pad, borderTop: "1px solid var(--border-hairline)", fontSize: 12.5, color: "var(--text-muted)", textAlign: "center", lineHeight: 1.6 }}>
+      {children}
+    </div>
+  );
+}

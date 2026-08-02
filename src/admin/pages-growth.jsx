@@ -1,7 +1,7 @@
 // Admin — Sales & promos, Notifications, Customer service, Settings.
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
-import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
+import { Button, Input, Select, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
 import { statusBadge } from "./App.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
@@ -72,6 +72,7 @@ export function Sales({ ctx }) {
             <div style={th}>REDEMPTIONS</div>
             <div style={th}>STATUS</div>
             <div style={{ ...th, paddingRight: 22 }}></div>
+            {!ctx.promos.length && <EmptyRow span={6}>No promo codes yet — create one with the form above and it works at checkout straight away.</EmptyRow>}
             {ctx.promos.map((p) => {
               const ended = p.status === "Ended";
               const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)" };
@@ -198,6 +199,7 @@ export function Notifications({ ctx }) {
               <div style={th}>AUDIENCE</div>
               <div style={th}>STATUS</div>
               <div style={{ ...th, paddingRight: 22 }}>PERFORMANCE</div>
+              {!ctx.campaigns.length && <EmptyRow span={5}>No campaigns yet — anything you send from the composer above is listed here.</EmptyRow>}
               {ctx.campaigns.map((c) => {
                 const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)" };
                 return (

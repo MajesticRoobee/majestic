@@ -6,14 +6,22 @@ import { Button } from "../ds/components.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 
-const SCOPES = [
-  { id: "orders", label: "Orders", desc: "Demo orders, their items and tracking timelines." },
-  { id: "customers", label: "Customers", desc: "Customer accounts, saved addresses and wishlists." },
-  { id: "inquiries", label: "Customer service", desc: "Inbox threads and live-chat messages." },
-  { id: "checkouts", label: "Abandoned checkouts", desc: "The abandoned-cart list on the dashboard." },
-  { id: "marketing", label: "Promos, campaigns & leads", desc: "Seeded promo codes, campaigns and the email list." },
-  { id: "activity", label: "Activity & automation runs", desc: "Event log, queued automation messages, waitlists." },
-  { id: "products", label: "Products (the whole catalogue)", desc: "Every product, size and stock level. Use only if you're replacing the catalogue entirely.", danger: true },
+// Only ever removes rows the original sample data created — anything the shop
+// has added since is left alone, so these are safe to run even after go-live.
+const DEMO_SCOPES = [
+  { id: "products", label: "Sample products", desc: "The demo catalogue, with its sizes and stock. Products you added stay." },
+  { id: "orders", label: "Sample orders", desc: "Demo orders, their items and tracking timelines." },
+  { id: "inquiries", label: "Sample inbox threads", desc: "The demo customer-service conversations." },
+  { id: "checkouts", label: "Sample abandoned checkouts", desc: "The demo abandoned-cart list on the dashboard." },
+  { id: "marketing", label: "Sample promos & campaigns", desc: "The demo promo codes and campaigns." },
+];
+
+// These have no demo version — the sample data never created any. Whatever is
+// in them is real, so clearing them is a deletion of genuine records.
+const REAL_SCOPES = [
+  { id: "customers", label: "Customer accounts", desc: "Real accounts, saved addresses and wishlists." },
+  { id: "leads", label: "Email list", desc: "Real newsletter and marketing sign-ups." },
+  { id: "activity", label: "Activity & automation runs", desc: "Event log, queued automation messages, back-in-stock waitlists." },
 ];
 
 export function GoLivePage({ ctx }) {
@@ -45,24 +53,55 @@ export function GoLivePage({ ctx }) {
         <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Going live — clear the demo data</div>
         <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>
           The store was seeded with sample records so the dashboard had something to show. Clear whichever
-          you're replacing with real data. This cannot be undone — though the database keeps 30 days of
-          point-in-time history, and there's a nightly backup, so recovery is possible if something goes wrong.
+          you&apos;re replacing with real data — the samples are tagged, so removing them never touches a product,
+          order or code you added yourself. This cannot be undone, though the database keeps 30 days of
+          point-in-time history and there&apos;s a nightly backup, so recovery is possible if something goes wrong.
         </div>
       </div>
 
       <div style={{ ...card, padding: 22, display: "flex", flexDirection: "column", gap: 4 }}>
-        {SCOPES.map((s) => (
-          <label key={s.id} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 0", borderBottom: "1px solid var(--border-hairline)", cursor: "pointer" }}>
-            <input type="checkbox" checked={!!picked[s.id]} onChange={(e) => setPicked({ ...picked, [s.id]: e.target.checked })}
-              style={{ accentColor: s.danger ? "#c0587a" : "var(--mr-purple-800)", marginTop: 3, width: 15, height: 15 }} />
-            <span style={{ flex: 1 }}>
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: s.danger ? "#c0587a" : "var(--text-strong)" }}>{s.label}</span>
-              {counts && <span style={{ fontSize: 12, color: "var(--text-muted)" }}> — {counts[s.id]} record{counts[s.id] === 1 ? "" : "s"}</span>}
-              <br />
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.desc}</span>
-            </span>
-          </label>
-        ))}
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-strong)" }}>The sample data</div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6, lineHeight: 1.6 }}>
+          Removes only the demo records the store shipped with. Anything you&apos;ve added yourself is kept.
+        </div>
+        {DEMO_SCOPES.map((s) => {
+          const n = counts && counts.demo[s.id];
+          const kept = counts && counts.real[s.id];
+          return (
+            <label key={s.id} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 0", borderTop: "1px solid var(--border-hairline)", cursor: n === 0 ? "default" : "pointer", opacity: n === 0 ? 0.5 : 1 }}>
+              <input type="checkbox" disabled={n === 0} checked={!!picked[s.id]} onChange={(e) => setPicked({ ...picked, [s.id]: e.target.checked })}
+                style={{ accentColor: "var(--mr-purple-800)", marginTop: 3, width: 15, height: 15 }} />
+              <span style={{ flex: 1 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-strong)" }}>{s.label}</span>
+                {counts && <span style={{ fontSize: 12, color: "var(--text-muted)" }}> — {n === 0 ? "already cleared" : `${n} sample${n === 1 ? "" : "s"} to remove`}</span>}
+                {!!kept && <span style={{ fontSize: 12, color: "#3f6b45" }}> · {kept} of yours stays</span>}
+                <br />
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.desc}</span>
+              </span>
+            </label>
+          );
+        })}
+
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: "#c0587a", marginTop: 22 }}>Real records — no samples here</div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6, lineHeight: 1.6 }}>
+          The sample data never created any of these, so everything in them is genuine. Only tick one if you
+          truly want those records gone.
+        </div>
+        {REAL_SCOPES.map((s) => {
+          const n = counts && counts.real[s.id];
+          return (
+            <label key={s.id} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "12px 0", borderTop: "1px solid var(--border-hairline)", cursor: "pointer" }}>
+              <input type="checkbox" checked={!!picked[s.id]} onChange={(e) => setPicked({ ...picked, [s.id]: e.target.checked })}
+                style={{ accentColor: "#c0587a", marginTop: 3, width: 15, height: 15 }} />
+              <span style={{ flex: 1 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600, color: "#c0587a" }}>{s.label}</span>
+                {counts && <span style={{ fontSize: 12, color: "var(--text-muted)" }}> — {n} real record{n === 1 ? "" : "s"}</span>}
+                <br />
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{s.desc}</span>
+              </span>
+            </label>
+          );
+        })}
         <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap", marginTop: 14 }}>
           <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>Type DELETE to confirm</span>
