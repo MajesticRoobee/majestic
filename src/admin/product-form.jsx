@@ -6,7 +6,6 @@ import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { CAT_LABELS } from "./App.jsx";
 
 const LOCS = [["abuja", "Abuja"], ["lagos", "Lagos"], ["ibadan", "Ibadan"]];
-const FAMILIES = ["Amber", "Floral", "Fresh", "Gourmand", "Woody", "Care"];
 const GENDERS = ["Unisex", "Female", "Male"];
 const blankVariant = () => ({ size: "", price: "", stock: { abuja: "", lagos: "", ibadan: "" } });
 
@@ -97,7 +96,7 @@ function VariantRows({ variants, setVariants, showStock = true }) {
 }
 
 export function NewProduct({ ctx }) {
-  const [f, setF] = useState({ name: "", cat: "extrait", family: "Amber", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true });
+  const [f, setF] = useState({ name: "", cat: "extrait", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true });
   const [variants, setVariants] = useState([blankVariant()]);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
@@ -108,7 +107,7 @@ export function NewProduct({ ctx }) {
     try {
       const r = await api.post("/api/admin/products", { ...f, variants }, ctx.token);
       setDone({ name: r.name, live: r.live });
-      setF({ name: "", cat: f.cat, family: f.family, gender: f.gender, notes: "", desc: "", imageUrl: "", live: true });
+      setF({ name: "", cat: f.cat, gender: f.gender, notes: "", desc: "", imageUrl: "", live: true });
       setVariants([blankVariant()]);
       ctx.loadProducts();
       ctx.flash(r.live ? `${r.name} is live` : `${r.name} saved as draft`);
@@ -128,14 +127,9 @@ export function NewProduct({ ctx }) {
       )}
       <Input label="Product name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Velvet Reign" />
       <ImagePicker ctx={ctx} value={f.imageUrl} onChange={(url) => setF({ ...f, imageUrl: url })} />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Select label="Category" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>
-          {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </Select>
-        <Select label="Scent family" value={f.family} onChange={(e) => setF({ ...f, family: e.target.value })}>
-          {FAMILIES.map((x) => <option key={x} value={x}>{x}</option>)}
-        </Select>
-      </div>
+      <Select label="Category" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>
+        {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </Select>
       <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
         {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </Select>
@@ -151,7 +145,7 @@ export function NewProduct({ ctx }) {
 
 export function EditProductPanel({ ctx, product, onClose }) {
   const [f, setF] = useState({
-    name: product.name, cat: product.cat, family: product.family, gender: product.gender,
+    name: product.name, cat: product.cat, gender: product.gender,
     notes: product.notes, desc: product.desc, imageUrl: product.imageUrl || "",
   });
   const [prices, setPrices] = useState(Object.fromEntries(product.variants.map((v) => [v.id, String(v.ngn)])));
@@ -202,8 +196,9 @@ export function EditProductPanel({ ctx, product, onClose }) {
         <Select label="Category" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>
           {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </Select>
-        <Select label="Scent family" value={f.family} onChange={(e) => setF({ ...f, family: e.target.value })}>
-          {FAMILIES.map((x) => <option key={x} value={x}>{x}</option>)}
+        {/* The imported catalogue lands as Unisex — this is where it gets set properly. */}
+        <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
+          {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
         </Select>
       </div>
 

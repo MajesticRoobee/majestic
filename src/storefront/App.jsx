@@ -10,8 +10,8 @@ import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./a
 
 const SCOPE_CATS = {
   Storewide: null,
-  Fragrances: ["extrait", "designer", "sensual", "mist"],
-  "Gift packages": ["package"],
+  Fragrances: ["extrait", "designer", "custom-oil", "mist"],
+  "Gift packages": ["fragrance-set", "mist-set", "custom-oil-set", "gift-set"],
   "Feminine care": ["care", "deo"],
 };
 
@@ -38,7 +38,6 @@ export default function App() {
   const [mnav, setMnav] = useState(false);
   const [search, setSearch] = useState("");
   const [fCat, setFCat] = useState(initialRoute.fCat || "all");
-  const [fFam, setFFam] = useState("all");
   const [fSort, setFSort] = useState("featured");
   const [co, setCo] = useState({ name: "", email: "", phone: "", address: "", fulfill: "delivery", pay: "paystack", promo: "" });
   const [promoInfo, setPromoInfo] = useState(null); // { code, kind, value, scope: desc, freeShip } from validate
@@ -207,7 +206,7 @@ export default function App() {
     const multi = p.variants.length > 1;
     const v0 = p.variants[0];
     return {
-      id: p.id, name: p.name, imageUrl: p.imageUrl, catLabel: catLabel(p.cat), family: p.family,
+      id: p.id, name: p.name, imageUrl: p.imageUrl, catLabel: catLabel(p.cat),
       sizeLabel: multi ? "" : v0.size,
       priceLabel: (multi ? "From " : "") + fmt(v0.ngn),
       avail: a.avail, badgeBg: a.badgeBg, badgeFg: a.badgeFg, outline: !!a.outline,
@@ -422,7 +421,7 @@ export default function App() {
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
     fmt, catLabel, availInfo, bestAlt, card,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
-    search, setSearch, fCat, setFCat, fFam, setFFam, fSort, setFSort,
+    search, setSearch, fCat, setFCat, fSort, setFSort,
     productId, prSize, setPrSize, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
     track, setTrack, doTrack,
