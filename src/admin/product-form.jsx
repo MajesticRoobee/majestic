@@ -5,9 +5,9 @@ import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { CAT_LABELS } from "./App.jsx";
 
-const LOCS = [["abuja", "Abuja"], ["lagos", "Lagos"], ["ibadan", "Ibadan"]];
 const GENDERS = ["Unisex", "Female", "Male"];
-const blankVariant = () => ({ size: "", price: "", stock: { abuja: "", lagos: "", ibadan: "" } });
+// Opening stock is one field per store the house has open — no fixed three.
+const blankVariant = () => ({ size: "", price: "", stock: {} });
 
 // Upload a chosen file and hand back its served URL.
 export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
@@ -62,7 +62,7 @@ export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
   );
 }
 
-function VariantRows({ variants, setVariants, showStock = true }) {
+function VariantRows({ variants, setVariants, stores, showStock = true }) {
   const set = (i, patch) => setVariants(variants.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const setStock = (i, loc, val) => set(i, { stock: { ...variants[i].stock, [loc]: val.replace(/\D/g, "") } });
   return (
@@ -79,9 +79,9 @@ function VariantRows({ variants, setVariants, showStock = true }) {
             )}
           </div>
           {showStock && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {LOCS.map(([id, label]) => (
-                <Input key={id} label={label} value={v.stock[id] ?? ""} onChange={(e) => setStock(i, id, e.target.value)} placeholder="0" />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
+              {stores.map((l) => (
+                <Input key={l.id} label={l.city} value={v.stock[l.id] ?? ""} onChange={(e) => setStock(i, l.id, e.target.value)} placeholder="0" />
               ))}
             </div>
           )}
@@ -133,7 +133,7 @@ export function NewProduct({ ctx }) {
       <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
         {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </Select>
-      <VariantRows variants={variants} setVariants={setVariants} />
+      <VariantRows variants={variants} setVariants={setVariants} stores={ctx.openStores} />
       <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} placeholder="Oud, saffron, smoked amber" />
       <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} placeholder="A short, evocative description shoppers read on the product page." />
       <Switch label="Live on the storefront now" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
@@ -223,9 +223,9 @@ export function EditProductPanel({ ctx, product, onClose }) {
               <Input label="New size" value={addV.size} onChange={(e) => setAddV({ ...addV, size: e.target.value })} placeholder="50ml" style={{ flex: 1 }} />
               <Input label="Price (₦)" value={addV.price} onChange={(e) => setAddV({ ...addV, price: e.target.value.replace(/\D/g, "") })} placeholder="50000" style={{ flex: 1 }} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {LOCS.map(([id, label]) => (
-                <Input key={id} label={label} value={addV.stock[id]} onChange={(e) => setAddV({ ...addV, stock: { ...addV.stock, [id]: e.target.value.replace(/\D/g, "") } })} placeholder="0" />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
+              {ctx.openStores.map((l) => (
+                <Input key={l.id} label={l.city} value={addV.stock[l.id] ?? ""} onChange={(e) => setAddV({ ...addV, stock: { ...addV.stock, [l.id]: e.target.value.replace(/\D/g, "") } })} placeholder="0" />
               ))}
             </div>
             <div style={{ display: "flex", gap: 10 }}>

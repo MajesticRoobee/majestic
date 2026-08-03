@@ -27,6 +27,10 @@ jobs:
       # once shipped a blank storefront). Lint failing blocks the deploy.
       - run: npm run lint
 
+      # Routing decides what a shopper is charged for delivery and which store
+      # packs the order, so its rules are asserted before anything ships.
+      - run: npm run test
+
       - run: npm run build
 
       # Apply any pending D1 migrations to production before the new Worker

@@ -21,14 +21,15 @@ async function readProducts(env) {
   return products.map((p) => ({
     id: p.id, name: p.name, category: p.cat, family: p.family, live: p.live,
     prices: p.variants.map((v) => ({ size: v.size, ngn: v.ngn })),
-    stock: p.variants.reduce((n, v) => n + v.stock.abuja + v.stock.lagos + v.stock.ibadan, 0),
+    stock: p.variants.reduce((n, v) => n + Object.values(v.stock).reduce((m, q) => m + q, 0), 0),
   }));
 }
 async function readInventory(env, productId) {
   const products = await loadProducts(env.DB);
   return products.filter((p) => !productId || p.id === productId).map((p) => ({
     id: p.id, name: p.name,
-    variants: p.variants.map((v) => ({ size: v.size, abuja: v.stock.abuja, lagos: v.stock.lagos, ibadan: v.stock.ibadan })),
+    // One key per store, whatever the house currently has open.
+    variants: p.variants.map((v) => ({ size: v.size, ...v.stock })),
   }));
 }
 async function readOrders(env, limit = 25) {

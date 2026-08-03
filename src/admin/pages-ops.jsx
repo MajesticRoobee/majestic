@@ -1,13 +1,14 @@
-// Admin — Dashboard, Inventory, Product catalogue.
+// Admin — Dashboard, Inventory, Product catalogue, Collections.
 import React, { useState } from "react";
 import { api } from "../lib/api.js";
-import { Switch, EmptyRow } from "../ds/components.jsx";
+import { Button, Input, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
 import { CAT_LABELS, fmtN, statusBadge } from "./App.jsx";
 import { NewProduct, EditProductPanel } from "./product-form.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const th = { padding: "10px 14px", fontWeight: 600, color: "var(--text-muted)", borderTop: "1px solid var(--border-hairline)", fontSize: 11, letterSpacing: "0.06em" };
 const initialsOf = (name) => (name || "").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("");
+const linkBtn = { background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-700)", padding: 0 };
 
 function StBadge({ tone, children }) {
   const b = statusBadge(tone);
@@ -122,8 +123,12 @@ export function Dashboard({ ctx }) {
             <div style={{ ...th, paddingRight: 22 }}>STATUS</div>
             {!o.orders.length && <EmptyRow span={6}>No orders yet — the moment someone checks out, the order lands here and you can move it through packing, transit and delivery.</EmptyRow>}
             {o.orders.map((or) => {
-              const fromCity = { abuja: "Abuja", lagos: "Lagos", ibadan: "Ibadan" }[or.fulfilledFrom] || or.fulfilledFrom;
-              const cross = or.city.toLowerCase() !== fromCity.toLowerCase();
+              const stores = (o.locations || []).reduce((m, l) => ({ ...m, [l.id]: l.city }), {});
+              // An order can be several parcels now — say so rather than
+              // naming only the store the first one leaves from.
+              const parcels = (or.parcels && or.parcels.length ? or.parcels : [stores[or.fulfilledFrom] || or.fulfilledFrom]);
+              const fromCity = parcels.join(" + ");
+              const cross = parcels.length > 1 || parcels[0].toLowerCase() !== or.city.toLowerCase();
               const b = statusBadge(orderTone(or.status));
               const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)" };
               return (
@@ -133,7 +138,9 @@ export function Dashboard({ ctx }) {
                     <div style={{ color: "var(--text-strong)" }}>{or.customer}<span style={{ color: "var(--text-muted)" }}> · {or.city}</span></div>
                     <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{or.phone} · {or.email}</div>
                   </div>
-                  <div style={{ ...cell, color: cross ? "var(--mr-orchid-600)" : "var(--text-body)" }}>{fromCity}{cross ? " ⟶ routed" : ""}</div>
+                  <div style={{ ...cell, color: cross ? "var(--mr-orchid-600)" : "var(--text-body)" }}>
+                    {fromCity}{parcels.length > 1 ? ` · ${parcels.length} parcels` : cross ? " ⟶ routed" : ""}
+                  </div>
                   <div style={{ ...cell, color: "var(--text-muted)" }}>
                     {or.method} · {or.pay}
                     {or.payStatus !== "paid" && <span style={{ color: "var(--mr-gold-600)" }}> (unpaid)</span>}
@@ -203,18 +210,19 @@ export function Inventory({ ctx }) {
       ctx.loadProducts();
     }
   };
+  const stores = ctx.openStores;
   const rows = [];
   let lowCount = 0, outCount = 0, unitTotal = 0;
   for (const p of ctx.products) for (const v of p.variants) {
-    const ab = v.stock.abuja || 0, la = v.stock.lagos || 0, ib = v.stock.ibadan || 0;
-    const scoped = scope === "all" ? ab + la + ib : { abuja: ab, lagos: la, ibadan: ib }[scope];
+    const counts = stores.map((l) => v.stock[l.id] || 0);
+    const scoped = scope === "all" ? counts.reduce((n, x) => n + x, 0) : (v.stock[scope] || 0);
     unitTotal += scoped;
     if (scoped === 0) outCount++;
     else if (scoped <= TH) lowCount++;
     const st = scoped === 0 ? "bad" : scoped <= TH ? "warn" : "good";
     if (lowOnly && st === "good") continue;
     if (q && !p.name.toLowerCase().includes(q.toLowerCase())) continue;
-    rows.push({ p, v, ab, la, ib, st });
+    rows.push({ p, v, counts, st });
   }
   const cellStyle = (n) => n === 0
     ? { bg: "#f7e3ea", bd: "#eac3d1", fg: "#c0587a" }
@@ -256,13 +264,13 @@ export function Inventory({ ctx }) {
         ))}
       </div>
       <div style={{ ...card, overflowX: "auto" }}>
-        <div style={{ minWidth: 900, display: "grid", gridTemplateColumns: "1.8fr 80px 130px 130px 130px 110px 120px", fontSize: 12.5 }}>
+        <div style={{ minWidth: 640 + stores.length * 130, display: "grid", gridTemplateColumns: `1.8fr 80px ${stores.map(() => "130px").join(" ")} 110px 120px`, fontSize: 12.5 }}>
           <div style={{ ...th, borderTop: "none", paddingLeft: 22, paddingTop: 12, paddingBottom: 12 }}>PRODUCT</div>
-          {["SIZE", "ABUJA", "LAGOS", "IBADAN", "STATUS", ""].map((h, i) => (
-            <div key={i} style={{ ...th, borderTop: "none", paddingTop: 12, paddingBottom: 12, ...(i === 5 ? { paddingRight: 22 } : {}) }}>{h}</div>
+          {["SIZE", ...stores.map((l) => l.city.toUpperCase()), "STATUS", ""].map((h, i, all) => (
+            <div key={i} style={{ ...th, borderTop: "none", paddingTop: 12, paddingBottom: 12, ...(i === all.length - 1 ? { paddingRight: 22 } : {}) }}>{h}</div>
           ))}
           {!rows.length && (
-            <EmptyRow span={7}>
+            <EmptyRow span={4 + stores.length}>
               {!ctx.products.length
                 ? "No products yet — add them under Products and every size will appear here with its stock in each store."
                 : q || lowOnly
@@ -270,7 +278,7 @@ export function Inventory({ ctx }) {
                   : "Every size is well stocked — nothing low or out."}
             </EmptyRow>
           )}
-          {rows.map(({ p, v, ab, la, ib, st }) => {
+          {rows.map(({ p, v, counts, st }) => {
             const badge = statusBadge(st);
             return (
               <React.Fragment key={p.id + v.size}>
@@ -282,12 +290,12 @@ export function Inventory({ ctx }) {
                   </span>
                 </div>
                 <div style={{ ...cell, color: "var(--text-body)" }}>{v.size}</div>
-                <div style={cell}>{stepper(ab, () => bump(p.id, v.size, "abuja", -1), () => bump(p.id, v.size, "abuja", 1))}</div>
-                <div style={cell}>{stepper(la, () => bump(p.id, v.size, "lagos", -1), () => bump(p.id, v.size, "lagos", 1))}</div>
-                <div style={cell}>{stepper(ib, () => bump(p.id, v.size, "ibadan", -1), () => bump(p.id, v.size, "ibadan", 1))}</div>
+                {stores.map((l, i) => (
+                  <div key={l.id} style={cell}>{stepper(counts[i], () => bump(p.id, v.size, l.id, -1), () => bump(p.id, v.size, l.id, 1))}</div>
+                ))}
                 <div style={cell}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: badge.bg, color: badge.fg }}>{st === "bad" ? "Out of stock" : st === "warn" ? "Low stock" : "Healthy"}</span></div>
                 <div style={{ ...cell, paddingRight: 22 }}>
-                  <button onClick={() => bump(p.id, v.size, scope === "all" ? "abuja" : scope, 20)} style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "5px 12px", fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, color: "var(--mr-purple-800)", cursor: "pointer" }}>Restock +20</button>
+                  <button onClick={() => bump(p.id, v.size, scope === "all" ? (stores[0] ? stores[0].id : scope) : scope, 20)} style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "5px 12px", fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, color: "var(--mr-purple-800)", cursor: "pointer" }}>Restock +20</button>
                 </div>
               </React.Fragment>
             );
@@ -326,7 +334,7 @@ export function Catalogue({ ctx }) {
         )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
           {shown.map((p) => {
-            const total = p.variants.reduce((n, v) => n + (v.stock.abuja || 0) + (v.stock.lagos || 0) + (v.stock.ibadan || 0), 0);
+            const total = p.variants.reduce((n, v) => n + Object.values(v.stock).reduce((m, x) => m + x, 0), 0);
             const multi = p.variants.length > 1;
             return (
               <div key={p.id} style={{ ...card, padding: 16, display: "flex", flexDirection: "column", gap: 8, opacity: p.live ? 1 : 0.62 }}>
@@ -358,6 +366,171 @@ export function Catalogue({ ctx }) {
         {editing
           ? <EditProductPanel ctx={ctx} product={editing} onClose={() => setEditId(null)} />
           : <NewProduct ctx={ctx} />}
+      </div>
+    </main>
+  );
+}
+
+// Collections — curated sets that lead the shop page, above the full catalogue.
+// A product can sit in as many as the house likes; its category is untouched.
+export function CollectionsPage({ ctx }) {
+  const [editing, setEditing] = useState(null); // collection id, or "new"
+  const [f, setF] = useState({ title: "", desc: "", live: true, productIds: [] });
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const open = (col) => {
+    setErr("");
+    setEditing(col ? col.id : "new");
+    setF(col
+      ? { title: col.title, desc: col.desc, live: col.live, productIds: col.productIds.slice() }
+      : { title: "", desc: "", live: true, productIds: [] });
+  };
+  const close = () => { setEditing(null); setQ(""); };
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      if (editing === "new") await api.post("/api/admin/collections", f, ctx.token);
+      else await api.patch(`/api/admin/collections/${encodeURIComponent(editing)}`, f, ctx.token);
+      ctx.loadCollections();
+      ctx.flash(editing === "new" ? "Collection created" : "Collection updated");
+      close();
+    } catch (e) { ctx.authFail(e); setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const remove = async (col) => {
+    if (!window.confirm(`Delete "${col.title}"? The products stay in the catalogue — only the grouping goes.`)) return;
+    try {
+      await api.del(`/api/admin/collections/${encodeURIComponent(col.id)}`, ctx.token);
+      ctx.loadCollections();
+      ctx.flash("Collection deleted");
+      close();
+    } catch (e) { ctx.authFail(e); setErr(e.message); }
+  };
+
+  const toggleLive = async (col) => {
+    try {
+      await api.patch(`/api/admin/collections/${encodeURIComponent(col.id)}`, { live: !col.live }, ctx.token);
+      ctx.loadCollections();
+    } catch (e) { ctx.authFail(e); }
+  };
+
+  const move = async (col, dir) => {
+    const ordered = ctx.collections.slice().sort((a, b) => a.sort - b.sort);
+    const i = ordered.findIndex((c) => c.id === col.id);
+    const j = i + dir;
+    if (j < 0 || j >= ordered.length) return;
+    try {
+      await api.patch(`/api/admin/collections/${encodeURIComponent(col.id)}`, { sort: ordered[j].sort }, ctx.token);
+      await api.patch(`/api/admin/collections/${encodeURIComponent(ordered[j].id)}`, { sort: col.sort }, ctx.token);
+      ctx.loadCollections();
+    } catch (e) { ctx.authFail(e); }
+  };
+
+  const pick = (id) => setF((s) => ({
+    ...s,
+    productIds: s.productIds.includes(id) ? s.productIds.filter((x) => x !== id) : s.productIds.concat(id),
+  }));
+
+  const matches = ctx.products.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()));
+  const chosen = f.productIds.map((id) => ctx.products.find((p) => p.id === id)).filter(Boolean);
+
+  return (
+    <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, alignItems: "start" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ ...card, padding: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Collections &amp; sets</div>
+          <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>
+            Curated groupings — gift sets, a seasonal edit, a bestsellers rail. Live collections appear on the shop page
+            <strong> above</strong> the full catalogue, in the order below. A product can be in several at once, and its
+            category never changes.
+          </div>
+        </div>
+
+        {!ctx.collections.length && (
+          <div style={{ ...card, padding: 24, textAlign: "center" }}>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>No collections yet</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Build one with the panel beside this — pick a title and the products that belong in it.</div>
+          </div>
+        )}
+
+        {ctx.collections.slice().sort((a, b) => a.sort - b.sort).map((col, i, all) => (
+          <div key={col.id} style={{ ...card, padding: 18, opacity: col.live ? 1 : 0.62 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)" }}>{col.title}</div>
+                {col.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{col.desc}</div>}
+                <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+                  {col.productIds.length} {col.productIds.length === 1 ? "product" : "products"} · {col.live ? "Live on the shop page" : "Hidden"}
+                </div>
+              </div>
+              <Switch checked={col.live} onChange={() => toggleLive(col)} />
+            </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+              <button onClick={() => open(col)} style={linkBtn}>Edit →</button>
+              <button onClick={() => move(col, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑ Move up</button>
+              <button onClick={() => move(col, 1)} disabled={i === all.length - 1} style={{ ...linkBtn, opacity: i === all.length - 1 ? 0.4 : 1 }}>↓ Move down</button>
+              <button onClick={() => remove(col)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...card, padding: 24, position: "sticky", top: 84, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{editing && editing !== "new" ? "Edit collection" : "New collection"}</div>
+          {editing && <button onClick={close} style={{ ...linkBtn, color: "var(--text-muted)" }}>Close</button>}
+        </div>
+        {!editing ? (
+          <>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Group products into a set shoppers see first.</div>
+            <Button variant="primary" block onClick={() => open(null)}>Start a collection</Button>
+          </>
+        ) : (
+          <>
+            <Input label="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. The gift edit" />
+            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="One line shoppers read under the title." />
+            <Switch label="Live on the shop page" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
+
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>
+                Products {chosen.length > 0 && <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>— {chosen.length} chosen</span>}
+              </div>
+              {chosen.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                  {chosen.map((p) => (
+                    <button key={p.id} onClick={() => pick(p.id)} title="Remove from this collection"
+                      style={{ display: "inline-flex", gap: 6, alignItems: "center", background: "var(--mr-lavender-200)", border: "none", borderRadius: "var(--radius-pill)", padding: "5px 10px", fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--mr-purple-900)", cursor: "pointer" }}>
+                      {p.name} <span style={{ opacity: 0.7 }}>✕</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the catalogue…"
+                style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)", marginBottom: 8 }} />
+              <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)" }}>
+                {matches.slice(0, 60).map((p) => {
+                  const on = f.productIds.includes(p.id);
+                  return (
+                    <label key={p.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-hairline)", cursor: "pointer", background: on ? "var(--surface-sunken)" : "transparent" }}>
+                      <input type="checkbox" checked={on} onChange={() => pick(p.id)} style={{ accentColor: "var(--mr-purple-800)", width: 14, height: 14 }} />
+                      <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-strong)" }}>{p.name}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{CAT_LABELS[p.cat] || p.cat}</span>
+                    </label>
+                  );
+                })}
+                {!matches.length && <div style={{ padding: "12px", fontSize: 12.5, color: "var(--text-muted)" }}>Nothing matches that search.</div>}
+              </div>
+            </div>
+
+            <Button variant="primary" block disabled={busy || !f.title.trim()} onClick={save}>
+              {busy ? "Saving…" : editing === "new" ? "Create collection" : "Save changes"}
+            </Button>
+            {err && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{err}</div>}
+          </>
+        )}
       </div>
     </main>
   );

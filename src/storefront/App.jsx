@@ -28,7 +28,7 @@ export default function App() {
   const [prSize, setPrSize] = useState(null);
   const [consent, setConsentState] = useState(getConsent());
   const [prQty, setPrQty] = useState(1);
-  const [city, setCity] = useState("abuja");
+  const [city, setCity] = useState("");
   const [gateOpen, setGateOpen] = useState(false);
   const [currency, setCurrency] = useState("NGN");
   const [cart, setCart] = useState(() => {
@@ -38,7 +38,12 @@ export default function App() {
   const [mnav, setMnav] = useState(false);
   const [search, setSearch] = useState("");
   const [fCat, setFCat] = useState(initialRoute.fCat || "all");
+  const [fCol, setFCol] = useState(initialRoute.fCol || null);   // a collection, when one is chosen
+  const [fScope, setFScope] = useState("city");    // "city" = my store's shelf, "all" = every store
   const [fSort, setFSort] = useState("featured");
+  const [plan, setPlan] = useState(null);          // server's fulfilment plan for this cart
+  const [planning, setPlanning] = useState(false);
+  const [acceptSplit, setAcceptSplit] = useState(false);
   const [co, setCo] = useState({ name: "", email: "", phone: "", address: "", fulfill: "delivery", pay: "paystack", promo: "" });
   const [promoInfo, setPromoInfo] = useState(null); // { code, kind, value, scope: desc, freeShip } from validate
   const [promoMsg, setPromoMsg] = useState("");
@@ -60,15 +65,22 @@ export default function App() {
 
   // Bootstrap
   useEffect(() => {
-    api.get("/api/store").then((d) => { dataRef.current = d; setD(d); }).catch(() => {});
+    let stored = null;
+    let confirmed = false;
     try {
-      const c = localStorage.getItem("mr-city");
-      const ok = localStorage.getItem("mr-city-ok") === "1";
-      if (c) setCity(c);
-      setGateOpen(!ok);
-    } catch {
-      setGateOpen(true);
-    }
+      stored = localStorage.getItem("mr-city");
+      confirmed = localStorage.getItem("mr-city-ok") === "1";
+    } catch { /* private mode — treat as a first visit */ }
+    api.get("/api/store").then((d) => {
+      dataRef.current = d;
+      setD(d);
+      // The city has to be one of the stores that is actually open: a stored
+      // choice for a store since closed would show an empty shop.
+      const open = (d.locations || []).map((l) => l.id);
+      const fallback = open.includes(d.settings.defaultCity) ? d.settings.defaultCity : open[0] || "";
+      setCity(stored && open.includes(stored) ? stored : fallback);
+    }).catch(() => {});
+    setGateOpen(!confirmed);
   }, []);
 
   // Promo popup timer
@@ -104,7 +116,8 @@ export default function App() {
     setPage(p);
     setMnav(false);
     setCartOpen(false);
-    if (extra.fCat !== undefined) setFCat(extra.fCat);
+    if (extra.fCat !== undefined) { setFCat(extra.fCat); setFCol(null); }
+    if (extra.fCol !== undefined) { setFCol(extra.fCol); setFCat("all"); }
     if (extra.productId !== undefined) {
       setProductId(extra.productId);
       setPrSize(extra.prSize ?? null);
@@ -121,7 +134,8 @@ export default function App() {
       setPage(r.page);
       setProductId(r.productId || null);
       if (r.page === "product") setPrSize(null);
-      if (r.fCat) setFCat(r.fCat);
+      setFCat(r.fCat || "all");
+      setFCol(r.fCol || null);
       setMnav(false);
       setCartOpen(false);
       window.scrollTo(0, 0);
@@ -166,6 +180,7 @@ export default function App() {
   const locations = useMemo(() => (D ? D.locations : EMPTY_ARR), [D]);
   const products = useMemo(() => (D ? D.products : EMPTY_ARR), [D]);
   const categories = useMemo(() => (D ? D.categories : EMPTY_ARR), [D]);
+  const collections = useMemo(() => (D ? (D.collections || EMPTY_ARR) : EMPTY_ARR), [D]);
   const L = useMemo(() => locations.find((l) => l.id === city) || null, [locations, city]);
   const cityName = cap(city);
 
@@ -244,8 +259,16 @@ export default function App() {
         remove: () => setCart((s) => s.filter((_, i) => i !== idx)),
       };
     }).filter(Boolean);
-    let ship = co.fulfill === "collect" ? 0 : allInCity ? (L ? L.shipNGN : 2500) : (settings.crossCityShipNGN ?? 4500);
-    if (co.fulfill === "delivery" && city === "abuja" && sub >= (settings.freeShipAbujaOver ?? 100000) && allInCity) ship = 0;
+    // Delivery is the server's number once the fulfilment quote lands — a split
+    // order pays per parcel, and only the server knows how it splits. Until
+    // then this is an estimate so the summary is never blank.
+    let ship;
+    if (co.fulfill === "collect") ship = 0;
+    else if (plan && plan.mode !== "unavailable") ship = plan.shipTotal;
+    else {
+      ship = allInCity ? (L ? L.shipNGN : 2500) : (settings.crossCityShipNGN ?? 4500);
+      if (city === (settings.freeShipCity ?? "abuja") && sub >= (settings.freeShipAbujaOver ?? 100000) && allInCity) ship = 0;
+    }
     let discount = 0;
     if (promoInfo) {
       const cats = SCOPE_CATS[promoInfo.scopeName] ?? null;
@@ -255,7 +278,29 @@ export default function App() {
       if (promoInfo.freeShip) ship = 0;
     }
     return { items, sub, ship, allInCity, discount, total: sub - discount + ship };
-  }, [D, cart, city, co.fulfill, promoInfo, products, L, settings, fmt, cityName, bestAlt]);
+  }, [D, cart, city, co.fulfill, promoInfo, products, L, settings, fmt, cityName, bestAlt, plan]);
+
+  // Ask the server where this cart ships from. Runs on the checkout page, and
+  // again whenever the cart, the city or the fulfilment choice changes — the
+  // plan the shopper agrees to is the one the order is written from.
+  useEffect(() => {
+    if (page !== "checkout" || !cart.length || !city) { setPlan(null); return; }
+    let live = true;
+    setPlanning(true);
+    const t = setTimeout(() => {
+      api.post("/api/fulfilment/quote", {
+        city, fulfill: co.fulfill,
+        items: cart.map((c) => ({ productId: c.id, size: c.size, qty: c.qty })),
+      })
+        .then((r) => { if (live) setPlan(r.plan); })
+        .catch((e) => { if (live) setPlan(e.data && e.data.plan ? e.data.plan : null); })
+        .finally(() => { if (live) setPlanning(false); });
+    }, 200);
+    return () => { live = false; clearTimeout(t); };
+  }, [page, cart, city, co.fulfill]);
+
+  // Any change to what is being shipped withdraws a previous "yes, split it".
+  useEffect(() => { setAcceptSplit(false); }, [cart, city, co.fulfill]);
 
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
@@ -306,6 +351,13 @@ export default function App() {
     }
   }, [co.promo, cart]);
 
+  // Shoppers can take the promo back off — it is their cart.
+  const clearPromo = useCallback(() => {
+    setPromoInfo(null);
+    setPromoMsg("");
+    setCo((s) => ({ ...s, promo: "" }));
+  }, []);
+
   function scopeNameOf(r) {
     // server sends desc; scope grouping mirrors the server's SCOPE_CATS keys
     return r.scope || (r.desc && Object.keys(SCOPE_CATS).find((k) => r.desc.includes(k))) || "Storewide";
@@ -338,6 +390,7 @@ export default function App() {
         city, fulfill: co.fulfill, pay: co.pay,
         promo: promoInfo ? promoInfo.code : "",
         items: cart.map((c) => ({ productId: c.id, size: c.size, qty: c.qty })),
+        acceptSplit,
       });
       if (r.paystackUrl) {
         try { sessionStorage.setItem("mr-pending-order", JSON.stringify(r.order)); } catch {}
@@ -354,14 +407,19 @@ export default function App() {
       setPromoInfo(null);
       setCo((s) => ({ ...s, promo: "" }));
       setPromoMsg("");
+      setAcceptSplit(false);
+      setPlan(null);
       nav("confirm");
       api.get("/api/store").then(setD).catch(() => {}); // refresh stock
     } catch (e) {
+      // The server refuses a split it hasn't been shown agreeing to, and hands
+      // the plan back so the shopper can look at it and say yes.
+      if (e.data && e.data.plan) setPlan(e.data.plan);
       setCoErr(e.message);
     } finally {
       setPlacing(false);
     }
-  }, [co, city, cart, promoInfo, settings.contactPhone, nav]);
+  }, [co, city, cart, promoInfo, acceptSplit, settings.contactPhone, nav]);
 
   const doTrack = useCallback(async () => {
     const no = track.no.trim().toUpperCase();
@@ -421,7 +479,9 @@ export default function App() {
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
     fmt, catLabel, availInfo, bestAlt, card,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
-    search, setSearch, fCat, setFCat, fSort, setFSort,
+    collections,
+    search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
+    plan, planning, acceptSplit, setAcceptSplit, clearPromo,
     productId, prSize, setPrSize, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
     track, setTrack, doTrack,
