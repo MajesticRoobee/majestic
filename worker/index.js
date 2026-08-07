@@ -48,8 +48,16 @@ app.get("/sitemap.xml", async (c) => {
   const staticUrls = ["/", "/shop", "/about", "/track", "/contact"];
   let productUrls = [];
   try {
-    const rows = (await c.env.DB.prepare("SELECT id FROM products WHERE live=1 ORDER BY rowid").all()).results;
-    productUrls = rows.map((r) => `/product/${r.id}`);
+    // One entry per variation on products that have a choice, since each
+    // variation has its own canonical URL, price and availability.
+    const rows = (await c.env.DB.prepare(
+      `SELECT p.id AS pid, v.sku AS sku, COUNT(*) OVER (PARTITION BY p.id) AS n
+         FROM products p JOIN variants v ON v.product_id = p.id
+        WHERE p.live = 1 AND v.active = 1
+        ORDER BY p.rowid, v.sort, v.id`
+    ).all()).results;
+    productUrls = rows.map((r) => (r.n > 1 && r.sku ? `/product/${r.pid}?variant=${encodeURIComponent(r.sku)}` : `/product/${r.pid}`));
+    productUrls = [...new Set(productUrls)];
   } catch {}
   const urls = staticUrls.concat(productUrls);
   const xml =

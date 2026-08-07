@@ -68,7 +68,7 @@ export function setGscVerification(token) {
 const origin = () => window.location.origin;
 
 // Build the head payload for a given page from live data.
-export function headFor({ page, product, settings, categories = [] }) {
+export function headFor({ page, product, variant, settings, categories = [] }) {
   const siteName = settings.siteName || "Majestic Roobee";
   const baseDesc = settings.metaDescription
     || "Seductive extrait perfumes, body mists and organic feminine care — blended in Nigeria, worn everywhere. Stores in Abuja, Lagos & Ibadan.";
@@ -82,13 +82,33 @@ export function headFor({ page, product, settings, categories = [] }) {
   };
 
   if (page === "product" && product) {
-    const v0 = product.variants[0];
-    const inStock = product.variants.some((v) => Object.values(v.stock).some((n) => n > 0));
+    const variants = product.variants || [];
+    const sel = variant || variants[0];
+    const urlFor = (v) => `${origin()}/product/${product.id}${v && v.sku ? `?variant=${encodeURIComponent(v.sku)}` : ""}`;
+    const stocked = (v) => Object.values(v.stock || {}).some((n) => n > 0);
+    const multi = variants.length > 1;
+    // Every variation is its own Offer with its own SKU, price, availability and
+    // URL — one Product page carrying the whole range, rather than a page per
+    // size competing with its own siblings in search results.
+    const offers = variants.map((v) => ({
+      "@type": "Offer",
+      ...(v.sku ? { sku: v.sku } : {}),
+      name: `${product.name} — ${v.size}`,
+      priceCurrency: "NGN",
+      price: v.ngn,
+      availability: stocked(v) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      url: urlFor(v),
+      ...(v.imageUrl ? { image: v.imageUrl } : {}),
+    }));
+    const images = (product.images || []).map((im) => im.url).filter(Boolean);
     return {
-      title: `${product.name} — ${siteName}`,
+      // The title names the variation only when there is a choice to make.
+      title: multi && sel ? `${product.name} ${sel.size} — ${siteName}` : `${product.name} — ${siteName}`,
       description: product.desc || `${product.name}: ${product.notes}. ${baseDesc}`,
-      canonical: `${origin()}/product/${product.id}`,
-      image: product.imageUrl || ogImage,
+      // Canonical points at the selected variation, so a link someone shares
+      // resolves to the size they were looking at.
+      canonical: urlFor(sel),
+      image: (sel && sel.imageUrl) || product.imageUrl || ogImage,
       type: "product",
       jsonLd: {
         "@context": "https://schema.org",
@@ -97,14 +117,20 @@ export function headFor({ page, product, settings, categories = [] }) {
         description: product.desc,
         category: (categories.find((c) => c.id === product.cat) || {}).label,
         brand: { "@type": "Brand", name: siteName },
-        ...(product.imageUrl ? { image: product.imageUrl } : {}),
-        offers: {
-          "@type": "Offer",
-          priceCurrency: "NGN",
-          price: v0.ngn,
-          availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
-          url: `${origin()}/product/${product.id}`,
-        },
+        ...(images.length ? { image: images } : product.imageUrl ? { image: product.imageUrl } : {}),
+        ...(sel && sel.sku ? { sku: sel.sku } : {}),
+        // A single variation stays a plain Offer; a range becomes an
+        // AggregateOffer so search shows the true low/high span.
+        offers: offers.length > 1
+          ? {
+              "@type": "AggregateOffer",
+              priceCurrency: "NGN",
+              lowPrice: Math.min(...variants.map((v) => v.ngn)),
+              highPrice: Math.max(...variants.map((v) => v.ngn)),
+              offerCount: offers.length,
+              offers,
+            }
+          : offers[0],
       },
     };
   }

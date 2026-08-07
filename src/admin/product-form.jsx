@@ -1,5 +1,7 @@
-// Admin — real product entry: imagery, any number of sizes with their own
-// prices and opening stock per store, and an immediate live/draft choice.
+// Admin — real product entry. Each variation is a product in its own right:
+// its own SKU, price, photo and opening stock per store, under one parent that
+// the storefront presents as a single listing with a picker (or as separate
+// cards, when "list each variation as its own card" is on).
 import React, { useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
@@ -7,7 +9,7 @@ import { CAT_LABELS } from "./App.jsx";
 
 const GENDERS = ["Unisex", "Female", "Male"];
 // Opening stock is one field per store the house has open — no fixed three.
-const blankVariant = () => ({ size: "", price: "", stock: {} });
+const blankVariant = () => ({ size: "", price: "", sku: "", imageUrl: "", stock: {} });
 
 // Upload a chosen file and hand back its served URL.
 export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
@@ -62,22 +64,30 @@ export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
   );
 }
 
-function VariantRows({ variants, setVariants, stores, showStock = true }) {
+// Each row here is a variation, and a variation is a product in its own right:
+// its own price, its own SKU, its own photo, its own stock in every store.
+function VariantRows({ ctx, variants, setVariants, stores, showStock = true, optionName = "Size" }) {
   const set = (i, patch) => setVariants(variants.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const setStock = (i, loc, val) => set(i, { stock: { ...variants[i].stock, [loc]: val.replace(/\D/g, "") } });
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>Sizes, prices &amp; opening stock</div>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>Variations — {optionName.toLowerCase()}, price, photo &amp; opening stock</div>
       {variants.map((v, i) => (
         <div key={i} style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-            <Input label="Size" value={v.size} onChange={(e) => set(i, { size: e.target.value })} placeholder="30ml" style={{ flex: 1 }} />
+            <Input label={optionName} value={v.size} onChange={(e) => set(i, { size: e.target.value })} placeholder="30ml" style={{ flex: 1 }} />
             <Input label="Price (₦)" value={v.price} onChange={(e) => set(i, { price: e.target.value.replace(/\D/g, "") })} placeholder="35000" style={{ flex: 1 }} />
             {variants.length > 1 && (
-              <button onClick={() => setVariants(variants.filter((_, j) => j !== i))} title="Remove this size"
+              <button onClick={() => setVariants(variants.filter((_, j) => j !== i))} title="Remove this variation"
                 style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)", paddingBottom: 12 }}>Remove</button>
             )}
           </div>
+          <Input label="SKU (optional)" value={v.sku ?? ""} onChange={(e) => set(i, { sku: e.target.value })}
+            placeholder="Leave blank and we'll generate one" hint="The code your ERP and stock counts refer to." />
+          {ctx && (
+            <ImagePicker ctx={ctx} value={v.imageUrl} onChange={(url) => set(i, { imageUrl: url })}
+              label={`Photo for this ${optionName.toLowerCase()}`} />
+          )}
           {showStock && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
               {stores.map((l) => (
@@ -89,14 +99,14 @@ function VariantRows({ variants, setVariants, stores, showStock = true }) {
       ))}
       <button onClick={() => setVariants(variants.concat(blankVariant()))}
         style={{ alignSelf: "flex-start", background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>
-        + Add another size
+        + Add another variation
       </button>
     </div>
   );
 }
 
 export function NewProduct({ ctx }) {
-  const [f, setF] = useState({ name: "", cat: "extrait", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true });
+  const [f, setF] = useState({ name: "", cat: "extrait", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true, optionName: "Size", splitListing: false });
   const [variants, setVariants] = useState([blankVariant()]);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
@@ -105,9 +115,9 @@ export function NewProduct({ ctx }) {
   const submit = async () => {
     setBusy(true); setErr("");
     try {
-      const r = await api.post("/api/admin/products", { ...f, variants }, ctx.token);
+      const r = await api.post("/api/admin/products", { ...f, optionNames: [f.optionName], variants }, ctx.token);
       setDone({ name: r.name, live: r.live });
-      setF({ name: "", cat: f.cat, gender: f.gender, notes: "", desc: "", imageUrl: "", live: true });
+      setF({ name: "", cat: f.cat, gender: f.gender, notes: "", desc: "", imageUrl: "", live: true, optionName: f.optionName, splitListing: f.splitListing });
       setVariants([blankVariant()]);
       ctx.loadProducts();
       ctx.flash(r.live ? `${r.name} is live` : `${r.name} saved as draft`);
@@ -133,9 +143,15 @@ export function NewProduct({ ctx }) {
       <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
         {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </Select>
-      <VariantRows variants={variants} setVariants={setVariants} stores={ctx.openStores} />
+      <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
+        placeholder="Size" hint="Shown above the picker on the product page — usually Size, sometimes Scent or Shade." />
+      <VariantRows ctx={ctx} variants={variants} setVariants={setVariants} stores={ctx.openStores} optionName={f.optionName || "Size"} />
       <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} placeholder="Oud, saffron, smoked amber" />
       <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} placeholder="A short, evocative description shoppers read on the product page." />
+      <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
+        Off (normal): one card in the shop with a picker on it. On: every variation gets its own card — for gift sets and distinct scents, where a picker would hide the choice.
+      </div>
       <Switch label="Live on the storefront now" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
       <Button variant="primary" block disabled={busy} onClick={submit}>{busy ? "Saving…" : "Add to catalogue"}</Button>
       {err && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{err}</div>}
@@ -147,19 +163,33 @@ export function EditProductPanel({ ctx, product, onClose }) {
   const [f, setF] = useState({
     name: product.name, cat: product.cat, gender: product.gender,
     notes: product.notes, desc: product.desc, imageUrl: product.imageUrl || "",
+    splitListing: !!product.splitListing,
+    optionName: (product.optionNames && product.optionNames[0]) || "Size",
   });
-  const [prices, setPrices] = useState(Object.fromEntries(product.variants.map((v) => [v.id, String(v.ngn)])));
+  // Every editable field of every variation, keyed by its id.
+  const [vf, setVf] = useState(() => Object.fromEntries(product.variants.map((v) => [
+    v.id, { price: String(v.ngn), size: v.size, sku: v.sku || "", imageUrl: v.imageUrl || "" },
+  ])));
   const [addV, setAddV] = useState(null); // blankVariant() when adding
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const setV = (id, patch) => setVf((s) => ({ ...s, [id]: { ...s[id], ...patch } }));
 
   const save = async () => {
     setBusy(true); setMsg("");
     try {
-      await api.patch(`/api/admin/products/${encodeURIComponent(product.id)}`, f, ctx.token);
+      const { optionName, ...rest } = f;
+      await api.patch(`/api/admin/products/${encodeURIComponent(product.id)}`, { ...rest, optionNames: [optionName] }, ctx.token);
       for (const v of product.variants) {
-        const np = parseInt(prices[v.id], 10);
-        if (np && np !== v.ngn) await api.patch(`/api/admin/variants/${v.id}`, { price: np }, ctx.token);
+        const e = vf[v.id];
+        if (!e) continue;
+        const patch = {};
+        const np = parseInt(e.price, 10);
+        if (np && np !== v.ngn) patch.price = np;
+        if (e.size.trim() && e.size.trim() !== v.size) patch.size = e.size.trim();
+        if (e.sku.trim() !== (v.sku || "")) patch.sku = e.sku.trim();
+        if (e.imageUrl !== (v.imageUrl || "")) patch.imageUrl = e.imageUrl;
+        if (Object.keys(patch).length) await api.patch(`/api/admin/variants/${v.id}`, patch, ctx.token);
       }
       ctx.flash("Product updated");
       ctx.loadProducts();
@@ -168,8 +198,9 @@ export function EditProductPanel({ ctx, product, onClose }) {
   };
   const addSize = async () => {
     try {
-      await api.post(`/api/admin/products/${encodeURIComponent(product.id)}/variants`, { size: addV.size, price: addV.price, stock: addV.stock }, ctx.token);
-      setAddV(null); ctx.flash("Size added"); ctx.loadProducts();
+      await api.post(`/api/admin/products/${encodeURIComponent(product.id)}/variants`,
+        { size: addV.size, price: addV.price, sku: addV.sku, imageUrl: addV.imageUrl, stock: addV.stock }, ctx.token);
+      setAddV(null); ctx.flash("Variation added"); ctx.loadProducts();
     } catch (e) { ctx.authFail(e); setMsg(e.message); }
   };
   const delSize = async (v) => {
@@ -202,40 +233,64 @@ export function EditProductPanel({ ctx, product, onClose }) {
         </Select>
       </div>
 
+      <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
+        placeholder="Size" hint="Shown above the picker on the product page." />
+
       <div>
-        <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 8 }}>Sizes &amp; prices</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {product.variants.map((v) => (
-            <div key={v.id} style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <span style={{ width: 58, fontSize: 13, color: "var(--text-body)" }}>{v.size}</span>
-              <input value={prices[v.id]} onChange={(e) => setPrices({ ...prices, [v.id]: e.target.value.replace(/\D/g, "") })}
-                style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 14, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
-              <span style={{ fontSize: 11.5, color: "var(--text-muted)", width: 74 }}>{(v.stock.abuja || 0) + (v.stock.lagos || 0) + (v.stock.ibadan || 0)} in stock</span>
-              {product.variants.length > 1 && (
-                <button onClick={() => delSize(v)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)" }}>Remove</button>
-              )}
-            </div>
-          ))}
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 4 }}>Variations</div>
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
+          Each one is its own SKU with its own price and photo. Renaming a variation is safe — carts and past orders track it by identity, not by its label.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {product.variants.map((v) => {
+            const e = vf[v.id] || { price: "", size: "", sku: "", imageUrl: "" };
+            return (
+              <div key={v.id} style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                  <Input label={f.optionName || "Size"} value={e.size} onChange={(ev) => setV(v.id, { size: ev.target.value })} style={{ flex: 1 }} />
+                  <Input label="Price (₦)" value={e.price} onChange={(ev) => setV(v.id, { price: ev.target.value.replace(/\D/g, "") })} style={{ flex: 1 }} />
+                  <span style={{ fontSize: 11.5, color: "var(--text-muted)", width: 74, paddingBottom: 12 }}>
+                    {Object.values(v.stock).reduce((n, q) => n + (q || 0), 0)} in stock
+                  </span>
+                  {product.variants.length > 1 && (
+                    <button onClick={() => delSize(v)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)", paddingBottom: 12 }}>Remove</button>
+                  )}
+                </div>
+                <Input label="SKU" value={e.sku} onChange={(ev) => setV(v.id, { sku: ev.target.value })} placeholder="Leave blank to regenerate" />
+                <ImagePicker ctx={ctx} value={e.imageUrl} onChange={(url) => setV(v.id, { imageUrl: url })}
+                  label={`Photo for this ${(f.optionName || "size").toLowerCase()}`} />
+              </div>
+            );
+          })}
         </div>
         {addV ? (
           <div style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 12, marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-              <Input label="New size" value={addV.size} onChange={(e) => setAddV({ ...addV, size: e.target.value })} placeholder="50ml" style={{ flex: 1 }} />
+              <Input label={`New ${(f.optionName || "size").toLowerCase()}`} value={addV.size} onChange={(e) => setAddV({ ...addV, size: e.target.value })} placeholder="50ml" style={{ flex: 1 }} />
               <Input label="Price (₦)" value={addV.price} onChange={(e) => setAddV({ ...addV, price: e.target.value.replace(/\D/g, "") })} placeholder="50000" style={{ flex: 1 }} />
             </div>
+            <Input label="SKU (optional)" value={addV.sku} onChange={(e) => setAddV({ ...addV, sku: e.target.value })} placeholder="Leave blank and we'll generate one" />
+            <ImagePicker ctx={ctx} value={addV.imageUrl} onChange={(url) => setAddV({ ...addV, imageUrl: url })} label="Photo for this variation" />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
               {ctx.openStores.map((l) => (
                 <Input key={l.id} label={l.city} value={addV.stock[l.id] ?? ""} onChange={(e) => setAddV({ ...addV, stock: { ...addV.stock, [l.id]: e.target.value.replace(/\D/g, "") } })} placeholder="0" />
               ))}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <Button variant="secondary" size="sm" onClick={addSize}>Save size</Button>
+              <Button variant="secondary" size="sm" onClick={addSize}>Save variation</Button>
               <button onClick={() => setAddV(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12.5, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>Cancel</button>
             </div>
           </div>
         ) : (
-          <button onClick={() => setAddV(blankVariant())} style={{ marginTop: 10, background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ Add a size</button>
+          <button onClick={() => setAddV(blankVariant())} style={{ marginTop: 10, background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ Add a variation</button>
         )}
+      </div>
+
+      <div>
+        <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+          Off: one card in the shop with a picker. On: {product.variants.length} separate cards.
+        </div>
       </div>
 
       <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} />

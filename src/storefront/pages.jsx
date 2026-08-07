@@ -21,12 +21,63 @@ function WishHeart({ wished, onClick, size = 32 }) {
   );
 }
 
+// The variation picker on a listing card. Chips rather than a dropdown so the
+// shopper sees every option without opening anything; below ~3 options a
+// <select> would hide exactly the choice we want them to make. Past four
+// options the chips wrap, which is why very long lists fall back to a select.
+function VariantChips({ variants, selectedId, onSelect, optionName }) {
+  const useSelect = variants.length > 4;
+  if (useSelect) {
+    return (
+      <select
+        aria-label={optionName}
+        value={selectedId}
+        onChange={(e) => onSelect(parseInt(e.target.value, 10))}
+        style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "8px 10px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer", width: "100%" }}>
+        {variants.map((v) => (
+          <option key={v.id} value={v.id}>{v.label} — {v.priceLabel}{v.soldOut ? " · sold out" : ""}</option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <div role="group" aria-label={optionName} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {variants.map((v) => {
+        const on = v.id === selectedId;
+        return (
+          <button
+            key={v.id}
+            onClick={(e) => { e.stopPropagation(); onSelect(v.id); }}
+            aria-pressed={on}
+            title={v.soldOut ? `${v.label} — out of stock` : `${v.label} — ${v.priceLabel}`}
+            style={{
+              cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500,
+              padding: "5px 11px", borderRadius: "var(--radius-pill)",
+              border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`,
+              background: on ? "var(--mr-purple-900)" : "var(--surface-card)",
+              color: on ? "var(--mr-cream)" : v.soldOut ? "var(--text-muted)" : "var(--mr-purple-800)",
+              textDecoration: v.soldOut ? "line-through" : "none",
+              transition: "all var(--dur-fast) var(--ease-standard)",
+            }}>
+            {v.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ProductCard({ p, height = 230 }) {
+  const [selId, setSelId] = useState(p.defaultVariantId);
+  // The catalogue can reload under a mounted card (a placed order refreshes
+  // stock); fall back to the default rather than rendering nothing.
+  const v = p.variants.find((x) => x.id === selId) || p.variants.find((x) => x.id === p.defaultVariantId) || p.variants[0];
+  const multi = p.variants.length > 1;
   return (
     <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
       <div style={{ position: "relative" }}>
-        <div onClick={p.open} style={{ cursor: "pointer" }}>
-          <ImageSlot src={p.imageUrl} name={p.name} style={{ width: "100%", height }} />
+        <div onClick={v.open} style={{ cursor: "pointer" }}>
+          <ImageSlot src={v.imageUrl} name={p.name} style={{ width: "100%", height }} />
         </div>
         {p.toggleWish && <WishHeart wished={p.wished} onClick={p.toggleWish} />}
       </div>
@@ -34,14 +85,24 @@ export function ProductCard({ p, height = 230 }) {
         <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
           {p.catLabel}
         </div>
-        <a href={p.href} onClick={(e) => { e.preventDefault(); p.open(); }} style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", lineHeight: 1.25 }}>
-          {p.name} {p.sizeLabel && <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>{p.sizeLabel}</span>}
+        <a href={p.href} onClick={(e) => { e.preventDefault(); v.open(); }} style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", lineHeight: 1.25 }}>
+          {/* A split card already carries the variation in its name. */}
+          {p.name} {!multi && !p.split && <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>{v.label}</span>}
         </a>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: "auto", paddingTop: 6 }}>
-          <span style={{ fontWeight: 600, fontSize: 15, color: "var(--mr-purple-900)" }}>{p.priceLabel}</span>
-          <AvailBadge p={p} />
+        {multi && (
+          <div style={{ marginTop: 4 }}>
+            <VariantChips variants={p.variants} selectedId={v.id} onSelect={setSelId} optionName={p.optionName} />
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: "auto", paddingTop: 8 }}>
+          <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--mr-purple-900)" }}>{v.priceLabel}</span>
+            {v.compareAtLabel && <span style={{ fontSize: 12, color: "var(--text-muted)", textDecoration: "line-through" }}>{v.compareAtLabel}</span>}
+          </span>
+          <AvailBadge p={v} />
         </div>
-        <Button variant="secondary" size="sm" block disabled={p.soldOut} onClick={p.add}>{p.addLabel}</Button>
+        {/* Never disabled: a sold-out variation still offers "Notify me". */}
+        <Button variant="secondary" size="sm" block onClick={v.add}>{v.addLabel}</Button>
       </div>
     </div>
   );
@@ -107,7 +168,7 @@ export function HomePage({ ctx }) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(250px, 100%), 1fr))", gap: 20 }}>
             {heroPicks.map((hp) => (
-              <div key={hp.id} onClick={hp.open} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
+              <div key={hp.key} onClick={hp.open} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
                 <ImageSlot src={hp.imageUrl} name={hp.name} style={{ width: "100%", height: 240 }} />
                 <div style={{ padding: "16px 18px 20px" }}>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--text-strong)" }}>{hp.name}</div>
@@ -145,7 +206,7 @@ export function HomePage({ ctx }) {
           <a href="#shop" onClick={(e) => { e.preventDefault(); ctx.nav("shop"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>View everything —</a>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-          {inCity.map((p) => <ProductCard key={p.id} p={p} />)}
+          {inCity.map((p) => <ProductCard key={p.key} p={p} />)}
         </div>
       </section>
 
@@ -180,26 +241,40 @@ export function HomePage({ ctx }) {
 }
 
 export function ShopPage({ ctx }) {
-  const { products, categories, collections, cityName } = ctx;
+  const { listings, categories, collections, cityName } = ctx;
   const searching = !!ctx.search.trim();
   const collection = collections.find((c) => c.id === ctx.fCol) || null;
+  // The grid iterates listing entries, not products: one entry per card. A
+  // product with a picker is one entry carrying all its variations; a
+  // split-listed product contributes one entry per variation.
+  //
+  // "On the shelf here" therefore means any variation the card can show is in
+  // the city — which is the whole product for a picker card, and exactly one
+  // variation for a split card.
+  const inStockHere = (e) => e.variants.some((v) => (v.stock[ctx.city] || 0) > 0);
+  const scopedOut = listings.filter((e) => !inStockHere(e)).length;
   // The shelf you can walk up to today is the default. A search always reaches
   // every store — someone looking for a specific scent wants to know it exists
   // in Lagos, not to be told it doesn't exist.
-  const inStockHere = (p) => p.variants.some((v) => (v.stock[ctx.city] || 0) > 0);
-  const scopedOut = products.filter((p) => !inStockHere(p)).length;
-  let list = products.filter((p) => {
+  let list = listings.filter((e) => {
+    const p = e.product;
     if (ctx.fCat !== "all" && p.cat !== ctx.fCat) return false;
     if (collection && !collection.productIds.includes(p.id)) return false;
-    if (ctx.search && !(p.name + " " + p.notes).toLowerCase().includes(ctx.search.toLowerCase())) return false;
-    if (!searching && ctx.fScope === "city" && !inStockHere(p)) return false;
+    if (ctx.search) {
+      // Sizes and SKUs are searchable too, now that they are real identities.
+      const hay = (p.name + " " + p.notes + " " + e.variants.map((v) => `${v.size} ${v.sku || ""}`).join(" ")).toLowerCase();
+      if (!hay.includes(ctx.search.toLowerCase())) return false;
+    }
+    if (!searching && ctx.fScope === "city" && !inStockHere(e)) return false;
     return true;
   });
-  const price0 = (p) => p.variants[0].ngn;
-  if (ctx.fSort === "low") list = list.slice().sort((a, b) => price0(a) - price0(b));
-  else if (ctx.fSort === "high") list = list.slice().sort((a, b) => price0(b) - price0(a));
-  else if (ctx.fSort === "name") list = list.slice().sort((a, b) => a.name.localeCompare(b.name));
-  else list = list.slice().sort((a, b) => (ctx.availInfo(b).inCity ? 1 : 0) - (ctx.availInfo(a).inCity ? 1 : 0));
+  // Sorting reads the cheapest variation on the card, so a card never sorts by
+  // a price the shopper can't actually see on it.
+  const priceOf = (e) => Math.min(...e.variants.map((v) => v.ngn));
+  if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
+  else if (ctx.fSort === "high") list = list.slice().sort((a, b) => priceOf(b) - priceOf(a));
+  else if (ctx.fSort === "name") list = list.slice().sort((a, b) => a.product.name.localeCompare(b.product.name));
+  else list = list.slice().sort((a, b) => (inStockHere(b) ? 1 : 0) - (inStockHere(a) ? 1 : 0));
   const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || ctx.fScope !== "city";
   const filterCats = [{ id: "all", label: "Everything" }].concat(categories);
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", outline: "none", cursor: "pointer" };
@@ -214,7 +289,10 @@ export function ShopPage({ ctx }) {
   return (
     <main style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
       {showStrips && collections.map((col) => {
-        const picks = col.productIds.map((id) => products.find((p) => p.id === id)).filter(Boolean);
+        // A collection names products; the strip shows the same cards the grid
+        // would, so a split-listed product contributes one card per variation
+        // here too rather than reading differently in two places.
+        const picks = col.productIds.flatMap((id) => listings.filter((e) => e.product.id === id));
         if (!picks.length) return null;
         return (
           <section key={col.id} style={{ marginBottom: 40 }}>
@@ -231,7 +309,7 @@ export function ShopPage({ ctx }) {
               )}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-              {picks.slice(0, 4).map((p) => <ProductCard key={p.id} p={ctx.card(p)} />)}
+              {picks.slice(0, 4).map((e) => <ProductCard key={e.key} p={ctx.card(e)} />)}
             </div>
           </section>
         );
@@ -276,6 +354,9 @@ export function ShopPage({ ctx }) {
           <option value="name">Name A–Z</option>
         </select>
         <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{list.length} {list.length === 1 ? "piece" : "pieces"}</span>
+        <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+          {list.reduce((n, e) => n + e.variants.length, 0)} sizes in total
+        </span>
         {filtersDirty && (
           <button onClick={() => { ctx.setFCat("all"); ctx.setFCol(null); ctx.setFScope("city"); ctx.setSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
         )}
@@ -291,7 +372,7 @@ export function ShopPage({ ctx }) {
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-          {list.map((p) => <ProductCard key={p.id} p={ctx.card(p)} />)}
+          {list.map((e) => <ProductCard key={e.key} p={ctx.card(e)} />)}
         </div>
       )}
     </main>
@@ -300,32 +381,79 @@ export function ShopPage({ ctx }) {
 
 export function ProductPage({ ctx }) {
   const pr = ctx.products.find((p) => p.id === ctx.productId);
+  const [shot, setShot] = useState(0);
   if (!pr) return <ShopPage ctx={ctx} />;
-  const prV = pr.variants.find((v) => v.size === ctx.prSize) || pr.variants[0];
-  const prA = ctx.availInfo(pr);
+
+  // The selected variation: whatever the shopper picked, else the SKU the URL
+  // asked for, else the first one on the shelf in their city.
+  const prV = pr.variants.find((v) => v.id === ctx.prVariantId)
+    || (ctx.prSku && pr.variants.find((v) => v.sku === ctx.prSku))
+    || ctx.defaultVariant(pr.variants);
+  const prA = ctx.variantAvail(prV);
   const { cityName, L } = ctx;
-  const soldOut = Object.values(prV.stock).every((n) => !n);
+  const soldOut = prA.soldOut;
+  const optionName = (pr.optionNames && pr.optionNames[0]) || "Size";
+
+  // The gallery for this variation: its own shots first, then the shots shared
+  // across the product, so switching size changes the picture where there is a
+  // picture to change to and holds steady where there isn't.
+  const gallery = (() => {
+    const own = pr.images.filter((im) => im.variantId === prV.id);
+    const shared = pr.images.filter((im) => !im.variantId);
+    const urls = [...own, ...shared].map((im) => ({ url: im.url, alt: im.alt }));
+    if (!urls.length && (prV.imageUrl || pr.imageUrl)) urls.push({ url: prV.imageUrl || pr.imageUrl, alt: pr.name });
+    return urls;
+  })();
+  const hero = gallery[Math.min(shot, Math.max(0, gallery.length - 1))];
+
+  const selectVariant = (v) => {
+    setShot(0);
+    ctx.setPrVariantId(v.id);
+    ctx.setPrSku(v.sku);
+    // Keep the URL on the chosen variation so it can be shared and indexed.
+    window.history.replaceState({}, "", `/product/${encodeURIComponent(pr.id)}${v.sku ? `?variant=${encodeURIComponent(v.sku)}` : ""}`);
+  };
+
   const related = ctx.products.filter((p) => p.id !== pr.id && p.cat === pr.cat).slice(0, 3).map(ctx.card);
   return (
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>
       <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to the collection</button>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(400px, 100%), 1fr))", gap: "clamp(28px, 5vw, 56px)", alignItems: "start" }}>
         <div style={{ position: "relative" }}>
-          <ImageSlot src={pr.imageUrl} shape="rounded" radius={16} name={pr.name} label={pr.name + " — product photo"} style={{ width: "100%", height: 520 }} />
+          <ImageSlot src={hero && hero.url} shape="rounded" radius={16} name={pr.name}
+            label={`${pr.name} ${prV.size} — product photo`} style={{ width: "100%", height: 520 }} />
+          {gallery.length > 1 && (
+            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+              {gallery.map((im, i) => (
+                <button key={im.url + i} onClick={() => setShot(i)} aria-label={`View photo ${i + 1}`}
+                  style={{ padding: 0, width: 64, height: 64, borderRadius: "var(--radius-md)", overflow: "hidden", cursor: "pointer", background: "none", border: `1px solid ${i === shot ? "var(--mr-purple-900)" : "var(--border-hairline)"}` }}>
+                  <img src={im.url} alt={im.alt || ""} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <Eyebrow>{ctx.catLabel(pr.cat)}</Eyebrow>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 42px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>{pr.name}</h1>
           <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontStyle: "italic", color: "var(--text-muted)", marginBottom: 14 }}>{pr.notes}</div>
-          <div style={{ fontSize: 24, fontWeight: 600, color: "var(--mr-purple-900)", marginBottom: 18 }}>{ctx.fmt(prV.ngn)}</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 24, fontWeight: 600, color: "var(--mr-purple-900)" }}>{ctx.fmt(prV.ngn)}</span>
+            {prV.compareAtNgn > prV.ngn && (
+              <span style={{ fontSize: 15, color: "var(--text-muted)", textDecoration: "line-through" }}>{ctx.fmt(prV.compareAtNgn)}</span>
+            )}
+          </div>
+          {prV.sku && <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 16, fontFamily: "var(--font-condensed)", letterSpacing: "0.08em" }}>SKU {prV.sku}</div>}
           <p style={{ fontFamily: "var(--font-editorial)", fontSize: 15.5, lineHeight: "var(--lh-relaxed)", margin: "0 0 22px", maxWidth: "54ch" }}>{pr.desc}</p>
-          <div style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: "0.04em", color: "var(--text-strong)", marginBottom: 8 }}>SIZE</div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: "0.04em", color: "var(--text-strong)", marginBottom: 8, textTransform: "uppercase" }}>{optionName}</div>
+          <div role="group" aria-label={optionName} style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
             {pr.variants.map((v) => {
-              const on = v.size === prV.size;
+              const on = v.id === prV.id;
+              const vOut = ctx.variantAvail(v).soldOut;
               return (
-                <button key={v.size} onClick={() => ctx.setPrSize(v.size)} style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, padding: "10px 18px", borderRadius: "var(--radius-md)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : "var(--mr-purple-800)" }}>
-                  {v.size} — {ctx.fmt(v.ngn)}
+                <button key={v.id} onClick={() => selectVariant(v)} aria-pressed={on}
+                  style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, padding: "10px 18px", borderRadius: "var(--radius-md)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : vOut ? "var(--text-muted)" : "var(--mr-purple-800)" }}>
+                  <span style={{ textDecoration: vOut ? "line-through" : "none" }}>{v.size}</span> — {ctx.fmt(v.ngn)}
                 </button>
               );
             })}
@@ -336,7 +464,7 @@ export function ProductPage({ ctx }) {
               <span style={{ fontSize: 14, fontWeight: 600, minWidth: 22, textAlign: "center", color: "var(--text-strong)" }}>{ctx.prQty}</span>
               <button onClick={() => ctx.setPrQty(ctx.prQty + 1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: "9px 15px", color: "var(--mr-purple-800)" }}>+</button>
             </div>
-            <Button variant="primary" size="lg" onClick={() => (soldOut ? ctx.joinWaitlist(pr.id, prV.size) : ctx.addToCart(pr.id, prV.size, ctx.prQty))}>
+            <Button variant="primary" size="lg" onClick={() => (soldOut ? ctx.joinWaitlist(pr.id, prV) : ctx.addToCart(pr.id, prV, ctx.prQty))}>
               {soldOut ? "Notify me when back" : "Add to cart — " + ctx.fmt(prV.ngn * ctx.prQty)}
             </Button>
             <button onClick={() => ctx.toggleWishlist(pr.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "12px 18px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, color: "var(--mr-purple-800)" }}>
@@ -373,7 +501,7 @@ export function ProductPage({ ctx }) {
         <Eyebrow>You may also follow</Eyebrow>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20, marginTop: 18 }}>
           {related.map((p) => (
-            <div key={p.id} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
+            <div key={p.key} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
               <div onClick={p.open} style={{ cursor: "pointer" }}>
                 <ImageSlot src={p.imageUrl} name={p.name} style={{ width: "100%", height: 200 }} />
               </div>

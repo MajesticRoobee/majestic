@@ -7,7 +7,12 @@ export function pathToRoute(pathname = window.location.pathname, search = window
   const parts = pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
   const params = new URLSearchParams(search);
   if (parts.length === 0) return { page: "home" };
-  if (parts[0] === "product" && parts[1]) return { page: "product", productId: decodeURIComponent(parts[1]) };
+  // A variation is addressable by its SKU, so a shopper can link straight to
+  // "the 50ml" and land on it already selected.
+  if (parts[0] === "product" && parts[1]) {
+    const sku = params.get("variant");
+    return { page: "product", productId: decodeURIComponent(parts[1]), ...(sku ? { prSku: sku } : {}) };
+  }
   if (parts[0] === "shop") {
     const fCat = params.get("category");
     const fCol = params.get("collection");
@@ -19,7 +24,10 @@ export function pathToRoute(pathname = window.location.pathname, search = window
 
 export function routeToPath(page, extra = {}) {
   if (page === "home") return "/";
-  if (page === "product" && extra.productId) return `/product/${encodeURIComponent(extra.productId)}`;
+  if (page === "product" && extra.productId) {
+    const base = `/product/${encodeURIComponent(extra.productId)}`;
+    return extra.prSku ? `${base}?variant=${encodeURIComponent(extra.prSku)}` : base;
+  }
   if (page === "shop" && extra.fCol) return `/shop?collection=${encodeURIComponent(extra.fCol)}`;
   if (page === "shop" && extra.fCat && extra.fCat !== "all") return `/shop?category=${encodeURIComponent(extra.fCat)}`;
   if (page === "shop") return "/shop";

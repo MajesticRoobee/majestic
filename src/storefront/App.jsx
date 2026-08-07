@@ -25,7 +25,10 @@ export default function App() {
   const dataRef = useRef(null);
   const [page, setPage] = useState(initialRoute.page);
   const [productId, setProductId] = useState(initialRoute.productId || null);
-  const [prSize, setPrSize] = useState(null);
+  // The variation selected on the product page. Held as an id (stable) with the
+  // SKU from the URL as the opening hint before the catalogue has loaded.
+  const [prVariantId, setPrVariantId] = useState(null);
+  const [prSku, setPrSku] = useState(initialRoute.prSku || null);
   const [consent, setConsentState] = useState(getConsent());
   const [prQty, setPrQty] = useState(1);
   const [city, setCity] = useState("");
@@ -120,7 +123,8 @@ export default function App() {
     if (extra.fCol !== undefined) { setFCol(extra.fCol); setFCat("all"); }
     if (extra.productId !== undefined) {
       setProductId(extra.productId);
-      setPrSize(extra.prSize ?? null);
+      setPrVariantId(extra.prVariantId ?? null);
+      setPrSku(extra.prSku ?? null);
       setPrQty(1);
     }
     window.history.pushState({}, "", routeToPath(p, extra));
@@ -133,7 +137,7 @@ export default function App() {
       const r = pathToRoute();
       setPage(r.page);
       setProductId(r.productId || null);
-      if (r.page === "product") setPrSize(null);
+      if (r.page === "product") { setPrVariantId(null); setPrSku(r.prSku || null); }
       setFCat(r.fCat || "all");
       setFCol(r.fCol || null);
       setMnav(false);
@@ -167,11 +171,15 @@ export default function App() {
     try { if (has) await api.del(`/api/account/wishlist/${productId}`, tok); else await api.post("/api/account/wishlist", { productId }, tok); } catch { loadCust(); }
   }, [custData.wishlist, nav, loadCust]);
 
-  const joinWaitlist = useCallback(async (productId, size) => {
+  // The waitlist is per variation — someone waiting on the 50ml shouldn't be
+  // told it's back because the 30ml was restocked.
+  const joinWaitlist = useCallback(async (productId, variant) => {
     const contact = (cust && cust.email) || window.prompt("Enter your email and we'll tell you the moment it's back in stock:");
     if (!contact) return;
-    try { await api.post("/api/waitlist", { productId, size, contact, city: cap(city) }); window.alert("You're on the list — we'll let you know when it's back."); }
-    catch { window.alert("Couldn't add you just now — please try again."); }
+    try {
+      await api.post("/api/waitlist", { productId, variantId: variant && variant.id, sku: variant && variant.sku, size: variant && variant.size, contact, city: cap(city) });
+      window.alert("You're on the list — we'll let you know when it's back.");
+    } catch { window.alert("Couldn't add you just now — please try again."); }
   }, [cust, city]);
 
   // Memoised so the fallbacks ({} / []) keep a stable identity across renders —
@@ -192,8 +200,9 @@ export default function App() {
     return alt.length ? alt[0] : null;
   }, [locations, city]);
 
-  const availInfo = useCallback((p) => {
-    const v = p.variants.find((x) => (x.stock[city] || 0) > 0) || p.variants[0];
+  // Availability is a property of the variation, not the product — the 30ml can
+  // be on the shelf in Abuja while the 50ml is only in Lagos.
+  const variantAvail = useCallback((v) => {
     const inCity = (v.stock[city] || 0) > 0;
     const alt = inCity ? null : bestAlt(v);
     if (inCity) return { inCity, avail: "In " + cityName, badgeBg: "#e4efe4", badgeFg: "#3f6b45", soldOut: false, note: "At your store" };
@@ -201,38 +210,89 @@ export default function App() {
     return { inCity, avail: "Notify me", badgeBg: "var(--mr-sand)", badgeFg: "var(--mr-gold-600)", soldOut: true, note: "Out of stock" };
   }, [city, cityName, bestAlt]);
 
-  const addToCart = useCallback((id, size, qty) => {
+  // The variation a shopper should land on: the first one actually on the shelf
+  // in their city, rather than whichever happens to be first in the list.
+  const defaultVariant = useCallback(
+    (variants) => variants.find((v) => (v.stock[city] || 0) > 0) || variants[0],
+    [city]
+  );
+
+  const availInfo = useCallback((p) => variantAvail(defaultVariant(p.variants)), [variantAvail, defaultVariant]);
+
+  const addToCart = useCallback((productId, variant, qty) => {
     setCart((cur) => {
       const next = cur.slice();
-      const i = next.findIndex((c) => c.id === id && c.size === size);
+      // Lines are keyed by the variation's id, so two sizes of the same
+      // fragrance are two lines and renaming a size never merges them.
+      const i = next.findIndex((c) => c.variantId === variant.id);
       if (i >= 0) next[i] = { ...next[i], qty: next[i].qty + qty };
-      else next.push({ id, size, qty });
+      else next.push({ id: productId, variantId: variant.id, sku: variant.sku, size: variant.size, qty });
       return next;
     });
     setCartOpen(true);
     const D0 = dataRef.current;
-    const p = D0 && D0.products.find((x) => x.id === id);
-    const v = p && p.variants.find((x) => x.size === size);
-    if (p && v) trackEvent("add_to_cart", { id, name: p.name, value: v.ngn * qty, items: [{ id, name: p.name, price: v.ngn, qty }] });
+    const p = D0 && D0.products.find((x) => x.id === productId);
+    if (p) trackEvent("add_to_cart", { id: variant.sku || productId, name: `${p.name} ${variant.size}`.trim(), value: variant.ngn * qty, items: [{ id: variant.sku || productId, name: p.name, price: variant.ngn, qty }] });
   }, []);
 
-  const card = useCallback((p) => {
-    const a = availInfo(p);
-    const multi = p.variants.length > 1;
-    const v0 = p.variants[0];
+  // One entry per card in the grid. A product normally contributes a single
+  // entry carrying all of its variations (one card, a picker on it); a product
+  // flagged split_listing contributes one entry per variation instead.
+  const listings = useMemo(() => {
+    const out = [];
+    for (const p of products) {
+      if (!p.variants.length) continue;
+      if (p.splitListing) for (const v of p.variants) out.push({ key: `${p.id}::${v.id}`, product: p, variants: [v], split: true });
+      else out.push({ key: p.id, product: p, variants: p.variants, split: false });
+    }
+    return out;
+  }, [products]);
+
+  const card = useCallback((entry) => {
+    // Tolerate being handed a bare product (home page, related products).
+    const e = entry.product ? entry : { key: entry.id, product: entry, variants: entry.variants, split: false };
+    const { product: p, variants } = e;
+    const def = defaultVariant(variants);
+    const prices = variants.map((v) => v.ngn);
+    const cheapest = Math.min(...prices);
+    const rangeLabel = !e.split && variants.length > 1 && cheapest !== Math.max(...prices) ? "From " + fmt(cheapest) : "";
+
     return {
-      id: p.id, name: p.name, imageUrl: p.imageUrl, catLabel: catLabel(p.cat),
-      sizeLabel: multi ? "" : v0.size,
-      priceLabel: (multi ? "From " : "") + fmt(v0.ngn),
-      avail: a.avail, badgeBg: a.badgeBg, badgeFg: a.badgeFg, outline: !!a.outline,
-      soldOut: a.soldOut, addLabel: a.soldOut ? "Notify me" : "Add to cart",
-      href: "/product/" + p.id,
+      key: e.key,
+      id: p.id,
+      split: e.split,
+      // A split listing names the variation it stands for, so two cards for the
+      // same product never read as duplicates.
+      name: e.split ? `${p.name} ${def.size}`.trim() : p.name,
+      catLabel: catLabel(p.cat),
+      optionName: (p.optionNames && p.optionNames[0]) || "Size",
+      href: "/product/" + p.id + (variants.length > 1 || e.split ? `?variant=${encodeURIComponent(def.sku || "")}` : ""),
       wished: custData.wishlist.includes(p.id),
       toggleWish: () => toggleWishlist(p.id),
-      open: () => nav("product", { productId: p.id, prSize: p.variants[0].size }),
-      add: () => (a.soldOut ? joinWaitlist(p.id, v0.size) : addToCart(p.id, v0.size, 1)),
+      defaultVariantId: def.id,
+      // "From ₦25,000" only when the picker is genuinely showing a range.
+      rangeLabel,
+      // Flat fields for the simpler surfaces (home page picks, related
+      // products) that show a card's headline without a picker.
+      imageUrl: def.imageUrl || p.imageUrl,
+      priceLabel: rangeLabel || fmt(def.ngn),
+      open: () => nav("product", { productId: p.id, prSku: def.sku, prVariantId: def.id }),
+      variants: variants.map((v) => {
+        const a = variantAvail(v);
+        return {
+          id: v.id, sku: v.sku, label: v.size,
+          imageUrl: v.imageUrl || p.imageUrl,
+          priceLabel: fmt(v.ngn),
+          compareAtLabel: v.compareAtNgn && v.compareAtNgn > v.ngn ? fmt(v.compareAtNgn) : "",
+          avail: a.avail, badgeBg: a.badgeBg, badgeFg: a.badgeFg, outline: !!a.outline,
+          soldOut: a.soldOut,
+          addLabel: a.soldOut ? "Notify me" : "Add to cart",
+          open: () => nav("product", { productId: p.id, prSku: v.sku, prVariantId: v.id }),
+          add: () => (a.soldOut ? joinWaitlist(p.id, v) : addToCart(p.id, v, 1)),
+        };
+      }),
     };
-  }, [availInfo, catLabel, fmt, nav, addToCart, custData.wishlist, toggleWishlist, joinWaitlist]);
+  }, [variantAvail, defaultVariant, catLabel, fmt, nav, addToCart, custData.wishlist, toggleWishlist, joinWaitlist]);
 
   // Cart derivation (subtotal, shipping, discount, routing)
   const cc = useMemo(() => {
@@ -243,14 +303,20 @@ export default function App() {
     const items = cart.map((c, idx) => {
       const p = products.find((x) => x.id === c.id);
       if (!p) return null;
-      const v = p.variants.find((x) => x.size === c.size) || p.variants[0];
+      // Lines saved by an older build carry only a size — fall back to it so a
+      // cart in someone's browser survives the upgrade.
+      const v = (c.variantId && p.variants.find((x) => x.id === c.variantId))
+        || (c.sku && p.variants.find((x) => x.sku === c.sku))
+        || p.variants.find((x) => x.size === c.size)
+        || p.variants[0];
       const inCity = (v.stock[city] || 0) >= c.qty;
       if (!inCity) allInCity = false;
       sub += v.ngn * c.qty;
       lines.push({ cat: p.cat, lineTotal: v.ngn * c.qty });
       const alt = inCity ? null : bestAlt(v);
       return {
-        key: c.id + c.size, id: c.id, name: p.name, size: v.size, qty: c.qty,
+        key: "v" + v.id, id: c.id, variantId: v.id, name: p.name, size: v.size, qty: c.qty,
+        imageUrl: v.imageUrl || p.imageUrl,
         initials: initialsOf(p.name),
         lineLabel: fmt(v.ngn * c.qty),
         availNote: inCity ? "In " + cityName : alt ? "Ships from " + alt.city : "Backorder",
@@ -290,7 +356,7 @@ export default function App() {
     const t = setTimeout(() => {
       api.post("/api/fulfilment/quote", {
         city, fulfill: co.fulfill,
-        items: cart.map((c) => ({ productId: c.id, size: c.size, qty: c.qty })),
+        items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })),
       })
         .then((r) => { if (live) setPlan(r.plan); })
         .catch((e) => { if (live) setPlan(e.data && e.data.plan ? e.data.plan : null); })
@@ -308,13 +374,16 @@ export default function App() {
   useEffect(() => {
     if (!D) return;
     const product = page === "product" ? products.find((p) => p.id === productId) : null;
-    setHead(headFor({ page, product, settings, categories }));
+    // The head describes the selected variation — its price, its photo, its own
+    // canonical URL — so a shared link previews what the shopper actually saw.
+    const variant = product && (product.variants.find((v) => v.id === prVariantId || (prSku && v.sku === prSku)) || defaultVariant(product.variants));
+    setHead(headFor({ page, product, variant, settings, categories }));
     trackEvent("page_view");
-    if (product) trackEvent("view_item", { id: product.id, name: product.name, value: product.variants[0].ngn });
+    if (product && variant) trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
     if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
     if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, productId, D, consent]);
+  }, [page, productId, prVariantId, prSku, D, consent]);
 
   // Prefill checkout for a signed-in customer, once per visit to the page.
   const prefilled = useRef(false);
@@ -337,7 +406,7 @@ export default function App() {
     const code = co.promo.trim().toUpperCase();
     if (!code) return;
     try {
-      const r = await api.post("/api/promos/validate", { code, items: cart.map((c) => ({ productId: c.id, size: c.size, qty: c.qty })) });
+      const r = await api.post("/api/promos/validate", { code, items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })) });
       if (r.valid) {
         setPromoInfo({ code: r.code, kind: r.kind, value: r.value, scopeName: scopeNameOf(r), freeShip: r.freeShip });
         setPromoMsg(r.code + " applied — " + r.desc + ", quietly.");
@@ -389,7 +458,7 @@ export default function App() {
         customer: { name: co.name, phone: co.phone, email: co.email, address: co.address },
         city, fulfill: co.fulfill, pay: co.pay,
         promo: promoInfo ? promoInfo.code : "",
-        items: cart.map((c) => ({ productId: c.id, size: c.size, qty: c.qty })),
+        items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })),
         acceptSplit,
       });
       if (r.paystackUrl) {
@@ -477,12 +546,12 @@ export default function App() {
     },
     gateOpen,
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
-    fmt, catLabel, availInfo, bestAlt, card,
+    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
     collections,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     plan, planning, acceptSplit, setAcceptSplit, clearPromo,
-    productId, prSize, setPrSize, prQty, setPrQty,
+    productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
     track, setTrack, doTrack,
     cf, setCf, contactSent, sendContact,

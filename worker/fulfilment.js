@@ -140,7 +140,13 @@ function storeLabels(locId, locations) {
 }
 
 function itemOf(line) {
-  return { productId: line.product.id, name: line.product.name, size: line.variant.size, qty: line.qty, ngn: line.variant.ngn };
+  return {
+    productId: line.product.id, name: line.product.name,
+    // The variation, not just its label — a plan has to say which SKU ships
+    // from where, and the label is not an identity.
+    variantId: line.variant.id, sku: line.variant.sku, size: line.variant.size,
+    qty: line.qty, ngn: line.variant.ngn,
+  };
 }
 
 // One-line summary for the order timeline and the confirmation page.

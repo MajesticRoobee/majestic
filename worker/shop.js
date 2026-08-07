@@ -20,6 +20,25 @@ function promoIsActive(promo) {
   return promo && promo.status === "Active";
 }
 
+// Resolve a cart line to its variation.
+//
+// Lines address a variation by `variantId` (or `sku`) — a stable identity that
+// survives an admin renaming a size. `size` is still accepted as a fallback so
+// carts written to localStorage by an older build, which keyed on the size
+// text, keep working through the upgrade.
+function findVariant(products, it) {
+  if (it.variantId || it.sku) {
+    for (const p of products) {
+      const v = p.variants.find((x) => (it.variantId && x.id === it.variantId) || (it.sku && x.sku === it.sku));
+      if (v) return { product: p, variant: v };
+    }
+  }
+  const p = products.find((x) => x.id === it.productId);
+  if (!p) return null;
+  const v = it.size ? p.variants.find((x) => x.size === it.size) : null;
+  return v ? { product: p, variant: v } : null;
+}
+
 function computeDiscount(promo, items) {
   // items: [{ cat, lineTotal }]
   const cats = SCOPE_CATS[promo.scope] ?? null;
@@ -67,9 +86,8 @@ shop.post("/promos/validate", async (c) => {
   if (!promoIsActive(promo)) return c.json({ valid: false });
   const products = await loadProducts(db);
   const lines = (items || []).map((it) => {
-    const p = products.find((x) => x.id === it.productId);
-    const v = p && p.variants.find((x) => x.size === it.size);
-    return p && v ? { cat: p.cat, lineTotal: v.ngn * (it.qty || 1) } : null;
+    const hit = findVariant(products, it);
+    return hit ? { cat: hit.product.cat, lineTotal: hit.variant.ngn * (it.qty || 1) } : null;
   }).filter(Boolean);
   const discount = computeDiscount(promo, lines);
   return c.json({ valid: true, code: promo.code, kind: promo.kind, value: promo.value, scope: promo.scope, desc: promo.descr, discount, freeShip: promo.kind === "ship" });
@@ -122,10 +140,13 @@ shop.post("/inquiries/:id/messages", async (c) => {
 
 // Back-in-stock waitlist — "Notify me" on sold-out products.
 shop.post("/waitlist", async (c) => {
-  const { productId, size, contact, city } = await c.req.json();
+  const { productId, variantId, sku, size, contact, city } = await c.req.json();
   if (!productId || !contact || !String(contact).trim()) return c.json({ error: "Product and a contact are required." }, 400);
-  await c.env.DB.prepare("INSERT INTO stock_waitlist (product_id, size, contact, city) VALUES (?, ?, ?, ?)")
-    .bind(productId, size || null, String(contact).trim(), city || null).run();
+  // Resolve to the exact variation so the back-in-stock alert fires for the
+  // size the shopper actually wanted, not just any size of the product.
+  const hit = findVariant(await loadProducts(c.env.DB), { productId, variantId, sku, size });
+  await c.env.DB.prepare("INSERT INTO stock_waitlist (product_id, variant_id, size, contact, city) VALUES (?, ?, ?, ?, ?)")
+    .bind(productId, hit ? hit.variant.id : null, hit ? hit.variant.size : size || null, String(contact).trim(), city || null).run();
   await emitEvent(c.env, "waitlist_joined", { entity: productId, payload: { productId, contact: String(contact).trim() }, ctx: c.executionCtx });
   return c.json({ ok: true });
 });
@@ -141,10 +162,10 @@ async function resolveLines(db, items) {
   const products = await loadProducts(db, { liveOnly: true });
   const lines = [];
   for (const it of items) {
-    const p = products.find((x) => x.id === it.productId);
-    const v = p && p.variants.find((x) => x.size === it.size);
+    const hit = findVariant(products, it);
     const qty = Math.max(1, Math.min(50, Math.round(it.qty || 1)));
-    if (!p || !v) return { error: "An item in your cart is no longer available." };
+    if (!hit) return { error: "An item in your cart is no longer available." };
+    const { product: p, variant: v } = hit;
     lines.push({ product: p, variant: v, qty, cat: p.cat, lineTotal: v.ngn * qty });
   }
   return { lines };
@@ -176,7 +197,7 @@ function publicPlan(plan) {
     unavailable: plan.unavailable,
     shipments: plan.shipments.map((s) => ({
       locationId: s.locationId, store: s.store, city: s.city, eta: s.eta, ship: s.ship,
-      items: s.items.map((i) => ({ productId: i.productId, name: i.name, size: i.size, qty: i.qty })),
+      items: s.items.map((i) => ({ productId: i.productId, variantId: i.variantId, sku: i.sku, name: i.name, size: i.size, qty: i.qty })),
     })),
   };
 }
@@ -242,8 +263,10 @@ shop.post("/orders", async (c) => {
   if (freeShipPromo) shipping = 0;
   const total = subtotal - discount + shipping;
   // Which store each line comes from, for the order_items rows and stock.
+  // Keyed on the variation's id: two sizes of one fragrance can ship from
+  // different stores, and the size label is not an identity.
   const lineLocation = new Map();
-  for (const s of plan.shipments) for (const i of s.items) lineLocation.set(i.productId + "|" + i.size, s.locationId);
+  for (const s of plan.shipments) for (const i of s.items) lineLocation.set(i.variantId, s.locationId);
 
   const no = await nextOrderNo(db);
   const payLabels = { paystack: "Paystack", transfer: "Bank transfer", whatsapp: "WhatsApp" };
@@ -268,10 +291,10 @@ shop.post("/orders", async (c) => {
     );
   }
   for (const l of lines) {
-    const from = lineLocation.get(l.product.id + "|" + l.variant.size) || loc;
+    const from = lineLocation.get(l.variant.id) || loc;
     statements.push(
-      db.prepare("INSERT INTO order_items (order_no, product_id, name, size, qty, unit_ngn, location_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        .bind(no, l.product.id, l.product.name, l.variant.size, l.qty, l.variant.ngn, from)
+      db.prepare("INSERT INTO order_items (order_no, product_id, variant_id, sku, name, size, qty, unit_ngn, location_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(no, l.product.id, l.variant.id, l.variant.sku || null, l.product.name, l.variant.size, l.qty, l.variant.ngn, from)
     );
     // Reserve stock at the store that parcel ships from (never below zero).
     statements.push(

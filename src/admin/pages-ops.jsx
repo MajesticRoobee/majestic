@@ -197,14 +197,16 @@ export function Inventory({ ctx }) {
   const [lowOnly, setLowOnly] = useState(false);
   const TH = ctx.TH;
   const scope = ctx.scope;
-  const bump = async (productId, size, location, delta) => {
+  // Stock moves against the variation's id — the size label can be edited
+  // without the stepper losing track of which row it is adjusting.
+  const bump = async (productId, variantId, location, delta) => {
     // Optimistic update, server clamps at zero.
     ctx.setProducts((cur) => cur.map((p) => p.id !== productId ? p : {
       ...p,
-      variants: p.variants.map((v) => v.size !== size ? v : { ...v, stock: { ...v.stock, [location]: Math.max(0, (v.stock[location] || 0) + delta) } }),
+      variants: p.variants.map((v) => v.id !== variantId ? v : { ...v, stock: { ...v.stock, [location]: Math.max(0, (v.stock[location] || 0) + delta) } }),
     }));
     try {
-      await api.patch("/api/admin/stock", { productId, size, location, delta }, ctx.token);
+      await api.patch("/api/admin/stock", { productId, variantId, location, delta }, ctx.token);
     } catch (e) {
       ctx.authFail(e);
       ctx.loadProducts();
@@ -281,7 +283,7 @@ export function Inventory({ ctx }) {
           {rows.map(({ p, v, counts, st }) => {
             const badge = statusBadge(st);
             return (
-              <React.Fragment key={p.id + v.size}>
+              <React.Fragment key={v.id}>
                 <div style={{ ...cell, paddingLeft: 22, gap: 10 }}>
                   <span style={{ width: 34, height: 34, borderRadius: "var(--radius-sm)", background: "var(--mr-lavender-200)", color: "var(--mr-purple-800)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, flexShrink: 0 }}>{initialsOf(p.name)}</span>
                   <span>
@@ -289,13 +291,16 @@ export function Inventory({ ctx }) {
                     <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{CAT_LABELS[p.cat] || p.cat}</span>
                   </span>
                 </div>
-                <div style={{ ...cell, color: "var(--text-body)" }}>{v.size}</div>
+                <div style={{ ...cell, color: "var(--text-body)", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
+                  <span>{v.size}</span>
+                  {v.sku && <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontFamily: "monospace" }}>{v.sku}</span>}
+                </div>
                 {stores.map((l, i) => (
-                  <div key={l.id} style={cell}>{stepper(counts[i], () => bump(p.id, v.size, l.id, -1), () => bump(p.id, v.size, l.id, 1))}</div>
+                  <div key={l.id} style={cell}>{stepper(counts[i], () => bump(p.id, v.id, l.id, -1), () => bump(p.id, v.id, l.id, 1))}</div>
                 ))}
                 <div style={cell}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: badge.bg, color: badge.fg }}>{st === "bad" ? "Out of stock" : st === "warn" ? "Low stock" : "Healthy"}</span></div>
                 <div style={{ ...cell, paddingRight: 22 }}>
-                  <button onClick={() => bump(p.id, v.size, scope === "all" ? (stores[0] ? stores[0].id : scope) : scope, 20)} style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "5px 12px", fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, color: "var(--mr-purple-800)", cursor: "pointer" }}>Restock +20</button>
+                  <button onClick={() => bump(p.id, v.id, scope === "all" ? (stores[0] ? stores[0].id : scope) : scope, 20)} style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "5px 12px", fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, color: "var(--mr-purple-800)", cursor: "pointer" }}>Restock +20</button>
                 </div>
               </React.Fragment>
             );
