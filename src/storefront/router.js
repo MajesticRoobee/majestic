@@ -10,7 +10,8 @@ export function pathToRoute(pathname = window.location.pathname, search = window
   if (parts[0] === "product" && parts[1]) return { page: "product", productId: decodeURIComponent(parts[1]) };
   if (parts[0] === "shop") {
     const fCat = params.get("category");
-    return { page: "shop", ...(fCat ? { fCat } : {}) };
+    const fCol = params.get("collection");
+    return { page: "shop", ...(fCat ? { fCat } : {}), ...(fCol ? { fCol } : {}) };
   }
   if (STATIC.includes(parts[0])) return { page: parts[0] };
   return { page: "home" };
@@ -19,6 +20,7 @@ export function pathToRoute(pathname = window.location.pathname, search = window
 export function routeToPath(page, extra = {}) {
   if (page === "home") return "/";
   if (page === "product" && extra.productId) return `/product/${encodeURIComponent(extra.productId)}`;
+  if (page === "shop" && extra.fCol) return `/shop?collection=${encodeURIComponent(extra.fCol)}`;
   if (page === "shop" && extra.fCat && extra.fCat !== "all") return `/shop?category=${encodeURIComponent(extra.fCat)}`;
   if (page === "shop") return "/shop";
   return `/${page}`;

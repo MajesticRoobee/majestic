@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import {
   getSettings, putSettings, loadProducts, issueToken, verifyToken, displayTime, displayDate,
   hashPassword, verifyPassword, randomPassphrase, randomTotpSecret, totpVerify, otpauthUri, sha256hex,
+  allLocations, locationIds,
 } from "./util.js";
 import { emitEvent } from "./events.js";
 
@@ -120,7 +121,7 @@ admin.post("/users", requireSuper, async (c) => {
   const uname = String(username || "").trim().toLowerCase().replace(/\s+/g, "");
   if (!uname || !name) return c.json({ error: "A username and a name are required." }, 400);
   if (!["super", "manager"].includes(role)) return c.json({ error: "Pick a role." }, 400);
-  if (role === "manager" && !["abuja", "lagos", "ibadan"].includes(scope)) return c.json({ error: "Managers need a store." }, 400);
+  if (role === "manager" && !(await locationIds(c.env.DB)).includes(scope)) return c.json({ error: "Managers need a store." }, 400);
   const exists = await c.env.DB.prepare("SELECT id FROM admin_users WHERE username=?").bind(uname).first();
   if (exists) return c.json({ error: "That username is taken." }, 400);
   const passphrase = randomPassphrase();
@@ -215,12 +216,21 @@ admin.get("/overview", async (c) => {
   const orders = (await bindScope(db.prepare(
     `SELECT * FROM orders WHERE 1=1 ${scopeSql} ORDER BY placed_at DESC LIMIT 8`
   )).all()).results;
+  // Which stores each of those orders ships from — an order can now be several
+  // parcels, and the dashboard should say so rather than name only the first.
+  const parcelRows = orders.length
+    ? (await db.prepare(
+        `SELECT s.order_no, s.location_id, l.city FROM order_shipments s
+         LEFT JOIN locations l ON l.id = s.location_id
+         WHERE s.order_no IN (${orders.map(() => "?").join(",")}) ORDER BY s.sort, s.id`
+      ).bind(...orders.map((o) => o.no)).all()).results
+    : [];
 
   // Stock health.
   const products = await loadProducts(db);
   let lowCount = 0, outCount = 0;
   for (const p of products) for (const v of p.variants) {
-    const t = scope ? (v.stock[scope] || 0) : v.stock.abuja + v.stock.lagos + v.stock.ibadan;
+    const t = scope ? (v.stock[scope] || 0) : Object.values(v.stock).reduce((n, q) => n + q, 0);
     if (t === 0) outCount++;
     else if (t <= TH) lowCount++;
   }
@@ -242,10 +252,12 @@ admin.get("/overview", async (c) => {
     series,
     revenueByLocation,
     topProducts: tops,
+    locations: locations.map((l) => ({ id: l.id, city: l.city, store: l.store, active: !!l.active })),
     orders: orders.map((o) => ({
       no: o.no, customer: o.customer, phone: o.phone, email: o.email, city: o.city,
       fulfilledFrom: o.fulfilled_from, method: o.method, pay: o.pay, payStatus: o.pay_status,
       status: o.status, total: o.total, placed: displayDate(new Date(o.placed_at.replace(" ", "T") + "Z")),
+      parcels: parcelRows.filter((p) => p.order_no === o.no).map((p) => p.city || p.location_id),
     })),
     abandoned: abandoned.map((a) => ({
       name: a.name, phone: a.phone, email: a.email, city: a.city, value: a.value_ngn, stage: a.stage, time: relTime(a.updated_at),
@@ -254,8 +266,6 @@ admin.get("/overview", async (c) => {
 });
 
 admin.get("/products", async (c) => c.json({ products: await loadProducts(c.env.DB) }));
-
-const LOCS = ["abuja", "lagos", "ibadan"];
 
 // Create a real product: any number of sizes, each with its own price and
 // opening stock per store, plus an image and an immediate live/draft choice.
@@ -305,7 +315,7 @@ admin.post("/products", async (c) => {
 
   for (const v of variants) {
     const vr = await db.prepare("INSERT INTO variants (product_id, size, price_ngn) VALUES (?, ?, ?)").bind(id, v.size, v.price).run();
-    await db.batch(LOCS.map((l) =>
+    await db.batch((await locationIds(db)).map((l) =>
       db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, ?)")
         .bind(vr.meta.last_row_id, l, Math.max(0, parseInt(v.stock[l], 10) || 0))
     ));
@@ -324,7 +334,7 @@ admin.post("/products/:id/variants", async (c) => {
   const dupe = await db.prepare("SELECT id FROM variants WHERE product_id=? AND lower(size)=lower(?)").bind(pid, s).first();
   if (dupe) return c.json({ error: "That size already exists on this product." }, 400);
   const vr = await db.prepare("INSERT INTO variants (product_id, size, price_ngn) VALUES (?, ?, ?)").bind(pid, s, p).run();
-  await db.batch(LOCS.map((l) =>
+  await db.batch((await locationIds(db)).map((l) =>
     db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, ?)")
       .bind(vr.meta.last_row_id, l, Math.max(0, parseInt((stock || {})[l], 10) || 0))
   ));
@@ -384,7 +394,7 @@ admin.patch("/stock", async (c) => {
   const { productId, size, location, delta } = await c.req.json();
   const db = c.env.DB;
   const v = await db.prepare("SELECT id FROM variants WHERE product_id=? AND size=?").bind(productId, size).first();
-  if (!v || !["abuja", "lagos", "ibadan"].includes(location)) return c.json({ error: "Unknown variant." }, 400);
+  if (!v || !(await locationIds(db)).includes(location)) return c.json({ error: "Unknown variant." }, 400);
   const before = await db.prepare("SELECT qty FROM stock WHERE variant_id=? AND location_id=?").bind(v.id, location).first();
   await db.prepare(
     `INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, MAX(0, ?))
@@ -447,17 +457,34 @@ admin.post("/campaigns", async (c) => {
   return c.json({ ok: true });
 });
 
+// The inbox shows live conversations by default; ?archived=1 shows the archive.
+// Both counts come back either way so the UI can label the toggle.
 admin.get("/inquiries", async (c) => {
   const db = c.env.DB;
-  const inqs = (await db.prepare("SELECT * FROM inquiries ORDER BY created_at DESC").all()).results;
+  const archived = c.req.query("archived") === "1";
+  const inqs = (await db.prepare("SELECT * FROM inquiries WHERE archived=? ORDER BY created_at DESC").bind(archived ? 1 : 0).all()).results;
   const msgs = (await db.prepare("SELECT * FROM inquiry_messages ORDER BY created_at, id").all()).results;
+  const counts = await db.prepare("SELECT SUM(archived=0) AS live, SUM(archived=1) AS archived FROM inquiries").first();
   return c.json({
+    archived,
+    counts: { live: counts.live || 0, archived: counts.archived || 0 },
     inquiries: inqs.map((q) => ({
       id: q.id, name: q.name, contact: q.contact, channel: q.channel, subject: q.subject, city: q.city,
-      status: q.status, time: relTime(q.created_at),
+      status: q.status, time: relTime(q.created_at), archived: !!q.archived,
       thread: msgs.filter((m) => m.inquiry_id === q.id).map((m) => ({ from: m.from_us ? "us" : "them", text: m.text })),
     })),
   });
+});
+
+// Archiving clears a thread out of the working inbox without destroying the
+// customer's record — so it is reversible, and reserved for the master account.
+admin.post("/inquiries/:id/archive", requireSuper, async (c) => {
+  const { archived } = await c.req.json().catch(() => ({}));
+  const id = parseInt(c.req.param("id"), 10);
+  const q = await c.env.DB.prepare("SELECT id FROM inquiries WHERE id=?").bind(id).first();
+  if (!q) return c.json({ error: "No such conversation." }, 404);
+  await c.env.DB.prepare("UPDATE inquiries SET archived=? WHERE id=?").bind(archived === false ? 0 : 1, id).run();
+  return c.json({ ok: true, archived: archived !== false });
 });
 
 admin.post("/inquiries/:id/reply", async (c) => {
@@ -499,12 +526,21 @@ admin.patch("/orders/:no", async (c) => {
   return c.json({ ok: true });
 });
 
+// An order counts against a store if the store fulfilled it or sent one of its
+// parcels — either way, deleting the store would orphan that record.
+const ORDERS_TOUCHING_STORE =
+  `SELECT COUNT(*) AS n FROM orders WHERE fulfilled_from = ?
+   OR no IN (SELECT order_no FROM order_shipments WHERE location_id = ?)`;
+
+const locationOut = (l) => ({
+  id: l.id, city: l.city, store: l.store, address: l.address, eta: l.eta, phone: l.phone,
+  shipNGN: l.ship_ngn, shipUSD: l.ship_usd, sort: l.sort, active: !!l.active,
+});
+
 admin.get("/settings", async (c) => {
   const db = c.env.DB;
   const settings = await getSettings(db);
-  const locations = (await db.prepare("SELECT * FROM locations ORDER BY sort").all()).results.map((l) => ({
-    id: l.id, city: l.city, store: l.store, address: l.address, eta: l.eta, phone: l.phone,
-  }));
+  const locations = (await allLocations(db)).map(locationOut);
   return c.json({ settings, locations });
 });
 
@@ -519,18 +555,186 @@ admin.put("/settings", async (c) => {
     // Marketing & analytics tags
     "ga4Id", "metaPixelId", "tiktokPixelId", "googleAdsId", "googleAdsPurchaseLabel", "clarityId", "gscVerification",
     // Storefront look & behaviour
-    "heroDirection", "promoPopup", "defaultCity", "crossCityShipNGN", "crossCityEta", "freeShipAbujaOver",
+    "heroDirection", "promoPopup", "defaultCity", "crossCityShipNGN", "crossCityEta", "freeShipAbujaOver", "freeShipCity",
   ];
   const patch = {};
   for (const k of allowed) if (settings && settings[k] !== undefined) patch[k] = settings[k];
   const next = await putSettings(db, patch);
   if (Array.isArray(locations)) {
+    const known = (await allLocations(db)).map((l) => l.id);
     await db.batch(locations
-      .filter((l) => ["abuja", "lagos", "ibadan"].includes(l.id))
+      .filter((l) => known.includes(l.id))
       .map((l) => db.prepare("UPDATE locations SET store=?, address=?, eta=?, phone=? WHERE id=?").bind(l.store, l.address, l.eta, l.phone, l.id)));
   }
   return c.json({ ok: true, settings: next });
 });
+
+// ---- Stores (super only) ----
+// A store is a place with stock, a delivery rate and staff attached, so opening
+// or closing one touches inventory and routing — hence super-admin only.
+admin.get("/locations", async (c) => {
+  const rows = await allLocations(c.env.DB);
+  const db = c.env.DB;
+  const out = [];
+  for (const l of rows) {
+    const orders = await db.prepare(ORDERS_TOUCHING_STORE).bind(l.id, l.id).first();
+    const units = await db.prepare("SELECT COALESCE(SUM(qty),0) AS n FROM stock WHERE location_id=?").bind(l.id).first();
+    const staff = await db.prepare("SELECT COUNT(*) AS n FROM admin_users WHERE scope=? AND active=1").bind(l.id).first();
+    out.push({ ...locationOut(l), orders: orders.n, units: units.n, staff: staff.n });
+  }
+  return c.json({ locations: out });
+});
+
+admin.post("/locations", requireSuper, async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const city = String(b.city || "").trim();
+  const store = String(b.store || "").trim();
+  if (!city || !store) return c.json({ error: "A city and a store name are required." }, 400);
+  const id = String(b.id || city).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (!id) return c.json({ error: "That city name doesn't make a usable id." }, 400);
+  if (await db.prepare("SELECT id FROM locations WHERE id=?").bind(id).first())
+    return c.json({ error: `There is already a store with the id "${id}".` }, 400);
+  const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM locations").first();
+  await db.prepare(
+    "INSERT INTO locations (id, city, store, address, ship_ngn, ship_usd, eta, phone, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+  ).bind(
+    id, city, store, String(b.address || "").trim(),
+    Math.max(0, parseInt(b.shipNGN, 10) || 0), Math.max(0, parseInt(b.shipUSD, 10) || 0),
+    String(b.eta || "1–2 days").trim(), String(b.phone || "").trim(),
+    Number.isFinite(parseInt(b.sort, 10)) ? parseInt(b.sort, 10) : last.s + 1
+  ).run();
+  // Every existing size gets a stock row at the new store, so it appears in
+  // inventory immediately (at zero) instead of only once someone restocks it.
+  const variants = (await db.prepare("SELECT id FROM variants").all()).results;
+  if (variants.length) {
+    await db.batch(variants.map((v) =>
+      db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, 0) ON CONFLICT(variant_id, location_id) DO NOTHING").bind(v.id, id)
+    ));
+  }
+  return c.json({ ok: true, id });
+});
+
+admin.patch("/locations/:id", requireSuper, async (c) => {
+  const b = await c.req.json();
+  const id = c.req.param("id");
+  const db = c.env.DB;
+  const l = await db.prepare("SELECT id FROM locations WHERE id=?").bind(id).first();
+  if (!l) return c.json({ error: "No such store." }, 404);
+  const map = { city: "city", store: "store", address: "address", eta: "eta", phone: "phone", sort: "sort", shipNGN: "ship_ngn", shipUSD: "ship_usd", active: "active" };
+  const sets = [], vals = [];
+  for (const [k, col] of Object.entries(map)) {
+    if (b[k] === undefined) continue;
+    sets.push(`${col}=?`);
+    vals.push(["sort", "ship_ngn", "ship_usd"].includes(col) ? Math.max(0, parseInt(b[k], 10) || 0) : col === "active" ? (b[k] ? 1 : 0) : String(b[k]).trim());
+  }
+  if (!sets.length) return c.json({ ok: true });
+  // Never close the last door: the storefront needs somewhere to ship from.
+  if (b.active === false) {
+    const others = await db.prepare("SELECT COUNT(*) AS n FROM locations WHERE active=1 AND id<>?").bind(id).first();
+    if (!others.n) return c.json({ error: "This is the only open store — add another before closing this one." }, 400);
+  }
+  vals.push(id);
+  await db.prepare(`UPDATE locations SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+// Removing a store that has shipped orders would orphan that history, so it is
+// closed instead: hidden from the storefront and from routing, still readable
+// on the orders it fulfilled. A store that never shipped anything is deleted
+// outright, along with its (zero-value) stock rows.
+admin.delete("/locations/:id", requireSuper, async (c) => {
+  const id = c.req.param("id");
+  const db = c.env.DB;
+  const l = await db.prepare("SELECT * FROM locations WHERE id=?").bind(id).first();
+  if (!l) return c.json({ error: "No such store." }, 404);
+  const others = await db.prepare("SELECT COUNT(*) AS n FROM locations WHERE active=1 AND id<>?").bind(id).first();
+  if (!others.n) return c.json({ error: "This is the only open store — add another before removing this one." }, 400);
+
+  const orders = await db.prepare(ORDERS_TOUCHING_STORE).bind(id, id).first();
+  if (orders.n) {
+    await db.prepare("UPDATE locations SET active=0 WHERE id=?").bind(id).run();
+    return c.json({
+      ok: true, closed: true, orders: orders.n,
+      message: `${l.store} has shipped ${orders.n} order${orders.n === 1 ? "" : "s"} (whole or in part), so it is closed rather than deleted — that history stays intact.`,
+    });
+  }
+  await db.batch([
+    db.prepare("DELETE FROM stock WHERE location_id=?").bind(id),
+    db.prepare("UPDATE admin_users SET active=0 WHERE scope=?").bind(id),
+    db.prepare("DELETE FROM locations WHERE id=?").bind(id),
+  ]);
+  return c.json({ ok: true, deleted: true });
+});
+
+// ---- Collections (curated sets shown above the catalogue) ----
+admin.get("/collections", async (c) => {
+  const db = c.env.DB;
+  const rows = (await db.prepare("SELECT * FROM collections ORDER BY sort, created_at").all()).results;
+  const items = (await db.prepare("SELECT * FROM collection_products ORDER BY sort").all()).results;
+  return c.json({
+    collections: rows.map((x) => ({
+      id: x.id, title: x.title, desc: x.descr, sort: x.sort, live: !!x.live,
+      productIds: items.filter((i) => i.collection_id === x.id).map((i) => i.product_id),
+    })),
+  });
+});
+
+admin.post("/collections", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const title = String(b.title || "").trim();
+  if (!title) return c.json({ error: "Give the collection a title." }, 400);
+  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "collection";
+  const exists = await db.prepare("SELECT id FROM collections WHERE id=?").bind(base).first();
+  const id = exists ? `${base}-${Date.now().toString(36)}` : base;
+  const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM collections").first();
+  await db.prepare("INSERT INTO collections (id, title, descr, sort, live) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, title, String(b.desc || "").trim(), last.s + 1, b.live === false ? 0 : 1).run();
+  await setCollectionProducts(db, id, b.productIds);
+  return c.json({ ok: true, id });
+});
+
+admin.patch("/collections/:id", async (c) => {
+  const b = await c.req.json();
+  const id = c.req.param("id");
+  const db = c.env.DB;
+  if (!(await db.prepare("SELECT id FROM collections WHERE id=?").bind(id).first())) return c.json({ error: "No such collection." }, 404);
+  const map = { title: "title", desc: "descr", sort: "sort", live: "live" };
+  const sets = [], vals = [];
+  for (const [k, col] of Object.entries(map)) {
+    if (b[k] === undefined) continue;
+    sets.push(`${col}=?`);
+    vals.push(col === "live" ? (b[k] ? 1 : 0) : col === "sort" ? parseInt(b[k], 10) || 0 : String(b[k]).trim());
+  }
+  if (sets.length) {
+    vals.push(id);
+    await db.prepare(`UPDATE collections SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  }
+  if (Array.isArray(b.productIds)) await setCollectionProducts(db, id, b.productIds);
+  return c.json({ ok: true });
+});
+
+admin.delete("/collections/:id", async (c) => {
+  const id = c.req.param("id");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM collection_products WHERE collection_id=?").bind(id),
+    c.env.DB.prepare("DELETE FROM collections WHERE id=?").bind(id),
+  ]);
+  return c.json({ ok: true });
+});
+
+// Membership is replaced wholesale — the admin sends the list it wants.
+async function setCollectionProducts(db, id, productIds) {
+  if (!Array.isArray(productIds)) return;
+  const known = (await db.prepare("SELECT id FROM products").all()).results.map((p) => p.id);
+  const wanted = productIds.filter((p) => known.includes(p));
+  const stmts = [db.prepare("DELETE FROM collection_products WHERE collection_id=?").bind(id)];
+  wanted.forEach((pid, i) => {
+    stmts.push(db.prepare("INSERT INTO collection_products (collection_id, product_id, sort) VALUES (?, ?, ?)").bind(id, pid, i));
+  });
+  await db.batch(stmts);
+}
 
 // ---- Media (product imagery) ----
 // Upload the raw file as the request body with its content-type. Stored in D1

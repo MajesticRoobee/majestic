@@ -2,10 +2,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
-import { statusBadge } from "./App.jsx";
+import { fmtN, statusBadge } from "./App.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const th = { padding: "10px 14px", borderTop: "1px solid var(--border-hairline)", fontWeight: 600, color: "var(--text-muted)", fontSize: 11, letterSpacing: "0.06em" };
+const storeLink = { background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-700)", padding: 0 };
 
 function StBadge({ tone, children }) {
   const b = statusBadge(tone);
@@ -242,7 +243,34 @@ export function Inquiries({ ctx }) {
     const t = setInterval(ctx.loadInquiries, 20000); // pick up new storefront chats
     return () => clearInterval(t);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!sel) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>No inquiries yet — the inbox is quietly empty.</span></main>;
+  // Archiving is the master account's call, so the control only exists there.
+  const archiveToggle = (
+    <div style={{ display: "flex", gap: 8, padding: "12px 20px", borderBottom: "1px solid var(--border-hairline)" }}>
+      {[["live", false, ctx.inqCounts.live], ["archived", true, ctx.inqCounts.archived]].map(([label, val, n]) => {
+        const on = ctx.showArchived === val;
+        return (
+          <button key={label} onClick={() => { ctx.setShowArchived(val); ctx.loadInquiries(val); setSelId(null); }}
+            style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, padding: "5px 12px", borderRadius: "var(--radius-pill)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : "var(--mr-purple-800)", textTransform: "capitalize" }}>
+            {label} · {n}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  if (!sel) {
+    return (
+      <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "340px 1fr", gap: 20, alignItems: "start" }}>
+        <div style={card}>
+          {ctx.isSuper && archiveToggle}
+          <div style={{ padding: "20px", fontSize: 13, color: "var(--text-muted)" }}>
+            {ctx.showArchived ? "Nothing archived yet." : "No conversations yet — the inbox is quietly empty."}
+          </div>
+        </div>
+        <div />
+      </main>
+    );
+  }
   const chBadge = (ch) => ch === "WhatsApp" ? { bg: "#e4efe4", fg: "#3f6b45" } : ch === "Email" ? { bg: "var(--surface-sunken)", fg: "var(--mr-purple-800)" } : { bg: "var(--mr-gold-200)", fg: "var(--mr-gold-600)" };
   const send = async () => {
     if (!reply.trim()) return;
@@ -261,14 +289,23 @@ export function Inquiries({ ctx }) {
       ctx.loadInquiries();
     } catch (e) { ctx.authFail(e); }
   };
+  const archive = async (on) => {
+    try {
+      await api.post(`/api/admin/inquiries/${sel.id}/archive`, { archived: on }, ctx.token);
+      setSelId(null);
+      ctx.loadInquiries();
+      ctx.flash(on ? "Conversation archived" : "Conversation restored");
+    } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
+  };
   const openCount = inqs.filter((q) => q.status !== "Resolved").length;
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "340px 1fr", gap: 20, alignItems: "start", height: "calc(100vh - 62px)", boxSizing: "border-box" }}>
       <div style={{ ...card, overflowY: "auto", maxHeight: "100%" }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-hairline)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Inbox</span>
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{openCount} open</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{ctx.showArchived ? "Archive" : "Inbox"}</span>
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{ctx.showArchived ? `${inqs.length} archived` : `${openCount} open`}</span>
         </div>
+        {ctx.isSuper && archiveToggle}
         {inqs.map((q) => {
           const on = sel.id === q.id;
           const ch = chBadge(q.channel);
@@ -293,6 +330,9 @@ export function Inquiries({ ctx }) {
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{sel.name} · {sel.channel} · {sel.city}</div>
           </div>
           <Button variant="secondary" size="sm" onClick={toggleResolve}>{sel.status === "Resolved" ? "Reopen" : "Mark resolved"}</Button>
+          {ctx.isSuper && (
+            <Button variant="ghost" size="sm" onClick={() => archive(!sel.archived)}>{sel.archived ? "Restore" : "Archive"}</Button>
+          )}
         </div>
         <div ref={threadRef} style={{ flex: 1, overflowY: "auto", padding: "20px 22px", display: "flex", flexDirection: "column", gap: 12 }}>
           {sel.thread.map((m, i) => (
@@ -317,20 +357,15 @@ export function Inquiries({ ctx }) {
 
 export function SettingsPage({ ctx }) {
   const [form, setForm] = useState(null);
-  const [locs, setLocs] = useState(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
-    if (ctx.settingsData && !form) {
-      setForm({ ...ctx.settingsData.settings });
-      setLocs(ctx.settingsData.locations.map((l) => ({ ...l })));
-    }
+    if (ctx.settingsData && !form) setForm({ ...ctx.settingsData.settings });
   }, [ctx.settingsData]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!form || !locs) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Fetching the house rules…</span></main>;
+  if (!form) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Fetching the house rules…</span></main>;
   const set = (k) => (e) => { setForm({ ...form, [k]: e.target.value }); setSaved(false); };
-  const setLoc = (id, k) => (e) => { setLocs(locs.map((l) => (l.id === id ? { ...l, [k]: e.target.value } : l))); setSaved(false); };
   const save = async () => {
     try {
-      await api.put("/api/admin/settings", { settings: form, locations: locs }, ctx.token);
+      await api.put("/api/admin/settings", { settings: form }, ctx.token);
       setSaved(true);
       ctx.flash("Settings saved");
       ctx.loadSettings();
@@ -361,28 +396,13 @@ export function SettingsPage({ ctx }) {
             <option value="royal statement">Royal statement (full-bleed)</option>
             <option value="product-led">Product-led (top picks)</option>
           </Select>
-          <Select label="Default city" value={form.defaultCity || "abuja"} onChange={set("defaultCity")}>
-            <option value="abuja">Abuja</option>
-            <option value="lagos">Lagos</option>
-            <option value="ibadan">Ibadan</option>
+          <Select label="Default city" value={form.defaultCity || (ctx.openStores[0] || {}).id || ""} onChange={set("defaultCity")}>
+            {ctx.openStores.map((l) => <option key={l.id} value={l.id}>{l.city}</option>)}
           </Select>
         </div>
         <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => { setForm({ ...form, promoPopup: e.target.checked }); setSaved(false); }} />
       </div>
-      <div style={{ ...section, gap: 14 }}>
-        {sectionHead("Store locations", "Names, addresses, delivery windows and phone lines shown across the storefront.")}
-        {locs.map((se) => (
-          <div key={se.id} style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>{se.city}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Input label="Store name" id={`store-${se.id}`} value={se.store} onChange={setLoc(se.id, "store")} />
-              <Input label="Delivery ETA" id={`eta-${se.id}`} value={se.eta} onChange={setLoc(se.id, "eta")} />
-            </div>
-            <Input label="Address" id={`addr-${se.id}`} value={se.address} onChange={setLoc(se.id, "address")} />
-            <Input label="Phone" id={`phone-${se.id}`} value={se.phone} onChange={setLoc(se.id, "phone")} />
-          </div>
-        ))}
-      </div>
+      <StoresSection ctx={ctx} />
       <div style={{ ...section, gap: 14 }}>
         {sectionHead("Contact details", "Shown on the Contact page and in the concierge.")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -428,5 +448,129 @@ export function SettingsPage({ ctx }) {
         <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Saved to the store database — the storefront reads the same settings.</span>
       </div>
     </main>
+  );
+}
+
+// Stores are data: opening one gives it stock rows for every size in the
+// catalogue, and closing one keeps its order history readable. Only a super
+// admin can do either — a store is inventory, staff and routing at once.
+function StoresSection({ ctx }) {
+  const [editId, setEditId] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const blank = { city: "", store: "", address: "", eta: "1–2 days", phone: "", shipNGN: "2500", shipUSD: "4" };
+
+  const startEdit = (l) => { setErr(""); setAdding(false); setEditId(l.id); setDraft({ ...l, shipNGN: String(l.shipNGN), shipUSD: String(l.shipUSD) }); };
+  const startAdd = () => { setErr(""); setEditId(null); setAdding(true); setDraft({ ...blank }); };
+  const cancel = () => { setEditId(null); setAdding(false); setDraft(null); setErr(""); };
+  const set = (k) => (e) => setDraft({ ...draft, [k]: e.target.value });
+
+  const save = async () => {
+    setBusy(true); setErr("");
+    try {
+      if (adding) await api.post("/api/admin/locations", draft, ctx.token);
+      else await api.patch(`/api/admin/locations/${encodeURIComponent(editId)}`, draft, ctx.token);
+      ctx.loadLocations(); ctx.loadSettings(); ctx.loadProducts();
+      ctx.flash(adding ? "Store opened" : "Store updated");
+      cancel();
+    } catch (e) { ctx.authFail(e); setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const setActive = async (l, active) => {
+    try {
+      await api.patch(`/api/admin/locations/${encodeURIComponent(l.id)}`, { active }, ctx.token);
+      ctx.loadLocations();
+      ctx.flash(active ? `${l.city} reopened` : `${l.city} closed`);
+    } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
+  };
+
+  const remove = async (l) => {
+    const warning = l.orders
+      ? `${l.city} has fulfilled ${l.orders} order${l.orders === 1 ? "" : "s"}, so it will be closed rather than deleted — the history stays. Continue?`
+      : `Remove ${l.city} — ${l.store}? Its stock rows go with it. Products and orders are untouched.`;
+    if (!window.confirm(warning)) return;
+    try {
+      const r = await api.del(`/api/admin/locations/${encodeURIComponent(l.id)}`, ctx.token);
+      ctx.loadLocations(); ctx.loadSettings(); ctx.loadProducts();
+      ctx.flash(r.closed ? `${l.city} closed` : `${l.city} removed`);
+    } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
+  };
+
+  const section = { ...card, padding: 24, display: "flex", flexDirection: "column", gap: 14 };
+  const form = (
+    <div style={{ border: "1px solid var(--mr-purple-600)", borderRadius: "var(--radius-md)", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>{adding ? "Open a store" : `Edit ${draft ? draft.city : ""}`}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Input label="City" value={draft ? draft.city : ""} onChange={set("city")} placeholder="Port Harcourt" />
+        <Input label="Store name" value={draft ? draft.store : ""} onChange={set("store")} placeholder="GRA Store" />
+      </div>
+      <Input label="Address" value={draft ? draft.address : ""} onChange={set("address")} placeholder="Street, area, city" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Input label="Phone" value={draft ? draft.phone : ""} onChange={set("phone")} placeholder="+234 …" />
+        <Input label="Delivery ETA" value={draft ? draft.eta : ""} onChange={set("eta")} placeholder="1–2 days" />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Input label="Delivery fee (₦)" value={draft ? draft.shipNGN : ""} onChange={set("shipNGN")} placeholder="2500" hint="Charged when this store ships to its own city." />
+        <Input label="Delivery fee ($)" value={draft ? draft.shipUSD : ""} onChange={set("shipUSD")} placeholder="4" />
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <Button variant="primary" size="sm" disabled={busy} onClick={save}>{busy ? "Saving…" : adding ? "Open this store" : "Save changes"}</Button>
+        <button onClick={cancel} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-muted)" }}>Cancel</button>
+      </div>
+      {adding && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Every size in the catalogue gets a stock row here at zero — set the real counts in Inventory.</div>}
+      {err && <div style={{ fontSize: 12, color: "#c0587a" }}>{err}</div>}
+    </div>
+  );
+
+  return (
+    <div style={section}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Stores</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+            Every store here holds stock, ships orders and can have staff scoped to it. Shoppers pick one of the open stores as their city.
+          </div>
+        </div>
+        {ctx.isSuper && !adding && <Button variant="secondary" size="sm" onClick={startAdd}>Add a store</Button>}
+      </div>
+
+      {adding && form}
+
+      {ctx.locations.map((l) => (
+        <div key={l.id} style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 16, display: "flex", flexDirection: "column", gap: 10, opacity: l.active ? 1 : 0.6 }}>
+          {editId === l.id ? form : (
+            <>
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>
+                    {l.city}{!l.active && " · closed"}
+                  </div>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginTop: 3 }}>{l.store}</div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{l.address}</div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 2 }}>
+                    {l.phone} · {l.eta} · {fmtN(l.shipNGN)} delivery
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", fontSize: 11.5, color: "var(--text-muted)" }}>
+                  <div>{(l.units || 0).toLocaleString()} units</div>
+                  <div>{l.orders || 0} orders</div>
+                  <div>{l.staff || 0} staff</div>
+                </div>
+              </div>
+              {ctx.isSuper && (
+                <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={() => startEdit(l)} style={storeLink}>Edit →</button>
+                  <button onClick={() => setActive(l, !l.active)} style={storeLink}>{l.active ? "Close temporarily" : "Reopen"}</button>
+                  <button onClick={() => remove(l)} style={{ ...storeLink, color: "#c0587a", marginLeft: "auto" }}>Remove</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ))}
+      {!ctx.isSuper && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Only a super admin can open, edit or close a store.</div>}
+    </div>
   );
 }

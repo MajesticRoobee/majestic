@@ -147,11 +147,26 @@ export function displayDate(date = new Date()) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "Africa/Lagos" });
 }
 
+// Every store, or only the ones still trading. Stores are data now — nothing
+// may assume a fixed set of three.
+export async function allLocations(db) {
+  return (await db.prepare("SELECT * FROM locations ORDER BY sort, id").all()).results;
+}
+export async function activeLocations(db) {
+  return (await db.prepare("SELECT * FROM locations WHERE active=1 ORDER BY sort, id").all()).results;
+}
+export async function locationIds(db) {
+  return (await activeLocations(db)).map((l) => l.id);
+}
+
 // Load full product list with variants + per-location stock.
 export async function loadProducts(db, { liveOnly = false } = {}) {
   const products = (await db.prepare(`SELECT * FROM products ${liveOnly ? "WHERE live=1" : ""} ORDER BY rowid`).all()).results;
   const variants = (await db.prepare("SELECT * FROM variants ORDER BY id").all()).results;
   const stock = (await db.prepare("SELECT * FROM stock").all()).results;
+  // Zero for every store that exists, so callers can read v.stock[anyStore]
+  // without checking, however many stores the house has.
+  const zeroes = Object.fromEntries((await allLocations(db)).map((l) => [l.id, 0]));
   const stockByVariant = {};
   for (const s of stock) {
     (stockByVariant[s.variant_id] ||= {})[s.location_id] = s.qty;
@@ -168,7 +183,7 @@ export async function loadProducts(db, { liveOnly = false } = {}) {
     live: !!p.live,
     variants: variants
       .filter((v) => v.product_id === p.id)
-      .map((v) => ({ id: v.id, size: v.size, ngn: v.price_ngn, stock: { abuja: 0, lagos: 0, ibadan: 0, ...(stockByVariant[v.id] || {}) } })),
+      .map((v) => ({ id: v.id, size: v.size, ngn: v.price_ngn, stock: { ...zeroes, ...(stockByVariant[v.id] || {}) } })),
   }));
 }
 

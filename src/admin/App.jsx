@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { Badge, Button, Input } from "../ds/components.jsx";
-import { Dashboard, Inventory, Catalogue } from "./pages-ops.jsx";
+import { Dashboard, Inventory, Catalogue, CollectionsPage } from "./pages-ops.jsx";
 import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
@@ -37,6 +37,7 @@ const PAGES = [
   { id: "dash", label: "Dashboard", title: "Dashboard" },
   { id: "inv", label: "Inventory", title: "Inventory" },
   { id: "cat", label: "Products", title: "Product catalogue" },
+  { id: "collections", label: "Collections", title: "Collections & sets" },
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
   { id: "notif", label: "Notifications", title: "Notifications & pop-ups" },
   { id: "inq", label: "Customer Service", title: "Customer service" },
@@ -134,6 +135,10 @@ export default function App() {
   const [promos, setPromos] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
   const [inquiries, setInquiries] = useState([]);
+  const [inqCounts, setInqCounts] = useState({ live: 0, archived: 0 });
+  const [showArchived, setShowArchived] = useState(false);
+  const [locations, setLocations] = useState([]);
+  const [collections, setCollections] = useState([]);
   const [settingsData, setSettingsData] = useState(null);
   const [toast, setToast] = useState("");
   const [me, setMe] = useState(null);
@@ -170,9 +175,21 @@ export default function App() {
     if (!token) return;
     api.get("/api/admin/campaigns", token).then((r) => setCampaigns(r.campaigns)).catch(authFail);
   }, [token, authFail]);
-  const loadInquiries = useCallback(() => {
+  // The inbox is either the live list or the archive; both counts come back
+  // each time so the toggle can be labelled.
+  const loadInquiries = useCallback((archived = showArchived) => {
     if (!token) return;
-    api.get("/api/admin/inquiries", token).then((r) => setInquiries(r.inquiries)).catch(authFail);
+    api.get(`/api/admin/inquiries?archived=${archived ? 1 : 0}`, token)
+      .then((r) => { setInquiries(r.inquiries); setInqCounts(r.counts); })
+      .catch(authFail);
+  }, [token, authFail, showArchived]);
+  const loadLocations = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/locations", token).then((r) => setLocations(r.locations)).catch(authFail);
+  }, [token, authFail]);
+  const loadCollections = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/collections", token).then((r) => setCollections(r.collections)).catch(authFail);
   }, [token, authFail]);
   const loadSettings = useCallback(() => {
     if (!token) return;
@@ -187,6 +204,8 @@ export default function App() {
     loadCampaigns();
     loadInquiries();
     loadSettings();
+    loadLocations();
+    loadCollections();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -203,14 +222,17 @@ export default function App() {
 
   const settings = settingsData ? settingsData.settings : {};
   const TH = settings.lowStockThreshold ?? 5;
-  const openInq = inquiries.filter((q) => q.status !== "Resolved").length;
+  const openInq = showArchived ? 0 : inquiries.filter((q) => q.status !== "Resolved").length;
   const isSuper = !me || me.role === "super";
-  const scopeLabel = scope === "all" ? "All locations" : { abuja: "Abuja", lagos: "Lagos", ibadan: "Ibadan" }[scope];
+  const openStores = locations.filter((l) => l.active);
+  const scopeStore = locations.find((l) => l.id === scope);
+  const scopeLabel = scope === "all" ? "All locations" : scopeStore ? scopeStore.city : scope;
 
   const ctx = {
-    token, page, setPage, scope, setScope, scopeLabel, TH, me, loadMe,
+    token, page, setPage, scope, setScope, scopeLabel, TH, me, loadMe, isSuper,
     overview, products, promos, campaigns, inquiries, settingsData,
-    loadOverview, loadProducts, loadPromos, loadCampaigns, loadInquiries, loadSettings,
+    locations, openStores, collections, inqCounts, showArchived, setShowArchived,
+    loadOverview, loadProducts, loadPromos, loadCampaigns, loadInquiries, loadSettings, loadLocations, loadCollections,
     setProducts, setInquiries, authFail, flash,
   };
 
@@ -259,9 +281,7 @@ export default function App() {
           {isSuper ? (
             <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", outline: "none" }}>
               <option value="all">All locations</option>
-              <option value="abuja">Abuja — Life Camp</option>
-              <option value="lagos">Lagos — Lekki</option>
-              <option value="ibadan">Ibadan — Bodija</option>
+              {openStores.map((l) => <option key={l.id} value={l.id}>{l.city} — {l.store}</option>)}
             </select>
           ) : (
             <Badge tone="neutral">{scopeLabel} only</Badge>
@@ -272,6 +292,7 @@ export default function App() {
         {activePage === "dash" && <Dashboard ctx={ctx} />}
         {activePage === "inv" && <Inventory ctx={ctx} />}
         {activePage === "cat" && <Catalogue ctx={ctx} />}
+        {activePage === "collections" && <CollectionsPage ctx={ctx} />}
         {activePage === "sales" && <Sales ctx={ctx} />}
         {activePage === "notif" && <Notifications ctx={ctx} />}
         {activePage === "inq" && <Inquiries ctx={ctx} />}

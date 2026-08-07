@@ -1,11 +1,10 @@
 // Public storefront API.
 import { Hono } from "hono";
-import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate } from "./util.js";
+import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations } from "./util.js";
+import { planFulfilment, planSummary } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 
 export const shop = new Hono();
-
-const LOCATION_ORDER = ["abuja", "lagos", "ibadan"];
 
 // Category groups a promo scope applies to.
 // Home fragrance, massage oils and the health drink sit outside these groups, so
@@ -34,15 +33,21 @@ function computeDiscount(promo, items) {
 shop.get("/store", async (c) => {
   const db = c.env.DB;
   const settings = await getSettings(db);
-  const locations = (await db.prepare("SELECT * FROM locations ORDER BY sort").all()).results.map((l) => ({
+  const locations = (await activeLocations(db)).map((l) => ({
     id: l.id, city: l.city, store: l.store, address: l.address, shipNGN: l.ship_ngn, shipUSD: l.ship_usd, eta: l.eta, phone: l.phone,
   }));
   const categories = (await db.prepare("SELECT id, label FROM categories ORDER BY sort").all()).results;
   const products = await loadProducts(db, { liveOnly: true });
+  const colRows = (await db.prepare("SELECT * FROM collections WHERE live=1 ORDER BY sort, created_at").all()).results;
+  const colItems = (await db.prepare("SELECT * FROM collection_products ORDER BY sort").all()).results;
+  const collections = colRows.map((x) => ({
+    id: x.id, title: x.title, desc: x.descr,
+    productIds: colItems.filter((i) => i.collection_id === x.id).map((i) => i.product_id),
+  }));
   const popup = await db
     .prepare("SELECT title, message, cta FROM campaigns WHERE kind='Popup' AND status='Live' ORDER BY created_at DESC LIMIT 1")
     .first();
-  return c.json({ settings, locations, categories, products, popup });
+  return c.json({ settings, locations, categories, collections, products, popup });
 });
 
 shop.post("/leads", async (c) => {
@@ -131,36 +136,68 @@ async function nextOrderNo(db) {
   return "MR-" + n;
 }
 
-function pickFulfilment(items, city) {
-  // items: [{ variant: {stock}, qty }]
-  const fits = (loc) => items.every((it) => (it.variant.stock[loc] || 0) >= it.qty);
-  if (fits(city)) return { loc: city, allInCity: true };
-  const alt = LOCATION_ORDER.filter((l) => l !== city).find(fits);
-  return { loc: alt || city, allInCity: false };
-}
-
-shop.post("/orders", async (c) => {
-  const db = c.env.DB;
-  const body = await c.req.json();
-  const { customer = {}, city, fulfill, pay, promo: promoCode, items } = body;
-
-  if (!customer.name || !String(customer.name).trim() || !customer.phone || !String(customer.phone).trim())
-    return c.json({ error: "Your name and phone help us find you — both are required." }, 400);
-  if (fulfill === "delivery" && (!customer.address || !String(customer.address).trim()))
-    return c.json({ error: "Add a delivery address, or switch to click & collect." }, 400);
-  if (!Array.isArray(items) || !items.length) return c.json({ error: "Your cart is empty." }, 400);
-  if (!LOCATION_ORDER.includes(city)) return c.json({ error: "Pick a city first." }, 400);
-
-  const settings = await getSettings(db);
+// Resolve cart items against the live catalogue. Returns { lines } or { error }.
+async function resolveLines(db, items) {
   const products = await loadProducts(db, { liveOnly: true });
   const lines = [];
   for (const it of items) {
     const p = products.find((x) => x.id === it.productId);
     const v = p && p.variants.find((x) => x.size === it.size);
     const qty = Math.max(1, Math.min(50, Math.round(it.qty || 1)));
-    if (!p || !v) return c.json({ error: "An item in your cart is no longer available." }, 400);
+    if (!p || !v) return { error: "An item in your cart is no longer available." };
     lines.push({ product: p, variant: v, qty, cat: p.cat, lineTotal: v.ngn * qty });
   }
+  return { lines };
+}
+
+// What the shopper is shown before they commit: which store (or stores) their
+// order ships from, and what each parcel costs. The checkout page calls this
+// whenever the cart, the city or the fulfilment choice changes.
+shop.post("/fulfilment/quote", async (c) => {
+  const db = c.env.DB;
+  const { city, fulfill, items } = await c.req.json();
+  const locations = await activeLocations(db);
+  if (!locations.some((l) => l.id === city)) return c.json({ error: "Pick a city first." }, 400);
+  if (!Array.isArray(items) || !items.length) return c.json({ error: "Your cart is empty." }, 400);
+  const { lines, error } = await resolveLines(db, items);
+  if (error) return c.json({ error }, 400);
+  const settings = await getSettings(db);
+  const plan = planFulfilment({ lines, locations, city, settings, fulfil: fulfill === "collect" ? "collect" : "delivery" });
+  return c.json({ plan: publicPlan(plan) });
+});
+
+// The client never needs the internals — just what to show and what to confirm.
+function publicPlan(plan) {
+  return {
+    mode: plan.mode,
+    needsConfirmation: plan.needsConfirmation,
+    shipTotal: plan.shipTotal,
+    collectBlocked: !!plan.collectBlocked,
+    unavailable: plan.unavailable,
+    shipments: plan.shipments.map((s) => ({
+      locationId: s.locationId, store: s.store, city: s.city, eta: s.eta, ship: s.ship,
+      items: s.items.map((i) => ({ productId: i.productId, name: i.name, size: i.size, qty: i.qty })),
+    })),
+  };
+}
+
+shop.post("/orders", async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const { customer = {}, city, fulfill, pay, promo: promoCode, items, acceptSplit } = body;
+
+  const locations = await activeLocations(db);
+  if (!customer.name || !String(customer.name).trim() || !customer.phone || !String(customer.phone).trim())
+    return c.json({ error: "Your name and phone help us find you — both are required." }, 400);
+  if (fulfill === "delivery" && (!customer.address || !String(customer.address).trim()))
+    return c.json({ error: "Add a delivery address, or switch to click & collect." }, 400);
+  if (!Array.isArray(items) || !items.length) return c.json({ error: "Your cart is empty." }, 400);
+  if (!locations.some((l) => l.id === city)) return c.json({ error: "Pick a city first." }, 400);
+
+  const settings = await getSettings(db);
+  const resolved = await resolveLines(db, items);
+  if (resolved.error) return c.json({ error: resolved.error }, 400);
+  const lines = resolved.lines;
 
   const subtotal = lines.reduce((n, l) => n + l.lineTotal, 0);
 
@@ -174,18 +211,39 @@ shop.post("/orders", async (c) => {
     freeShipPromo = promo.kind === "ship";
   }
 
-  const { loc, allInCity } = pickFulfilment(lines, city);
-  const locations = (await db.prepare("SELECT * FROM locations ORDER BY sort").all()).results;
-  const cityLoc = locations.find((l) => l.id === city);
-  const fromLoc = locations.find((l) => l.id === loc);
-
-  let shipping = 0;
-  if (fulfill !== "collect") {
-    shipping = allInCity ? cityLoc.ship_ngn : (settings.crossCityShipNGN ?? 4500);
-    if (city === "abuja" && allInCity && subtotal >= (settings.freeShipAbujaOver ?? 100000)) shipping = 0;
-    if (freeShipPromo) shipping = 0;
+  // The plan is recomputed here rather than trusted from the client, so the
+  // parcels and the delivery total are always the server's own.
+  const plan = planFulfilment({ lines, locations, city, settings, fulfil: fulfill === "collect" ? "collect" : "delivery" });
+  if (plan.mode === "unavailable") {
+    const what = plan.unavailable.map((u) => `${u.name} (${u.size} × ${u.qty})`).join(", ");
+    return c.json({
+      error: plan.collectBlocked
+        ? `Not everything is at your store for collection right now — ${what}. Switch to delivery and we'll ship it to you.`
+        : `We're short on ${what} across every store. Remove it, or join the waitlist and we'll tell you the moment it's back.`,
+      plan: publicPlan(plan),
+    }, 400);
   }
+  // A split arrives in several parcels and costs more than one — the buyer
+  // confirms that on the checkout page before the order is written.
+  if (plan.needsConfirmation && !acceptSplit) {
+    return c.json({
+      error: `Your order ships in ${plan.shipments.length} parcels from different stores. Confirm the delivery breakdown to continue.`,
+      plan: publicPlan(plan),
+      needsConfirmation: true,
+    }, 409);
+  }
+
+  const loc = plan.primary;
+  const allInCity = plan.mode === "single" && plan.shipments[0].locationId === city;
+  const cityLoc = locations.find((l) => l.id === city);
+  const fromLoc = locations.find((l) => l.id === loc) || cityLoc;
+
+  let shipping = fulfill === "collect" ? 0 : plan.shipTotal;
+  if (freeShipPromo) shipping = 0;
   const total = subtotal - discount + shipping;
+  // Which store each line comes from, for the order_items rows and stock.
+  const lineLocation = new Map();
+  for (const s of plan.shipments) for (const i of s.items) lineLocation.set(i.productId + "|" + i.size, s.locationId);
 
   const no = await nextOrderNo(db);
   const payLabels = { paystack: "Paystack", transfer: "Bank transfer", whatsapp: "WhatsApp" };
@@ -203,30 +261,38 @@ shop.post("/orders", async (c) => {
       promo ? promo.code : null, subtotal, discount, shipping, total, allInCity ? 1 : 0
     ),
   ];
-  for (const l of lines) {
+  for (const s of plan.shipments) {
     statements.push(
-      db.prepare("INSERT INTO order_items (order_no, product_id, name, size, qty, unit_ngn) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(no, l.product.id, l.product.name, l.variant.size, l.qty, l.variant.ngn)
-    );
-    // Reserve stock at the fulfilling store (never below zero).
-    statements.push(
-      db.prepare("UPDATE stock SET qty = MAX(0, qty - ?) WHERE variant_id=? AND location_id=?").bind(l.qty, l.variant.id, loc)
+      db.prepare("INSERT INTO order_shipments (order_no, location_id, ship_ngn, eta, sort) VALUES (?, ?, ?, ?, ?)")
+        .bind(no, s.locationId, fulfill === "collect" ? 0 : s.ship, s.eta, plan.shipments.indexOf(s))
     );
   }
-  const routeDetail = allInCity
-    ? `All items in stock at ${fromLoc.store}, ${fromLoc.city}`
-    : `Routed to ${fromLoc.store}, ${fromLoc.city} — nearest store holding your full order`;
+  for (const l of lines) {
+    const from = lineLocation.get(l.product.id + "|" + l.variant.size) || loc;
+    statements.push(
+      db.prepare("INSERT INTO order_items (order_no, product_id, name, size, qty, unit_ngn, location_id) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .bind(no, l.product.id, l.product.name, l.variant.size, l.qty, l.variant.ngn, from)
+    );
+    // Reserve stock at the store that parcel ships from (never below zero).
+    statements.push(
+      db.prepare("UPDATE stock SET qty = MAX(0, qty - ?) WHERE variant_id=? AND location_id=?").bind(l.qty, l.variant.id, from)
+    );
+  }
+  const routeDetail = planSummary(plan, city);
   const payDetail = { paystack: "Awaiting Paystack confirmation", transfer: "We hold your order 2 hours while you transfer", whatsapp: "A concierge completes your order in chat" }[pay] || "";
   const t = displayTime(now);
   const events = [
     ["Order placed", `${payLabels[pay] || "Paystack"} — ${fmtNaira(total)}. ${payDetail}`, t, 1, 0, 1],
-    [allInCity ? `Routed to ${fromLoc.store}, ${fromLoc.city}` : "Routing to the nearest stocked store", routeDetail, t, 1, 1, 2],
-    ["Packed & perfumed", "Hand-wrapped with a note", null, 0, 0, 3],
+    [
+      plan.mode === "split" ? `Splitting across ${plan.shipments.length} stores` : `Routed to ${fromLoc.store}, ${fromLoc.city}`,
+      routeDetail, t, 1, 1, 2,
+    ],
+    ["Packed & perfumed", plan.mode === "split" ? "Each parcel hand-wrapped with a note" : "Hand-wrapped with a note", null, 0, 0, 3],
     [
       fulfill === "collect" ? "Ready for pickup" : "In transit",
       fulfill === "collect"
         ? `Ready in about 3 hours — we'll text ${customer.phone.trim()}`
-        : allInCity ? `Estimated ${cityLoc.eta}` : `Estimated ${settings.crossCityEta || "3–5 days"}`,
+        : plan.shipments.map((s) => `${s.store}: ${s.eta}`).join(" · "),
       null, 0, 0, 4,
     ],
   ];
@@ -254,14 +320,17 @@ shop.post("/orders", async (c) => {
     total,
     pay: payLabels[pay] || "Paystack",
     method,
-    route: allInCity
-      ? (fulfill === "collect"
-          ? `Ready for collection at ${fromLoc.store}, ${fromLoc.address}.`
-          : `Shipping in one parcel from ${fromLoc.store}, ${fromLoc.city} to ${customer.address}.`)
-      : `Routed to ${fromLoc.store}, ${fromLoc.city} — the nearest store holding your full order — shipping to ${fulfill === "collect" ? cityLoc.store : customer.address}.`,
+    route: fulfill === "collect"
+      ? `Ready for collection at ${fromLoc.store}, ${fromLoc.address}.`
+      : plan.mode === "split"
+        ? `Shipping in ${plan.shipments.length} parcels — ${plan.shipments.map((s) => `${s.store}, ${s.city}`).join(" and ")} — to ${customer.address}.`
+        : allInCity
+          ? `Shipping in one parcel from ${fromLoc.store}, ${fromLoc.city} to ${customer.address}.`
+          : `Routed to ${fromLoc.store}, ${fromLoc.city} — the nearest store holding your full order — shipping to ${customer.address}.`,
     eta: fulfill === "collect"
       ? `Ready in about 3 hours — we'll text ${customer.phone.trim()}.`
-      : allInCity ? `Estimated ${cityLoc.eta}.` : `Estimated ${settings.crossCityEta || "3–5 days"}.`,
+      : plan.shipments.map((s) => `${s.store}: ${s.eta}`).join(" · "),
+    shipments: plan.shipments.map((s) => ({ store: s.store, city: s.city, eta: s.eta, ship: s.ship, items: s.items.length })),
   };
 
   // Paystack hand-off when configured; otherwise the order stays pending
@@ -345,12 +414,21 @@ shop.get("/orders/track", async (c) => {
     return c.json({ error: "That contact doesn't match this order — use the phone or email you ordered with." }, 403);
   const events = (await db.prepare("SELECT * FROM order_events WHERE order_no=? ORDER BY sort").bind(no).all()).results;
   const from = await db.prepare("SELECT * FROM locations WHERE id=?").bind(order.fulfilled_from).first();
+  // Orders placed before split shipments existed have no shipment rows — they
+  // all shipped whole from fulfilled_from.
+  const parcels = (await db.prepare(
+    `SELECT s.location_id, s.ship_ngn, s.eta, l.store, l.city FROM order_shipments s
+     LEFT JOIN locations l ON l.id = s.location_id WHERE s.order_no=? ORDER BY s.sort, s.id`
+  ).bind(no).all()).results;
   return c.json({
     no: order.no,
     status: order.pay_status === "pending" && order.status === "Processing" ? "Awaiting payment" : order.status,
     placed: displayDate(new Date(order.placed_at.replace(" ", "T") + "Z")),
     total: order.total,
     from: from ? `${from.store}, ${from.city}` : order.fulfilled_from,
+    parcels: parcels.map((p) => ({
+      store: p.store || p.location_id, city: p.city || "", eta: p.eta, ship: p.ship_ngn,
+    })),
     steps: events.map((e) => ({ step: e.step, detail: e.detail, time: e.at || "", done: !!e.done, current: !!e.current })),
   });
 });
