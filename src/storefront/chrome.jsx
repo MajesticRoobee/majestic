@@ -52,12 +52,7 @@ function ProfileMenu({ ctx }) {
   );
 }
 
-const CITY_OPTIONS = [
-  ["abuja", "Abuja"],
-  ["lagos", "Lagos"],
-  ["ibadan", "Ibadan"],
-];
-
+// Cities come from the stores the house actually has open.
 function CitySelect({ ctx, style }) {
   return (
     <select
@@ -66,7 +61,7 @@ function CitySelect({ ctx, style }) {
       title="Your city"
       style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "7px 8px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", outline: "none", ...style }}
     >
-      {CITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      {ctx.locations.map((l) => <option key={l.id} value={l.id}>{l.city}</option>)}
     </select>
   );
 }

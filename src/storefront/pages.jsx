@@ -241,45 +241,111 @@ export function HomePage({ ctx }) {
 }
 
 export function ShopPage({ ctx }) {
-  const { listings, categories, cityName } = ctx;
+  const { listings, categories, collections, cityName } = ctx;
+  const searching = !!ctx.search.trim();
+  const collection = collections.find((c) => c.id === ctx.fCol) || null;
   // The grid iterates listing entries, not products: one entry per card. A
-  // product with a picker is one entry; a split-listed product contributes one
-  // entry per variation, so its variations really are separate cards.
+  // product with a picker is one entry carrying all its variations; a
+  // split-listed product contributes one entry per variation.
+  //
+  // "On the shelf here" therefore means any variation the card can show is in
+  // the city — which is the whole product for a picker card, and exactly one
+  // variation for a split card.
+  const inStockHere = (e) => e.variants.some((v) => (v.stock[ctx.city] || 0) > 0);
+  const scopedOut = listings.filter((e) => !inStockHere(e)).length;
+  // The shelf you can walk up to today is the default. A search always reaches
+  // every store — someone looking for a specific scent wants to know it exists
+  // in Lagos, not to be told it doesn't exist.
   let list = listings.filter((e) => {
     const p = e.product;
     if (ctx.fCat !== "all" && p.cat !== ctx.fCat) return false;
+    if (collection && !collection.productIds.includes(p.id)) return false;
     if (ctx.search) {
+      // Sizes and SKUs are searchable too, now that they are real identities.
       const hay = (p.name + " " + p.notes + " " + e.variants.map((v) => `${v.size} ${v.sku || ""}`).join(" ")).toLowerCase();
       if (!hay.includes(ctx.search.toLowerCase())) return false;
     }
+    if (!searching && ctx.fScope === "city" && !inStockHere(e)) return false;
     return true;
   });
   // Sorting reads the cheapest variation on the card, so a card never sorts by
   // a price the shopper can't actually see on it.
   const priceOf = (e) => Math.min(...e.variants.map((v) => v.ngn));
-  const inCity = (e) => (e.variants.some((v) => (v.stock[ctx.city] || 0) > 0) ? 1 : 0);
   if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
   else if (ctx.fSort === "high") list = list.slice().sort((a, b) => priceOf(b) - priceOf(a));
   else if (ctx.fSort === "name") list = list.slice().sort((a, b) => a.product.name.localeCompare(b.product.name));
-  else list = list.slice().sort((a, b) => inCity(b) - inCity(a));
-  const filtersDirty = ctx.fCat !== "all" || !!ctx.search;
+  else list = list.slice().sort((a, b) => (inStockHere(b) ? 1 : 0) - (inStockHere(a) ? 1 : 0));
+  const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || ctx.fScope !== "city";
   const filterCats = [{ id: "all", label: "Everything" }].concat(categories);
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", outline: "none", cursor: "pointer" };
+  const chip = (on, onClick, label, key) => (
+    <button key={key} onClick={onClick} style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 16px", borderRadius: "var(--radius-pill)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : "var(--mr-purple-800)", transition: "all var(--dur-fast) var(--ease-standard)" }}>
+      {label}
+    </button>
+  );
+  // Curated sets lead the page — but only when the shopper is browsing, not
+  // when they have already narrowed to a category, a set or a search.
+  const showStrips = !searching && !collection && ctx.fCat === "all" && collections.length > 0;
   return (
     <main style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
-      <Eyebrow>The collection</Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>All products</h1>
-      <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px" }}>Showing availability for {cityName} — pieces at your store come first.</p>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        {filterCats.map((c) => {
-          const on = ctx.fCat === c.id;
-          return (
-            <button key={c.id} onClick={() => ctx.setFCat(c.id)} style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 16px", borderRadius: "var(--radius-pill)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : "var(--mr-purple-800)", transition: "all var(--dur-fast) var(--ease-standard)" }}>
-              {c.label}
-            </button>
-          );
-        })}
+      {showStrips && collections.map((col) => {
+        // A collection names products; the strip shows the same cards the grid
+        // would, so a split-listed product contributes one card per variation
+        // here too rather than reading differently in two places.
+        const picks = col.productIds.flatMap((id) => listings.filter((e) => e.product.id === id));
+        if (!picks.length) return null;
+        return (
+          <section key={col.id} style={{ marginBottom: 40 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+              <div>
+                <Eyebrow>Collection</Eyebrow>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 2.6vw, 32px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "8px 0 4px" }}>{col.title}</h2>
+                {col.desc && <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: 0, maxWidth: "60ch" }}>{col.desc}</p>}
+              </div>
+              {picks.length > 4 && (
+                <button onClick={() => ctx.nav("shop", { fCol: col.id })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, color: "var(--mr-orchid-600)" }}>
+                  See all {picks.length} —
+                </button>
+              )}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
+              {picks.slice(0, 4).map((e) => <ProductCard key={e.key} p={ctx.card(e)} />)}
+            </div>
+          </section>
+        );
+      })}
+
+      <Eyebrow>{collection ? "Collection" : "The collection"}</Eyebrow>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>
+        {collection ? collection.title : "All products"}
+      </h1>
+      <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px" }}>
+        {collection && collection.desc
+          ? collection.desc
+          : searching
+            ? `Searching every store — pieces held in ${cityName} come first.`
+            : ctx.fScope === "city"
+              ? `On the shelf at our ${cityName} store today.`
+              : `Everything the house carries — pieces held in ${cityName} come first.`}
+      </p>
+      {collection && (
+        <button onClick={() => ctx.nav("shop", { fCol: null })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← Back to everything</button>
+      )}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+        {filterCats.map((c) => chip(ctx.fCat === c.id, () => ctx.setFCat(c.id), c.label, c.id))}
       </div>
+      {/* Shelf vs house. Hidden mid-search, where the scope is always the house. */}
+      {!searching && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+          {chip(ctx.fScope === "city", () => ctx.setFScope("city"), `In ${cityName} now`, "sc-city")}
+          {chip(ctx.fScope === "all", () => ctx.setFScope("all"), "Every store", "sc-all")}
+          {ctx.fScope === "city" && scopedOut > 0 && (
+            <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+              {scopedOut} more {scopedOut === 1 ? "piece ships" : "pieces ship"} from our other stores — search or switch to see {scopedOut === 1 ? "it" : "them"}.
+            </span>
+          )}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 28 }}>
         <select value={ctx.fSort} onChange={(e) => ctx.setFSort(e.target.value)} style={selStyle}>
           <option value="featured">Sort — {cityName} first</option>
@@ -292,12 +358,23 @@ export function ShopPage({ ctx }) {
           {list.reduce((n, e) => n + e.variants.length, 0)} sizes in total
         </span>
         {filtersDirty && (
-          <button onClick={() => { ctx.setFCat("all"); ctx.setFFam("all"); ctx.setSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
+          <button onClick={() => { ctx.setFCat("all"); ctx.setFCol(null); ctx.setFScope("city"); ctx.setSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
         )}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-        {list.map((e) => <ProductCard key={e.key} p={ctx.card(e)} />)}
-      </div>
+      {list.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "56px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
+          <p style={{ fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--text-body)", margin: "0 0 14px" }}>
+            {searching ? `Nothing matches "${ctx.search}" in any of our stores.` : `Nothing on the ${cityName} shelf under this filter.`}
+          </p>
+          {!searching && ctx.fScope === "city" && scopedOut > 0 && (
+            <Button variant="secondary" onClick={() => ctx.setFScope("all")}>Look in every store</Button>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
+          {list.map((e) => <ProductCard key={e.key} p={ctx.card(e)} />)}
+        </div>
+      )}
     </main>
   );
 }
@@ -482,9 +559,25 @@ export function CheckoutPage({ ctx }) {
     { id: "transfer", label: "Bank transfer", note: "We hold your order 2 hours while you transfer" },
     { id: "whatsapp", label: "Order via WhatsApp", note: "A concierge completes your order in chat" },
   ];
-  const routingNote = !cc.items.length ? "" : cc.allInCity
-    ? `Everything is in stock at ${L ? L.store : ""}, ${cityName} — one shipment, ${L ? L.eta : ""}.`
-    : `Some pieces aren't in ${cityName} right now — we'll route your order from the nearest store that holds everything (3–5 days).`;
+  const plan = ctx.plan;
+  const split = plan && plan.mode === "split";
+  const routingNote = !cc.items.length
+    ? ""
+    : ctx.planning && !plan
+      ? "Working out which store your order ships from…"
+      : plan && plan.mode === "unavailable"
+        ? plan.collectBlocked
+          ? `Not everything is at ${L ? L.store : "your store"} for collection — switch to delivery and we'll ship it to you.`
+          : "Some pieces are out of stock across every store — adjust your cart to continue."
+        : plan && plan.shipments.length === 1
+          ? plan.shipments[0].locationId === ctx.city
+            ? `Everything is in stock at ${plan.shipments[0].store}, ${cityName} — one parcel, ${plan.shipments[0].eta}.`
+            : `Routed to ${plan.shipments[0].store}, ${plan.shipments[0].city} — the nearest store holding your whole order.`
+          : split
+            ? `No single store holds everything, so this ships in ${plan.shipments.length} parcels.`
+            : cc.allInCity
+              ? `Everything is in stock at ${L ? L.store : ""}, ${cityName} — one parcel, ${L ? L.eta : ""}.`
+              : `Some pieces aren't in ${cityName} right now — we'll route your order from the nearest store that holds everything.`;
   const radioBtn = (on, onClick, title, note) => {
     const st = radioStyle(on);
     return (
@@ -499,9 +592,15 @@ export function CheckoutPage({ ctx }) {
   };
   const sectionCard = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 24 };
   const sectionTitle = { fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: "var(--text-strong)", marginBottom: 16 };
-  const shipEtaNote = cc.allInCity
-    ? (L ? L.eta : "") + " · " + ctx.fmt(L ? L.shipNGN : 2500) + (ctx.city === "abuja" ? ` (free over ${ctx.fmt(settings.freeShipAbujaOver ?? 100000)})` : "")
-    : `3–5 days · ${ctx.fmt(settings.crossCityShipNGN ?? 4500)} (routed shipment)`;
+  // Quote the real number once the plan is in, so this line and the parcel
+  // breakdown below can never disagree.
+  const shipEtaNote = plan && plan.mode !== "unavailable"
+    ? plan.shipments.length > 1
+      ? `${plan.shipments.length} parcels · ${ctx.fmt(plan.shipTotal)} total`
+      : `${plan.shipments[0].eta} · ${plan.shipments[0].ship === 0 ? "free" : ctx.fmt(plan.shipments[0].ship)}`
+    : cc.allInCity
+      ? (L ? L.eta : "") + " · " + ctx.fmt(L ? L.shipNGN : 2500) + (ctx.city === (settings.freeShipCity ?? "abuja") ? ` (free over ${ctx.fmt(settings.freeShipAbujaOver ?? 100000)})` : "")
+      : `3–5 days · ${ctx.fmt(settings.crossCityShipNGN ?? 4500)} (routed shipment)`;
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
       <Eyebrow>Almost yours</Eyebrow>
@@ -526,7 +625,13 @@ export function CheckoutPage({ ctx }) {
               <div style={sectionTitle}>2 · FULFILMENT</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {radioBtn(co.fulfill === "delivery", () => setCo({ ...co, fulfill: "delivery" }), `Delivery to ${cityName}`, shipEtaNote)}
-                {radioBtn(co.fulfill === "collect", () => setCo({ ...co, fulfill: "collect" }), `Click & collect — ${L ? L.store : "your store"}`, `Free — ready in 3 hours when everything is in stock at ${L ? L.store : "your store"}`)}
+                {radioBtn(
+                  co.fulfill === "collect", () => setCo({ ...co, fulfill: "collect" }),
+                  `Click & collect — ${L ? L.store : "your store"}`,
+                  co.fulfill === "collect" && plan && plan.collectBlocked
+                    ? `Not everything is at ${L ? L.store : "your store"} today — switch to delivery for these pieces`
+                    : `Free — ready in 3 hours when everything is in stock at ${L ? L.store : "your store"}`
+                )}
               </div>
               {co.fulfill === "delivery" && (
                 <div style={{ marginTop: 14 }}>
@@ -556,18 +661,56 @@ export function CheckoutPage({ ctx }) {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
               <span>{routingNote}</span>
             </div>
+            {/* Parcels. A split costs more than one delivery, so the shopper
+                sees each parcel and agrees before the order can be placed. */}
+            {plan && plan.shipments.length > 1 && (
+              <div style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: "14px 16px", marginBottom: 16 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-strong)", marginBottom: 10 }}>
+                  {plan.shipments.length} parcels · {ctx.fmt(plan.shipTotal)} delivery
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {plan.shipments.map((s, i) => (
+                    <div key={s.locationId} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12.5 }}>
+                      <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--mr-lavender-200)", color: "var(--mr-purple-800)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{i + 1}</span>
+                      <span style={{ flex: 1 }}>
+                        <span style={{ fontWeight: 600, color: "var(--text-strong)" }}>{s.store}, {s.city}</span>
+                        <span style={{ color: "var(--text-muted)" }}> — {s.items.map((it) => `${it.name} (${it.size} × ${it.qty})`).join(", ")}</span>
+                        <br />
+                        <span style={{ color: "var(--text-muted)" }}>{s.eta}</span>
+                      </span>
+                      <span style={{ fontWeight: 600, color: "var(--mr-purple-900)" }}>{s.ship === 0 ? "Free" : ctx.fmt(s.ship)}</span>
+                    </div>
+                  ))}
+                </div>
+                {split && (
+                  <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border-hairline)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={ctx.acceptSplit} onChange={(e) => ctx.setAcceptSplit(e.target.checked)} style={{ accentColor: "var(--mr-purple-800)", marginTop: 2, width: 15, height: 15 }} />
+                    <span style={{ fontSize: 12.5, color: "var(--text-body)" }}>
+                      Ship in {plan.shipments.length} parcels — I understand delivery is {ctx.fmt(plan.shipTotal)} and they may arrive on different days.
+                    </span>
+                  </label>
+                )}
+              </div>
+            )}
             <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
               <input value={co.promo} onChange={(e) => setCo({ ...co, promo: e.target.value.toUpperCase() })} placeholder="Promo code" style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 13, padding: "10px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", textTransform: "uppercase", color: "var(--text-strong)", background: "var(--surface-card)" }} />
               <Button variant="secondary" size="sm" onClick={ctx.applyPromo}>Apply</Button>
             </div>
             {ctx.promoMsg && (
-              <div style={{ fontSize: 12.5, margin: "-8px 0 12px", color: ctx.promoInfo ? "var(--accent-gold-ink)" : "#c0587a" }}>{ctx.promoMsg}</div>
+              <div style={{ fontSize: 12.5, margin: "-8px 0 12px", display: "flex", gap: 8, alignItems: "flex-start", color: ctx.promoInfo ? "var(--accent-gold-ink)" : "#c0587a" }}>
+                <span style={{ flex: 1 }}>{ctx.promoMsg}</span>
+                <button onClick={ctx.clearPromo} aria-label="Remove promo code" title="Remove" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1, padding: "0 2px" }}>✕</button>
+              </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13.5, borderTop: "1px solid var(--border-hairline)", paddingTop: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal</span><span style={{ fontWeight: 500, color: "var(--text-strong)" }}>{ctx.fmt(cc.sub)}</span></div>
               {cc.discount > 0 && (
                 <div style={{ display: "flex", justifyContent: "space-between", color: "var(--accent-gold-ink)" }}>
-                  <span>Promo — {ctx.promoInfo && ctx.promoInfo.code}</span><span>−{ctx.fmt(cc.discount)}</span>
+                  <span>
+                    Promo — {ctx.promoInfo && ctx.promoInfo.code}
+                    <button onClick={ctx.clearPromo} aria-label="Remove promo code" title="Remove this code" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 13, lineHeight: 1, padding: "0 4px" }}>✕</button>
+                  </span>
+                  <span>−{ctx.fmt(cc.discount)}</span>
                 </div>
               )}
               <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -579,8 +722,16 @@ export function CheckoutPage({ ctx }) {
               </div>
             </div>
             <div style={{ marginTop: 18 }}>
-              <Button variant="gold" size="lg" block disabled={ctx.placing} onClick={ctx.placeOrder}>
-                {ctx.placing ? "Placing…" : co.pay === "whatsapp" ? "Continue on WhatsApp" : "Place order — " + ctx.fmt(cc.total)}
+              <Button
+                variant="gold" size="lg" block
+                disabled={ctx.placing || (plan && plan.mode === "unavailable") || (split && !ctx.acceptSplit)}
+                onClick={ctx.placeOrder}
+              >
+                {ctx.placing
+                  ? "Placing…"
+                  : split && !ctx.acceptSplit
+                    ? `Confirm the ${plan.shipments.length} parcels above`
+                    : co.pay === "whatsapp" ? "Continue on WhatsApp" : "Place order — " + ctx.fmt(cc.total)}
               </Button>
             </div>
             {ctx.coErr && <div style={{ fontSize: 12.5, color: "#c0587a", marginTop: 10, textAlign: "center" }}>{ctx.coErr}</div>}

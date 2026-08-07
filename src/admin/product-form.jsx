@@ -7,9 +7,9 @@ import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { CAT_LABELS } from "./App.jsx";
 
-const LOCS = [["abuja", "Abuja"], ["lagos", "Lagos"], ["ibadan", "Ibadan"]];
 const GENDERS = ["Unisex", "Female", "Male"];
-const blankVariant = () => ({ size: "", price: "", sku: "", imageUrl: "", stock: { abuja: "", lagos: "", ibadan: "" } });
+// Opening stock is one field per store the house has open — no fixed three.
+const blankVariant = () => ({ size: "", price: "", sku: "", imageUrl: "", stock: {} });
 
 // Upload a chosen file and hand back its served URL.
 export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
@@ -66,7 +66,7 @@ export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
 
 // Each row here is a variation, and a variation is a product in its own right:
 // its own price, its own SKU, its own photo, its own stock in every store.
-function VariantRows({ ctx, variants, setVariants, showStock = true, optionName = "Size" }) {
+function VariantRows({ ctx, variants, setVariants, stores, showStock = true, optionName = "Size" }) {
   const set = (i, patch) => setVariants(variants.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const setStock = (i, loc, val) => set(i, { stock: { ...variants[i].stock, [loc]: val.replace(/\D/g, "") } });
   return (
@@ -89,9 +89,9 @@ function VariantRows({ ctx, variants, setVariants, showStock = true, optionName 
               label={`Photo for this ${optionName.toLowerCase()}`} />
           )}
           {showStock && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {LOCS.map(([id, label]) => (
-                <Input key={id} label={label} value={v.stock[id] ?? ""} onChange={(e) => setStock(i, id, e.target.value)} placeholder="0" />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
+              {stores.map((l) => (
+                <Input key={l.id} label={l.city} value={v.stock[l.id] ?? ""} onChange={(e) => setStock(i, l.id, e.target.value)} placeholder="0" />
               ))}
             </div>
           )}
@@ -145,7 +145,7 @@ export function NewProduct({ ctx }) {
       </Select>
       <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
         placeholder="Size" hint="Shown above the picker on the product page — usually Size, sometimes Scent or Shade." />
-      <VariantRows ctx={ctx} variants={variants} setVariants={setVariants} optionName={f.optionName || "Size"} />
+      <VariantRows ctx={ctx} variants={variants} setVariants={setVariants} stores={ctx.openStores} optionName={f.optionName || "Size"} />
       <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} placeholder="Oud, saffron, smoked amber" />
       <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} placeholder="A short, evocative description shoppers read on the product page." />
       <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
@@ -250,7 +250,7 @@ export function EditProductPanel({ ctx, product, onClose }) {
                   <Input label={f.optionName || "Size"} value={e.size} onChange={(ev) => setV(v.id, { size: ev.target.value })} style={{ flex: 1 }} />
                   <Input label="Price (₦)" value={e.price} onChange={(ev) => setV(v.id, { price: ev.target.value.replace(/\D/g, "") })} style={{ flex: 1 }} />
                   <span style={{ fontSize: 11.5, color: "var(--text-muted)", width: 74, paddingBottom: 12 }}>
-                    {(v.stock.abuja || 0) + (v.stock.lagos || 0) + (v.stock.ibadan || 0)} in stock
+                    {Object.values(v.stock).reduce((n, q) => n + (q || 0), 0)} in stock
                   </span>
                   {product.variants.length > 1 && (
                     <button onClick={() => delSize(v)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)", paddingBottom: 12 }}>Remove</button>
@@ -271,9 +271,9 @@ export function EditProductPanel({ ctx, product, onClose }) {
             </div>
             <Input label="SKU (optional)" value={addV.sku} onChange={(e) => setAddV({ ...addV, sku: e.target.value })} placeholder="Leave blank and we'll generate one" />
             <ImagePicker ctx={ctx} value={addV.imageUrl} onChange={(url) => setAddV({ ...addV, imageUrl: url })} label="Photo for this variation" />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {LOCS.map(([id, label]) => (
-                <Input key={id} label={label} value={addV.stock[id]} onChange={(e) => setAddV({ ...addV, stock: { ...addV.stock, [id]: e.target.value.replace(/\D/g, "") } })} placeholder="0" />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
+              {ctx.openStores.map((l) => (
+                <Input key={l.id} label={l.city} value={addV.stock[l.id] ?? ""} onChange={(e) => setAddV({ ...addV, stock: { ...addV.stock, [l.id]: e.target.value.replace(/\D/g, "") } })} placeholder="0" />
               ))}
             </div>
             <div style={{ display: "flex", gap: 10 }}>

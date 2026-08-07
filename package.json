@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "lint": "eslint .",
+    "test": "node scripts/fulfilment.test.mjs",
     "build": "vite build",
     "dev:worker": "npm run build && wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply majestic-roobee --local",

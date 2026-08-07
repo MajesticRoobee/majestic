@@ -147,6 +147,18 @@ export function displayDate(date = new Date()) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "Africa/Lagos" });
 }
 
+// Every store, or only the ones still trading. Stores are data now — nothing
+// may assume a fixed set of three.
+export async function allLocations(db) {
+  return (await db.prepare("SELECT * FROM locations ORDER BY sort, id").all()).results;
+}
+export async function activeLocations(db) {
+  return (await db.prepare("SELECT * FROM locations WHERE active=1 ORDER BY sort, id").all()).results;
+}
+export async function locationIds(db) {
+  return (await activeLocations(db)).map((l) => l.id);
+}
+
 // The display label for a variation, built from its options — "50ml", or
 // "50ml / Gold" when a product has a second axis. Stored back into
 // variants.size, which stays the canonical label the rest of the app reads.
@@ -175,6 +187,9 @@ export async function loadProducts(db, { liveOnly = false } = {}) {
   const variants = (await db.prepare(`SELECT * FROM variants ${liveOnly ? "WHERE active=1" : ""} ORDER BY sort, id`).all()).results;
   const stock = (await db.prepare("SELECT * FROM stock").all()).results;
   const images = (await db.prepare("SELECT * FROM product_images ORDER BY sort, id").all()).results;
+  // Zero for every store that exists, so callers can read v.stock[anyStore]
+  // without checking, however many stores the house has.
+  const zeroes = Object.fromEntries((await allLocations(db)).map((l) => [l.id, 0]));
 
   const stockByVariant = {};
   for (const s of stock) {
@@ -228,7 +243,7 @@ export async function loadProducts(db, { liveOnly = false } = {}) {
             active: v.active === undefined ? true : !!v.active,
             sort: v.sort,
             externalId: v.external_id || null,
-            stock: { abuja: 0, lagos: 0, ibadan: 0, ...(stockByVariant[v.id] || {}) },
+            stock: { ...zeroes, ...(stockByVariant[v.id] || {}) },
           };
         }),
     };

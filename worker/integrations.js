@@ -2,9 +2,7 @@
 // and an MCP-compatible JSON-RPC endpoint (/api/mcp) exposing store data as
 // tools to AI agents and external automation.
 import { Hono } from "hono";
-import { sha256hex, loadProducts, displayDate, optionLabel, makeSku } from "./util.js";
-
-const LOCS = ["abuja", "lagos", "ibadan"];
+import { sha256hex, loadProducts, displayDate, optionLabel, makeSku, locationIds } from "./util.js";
 
 // ---- shared API-key auth ----
 async function authKey(env, req, ctx) {
@@ -24,20 +22,21 @@ async function readProducts(env) {
     id: p.id, name: p.name, category: p.cat, family: p.family, live: p.live,
     externalId: p.externalId, optionNames: p.optionNames,
     // Variations, SKU-level — this is what an ERP reconciles its feed against.
+    // Stock carries one key per store, whatever the house currently has open.
     variants: p.variants.map((v) => ({
       sku: v.sku, externalId: v.externalId, label: v.size, options: v.options,
-      ngn: v.ngn, active: v.active,
-      stock: { abuja: v.stock.abuja, lagos: v.stock.lagos, ibadan: v.stock.ibadan },
+      ngn: v.ngn, active: v.active, stock: { ...v.stock },
     })),
     prices: p.variants.map((v) => ({ size: v.size, ngn: v.ngn })), // kept for existing consumers
-    stock: p.variants.reduce((n, v) => n + v.stock.abuja + v.stock.lagos + v.stock.ibadan, 0),
+    stock: p.variants.reduce((n, v) => n + Object.values(v.stock).reduce((m, q) => m + q, 0), 0),
   }));
 }
 async function readInventory(env, productId) {
   const products = await loadProducts(env.DB);
   return products.filter((p) => !productId || p.id === productId).map((p) => ({
     id: p.id, name: p.name,
-    variants: p.variants.map((v) => ({ sku: v.sku, size: v.size, abuja: v.stock.abuja, lagos: v.stock.lagos, ibadan: v.stock.ibadan })),
+    // One key per store, whatever the house currently has open.
+    variants: p.variants.map((v) => ({ sku: v.sku, size: v.size, ...v.stock })),
   }));
 }
 async function readOrders(env, limit = 25) {
@@ -94,6 +93,8 @@ async function syncCatalogue(env, body) {
   if (!rows.length) return out;
 
   const cats = new Set((await db.prepare("SELECT id FROM categories").all()).results.map((r) => r.id));
+  // Stores are data — a feed can carry stock for whatever the house has open.
+  const stores = await locationIds(db);
 
   // Group the flat SKU feed by the parent code the ERP sends.
   const groups = new Map();
@@ -238,7 +239,7 @@ async function syncCatalogue(env, body) {
               price, compareAt, sku, image, active, sort, source, externalId
             ).run();
             variant = { id: vr.meta.last_row_id };
-            await db.batch(LOCS.map((l) =>
+            await db.batch(stores.map((l) =>
               db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, 0) ON CONFLICT(variant_id, location_id) DO NOTHING").bind(variant.id, l)
             ));
           }
@@ -249,7 +250,7 @@ async function syncCatalogue(env, body) {
         //    system of record for counts, so this is a set and not a delta.
         const stock = row.stock || row.inventory;
         if (stock && typeof stock === "object" && variant && !dryRun) {
-          for (const l of LOCS) {
+          for (const l of stores) {
             const qty = stock[l];
             if (qty === undefined || qty === null || qty === "") continue;
             await db.prepare(
