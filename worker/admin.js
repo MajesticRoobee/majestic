@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import {
   getSettings, putSettings, loadProducts, issueToken, verifyToken, displayTime, displayDate,
   hashPassword, verifyPassword, randomPassphrase, randomTotpSecret, totpVerify, otpauthUri, sha256hex,
+  optionLabel, makeSku,
 } from "./util.js";
 import { emitEvent } from "./events.js";
 
@@ -257,6 +258,24 @@ admin.get("/products", async (c) => c.json({ products: await loadProducts(c.env.
 
 const LOCS = ["abuja", "lagos", "ibadan"];
 
+// What a product's option axes are called. Almost always ["Size"].
+function normaliseOptionNames(v) {
+  const arr = Array.isArray(v) ? v : typeof v === "string" && v.trim() ? [v.trim()] : [];
+  const clean = arr.map((s) => String(s).trim()).filter(Boolean).slice(0, 3);
+  return clean.length ? clean : ["Size"];
+}
+
+// SKUs are unique across the catalogue; suffix until the wanted one is free.
+async function freeSku(db, want, exceptId = -1) {
+  const base = String(want || "").trim() || "sku";
+  for (let n = 0; n < 50; n++) {
+    const candidate = n ? `${base}-${n + 1}` : base;
+    const taken = await db.prepare("SELECT id FROM variants WHERE sku=? AND id IS NOT ?").bind(candidate, exceptId).first();
+    if (!taken) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
 // Create a real product: any number of sizes, each with its own price and
 // opening stock per store, plus an image and an immediate live/draft choice.
 admin.post("/products", async (c) => {
@@ -269,7 +288,18 @@ admin.post("/products", async (c) => {
     ? b.variants
     : [{ size: b.size, price: b.price, stock: {} }];
   variants = variants
-    .map((v) => ({ size: String(v.size || "").trim(), price: parseInt(v.price, 10) || 0, stock: v.stock || {} }))
+    .map((v) => ({
+      // A variation's label is its options joined — "50ml", or "50ml / Gold"
+      // once a product has a second axis.
+      size: optionLabel(v.option1 ?? v.size, v.option2, v.option3),
+      option1: String(v.option1 ?? v.size ?? "").trim(),
+      option2: String(v.option2 ?? "").trim() || null,
+      option3: String(v.option3 ?? "").trim() || null,
+      price: parseInt(v.price, 10) || 0,
+      sku: String(v.sku || "").trim(),
+      imageUrl: String(v.imageUrl || "").trim() || null,
+      stock: v.stock || {},
+    }))
     .filter((v) => v.size || v.price);
   if (!variants.length) return c.json({ error: "Add at least one size with a price." }, 400);
   for (const v of variants) {
@@ -293,42 +323,71 @@ admin.post("/products", async (c) => {
   const exists = await db.prepare("SELECT id FROM products WHERE id=?").bind(slug).first();
   const id = exists ? `${slug}-${Date.now().toString(36)}` : slug;
 
+  const optionNames = normaliseOptionNames(b.optionNames);
+  const productImage = (b.imageUrl || "").trim() || null;
+
   await db.prepare(
-    "INSERT INTO products (id, name, cat, gender, family, notes, descr, image_url, live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO products (id, name, cat, gender, family, notes, descr, image_url, live, option_names, split_listing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
     id, name, cat, b.gender || "Unisex", b.family || "",
     (b.notes || "").trim() || "—",
     (b.desc || "").trim() || "A new addition to the house — description coming soon.",
-    (b.imageUrl || "").trim() || null,
-    b.live ? 1 : 0
+    productImage,
+    b.live ? 1 : 0,
+    JSON.stringify(optionNames),
+    b.splitListing ? 1 : 0
   ).run();
 
-  for (const v of variants) {
-    const vr = await db.prepare("INSERT INTO variants (product_id, size, price_ngn) VALUES (?, ?, ?)").bind(id, v.size, v.price).run();
+  if (productImage) {
+    await db.prepare("INSERT INTO product_images (product_id, variant_id, url, alt, sort) VALUES (?, NULL, ?, ?, 0)")
+      .bind(id, productImage, name).run();
+  }
+
+  for (const [i, v] of variants.entries()) {
+    const vr = await db.prepare(
+      "INSERT INTO variants (product_id, size, option1, option2, option3, price_ngn, sku, image_url, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, v.size, v.option1 || v.size, v.option2, v.option3, v.price, await freeSku(db, v.sku || makeSku(id, v.size)), v.imageUrl, i).run();
+    const vid = vr.meta.last_row_id;
+    if (v.imageUrl) {
+      await db.prepare("INSERT INTO product_images (product_id, variant_id, url, alt, sort) VALUES (?, ?, ?, ?, ?)")
+        .bind(id, vid, v.imageUrl, `${name} — ${v.size}`, i + 1).run();
+    }
     await db.batch(LOCS.map((l) =>
       db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, ?)")
-        .bind(vr.meta.last_row_id, l, Math.max(0, parseInt(v.stock[l], 10) || 0))
+        .bind(vid, l, Math.max(0, parseInt(v.stock[l], 10) || 0))
     ));
   }
   return c.json({ ok: true, id, name, live: !!b.live });
 });
 
-// Add a size to an existing product.
+// Add a variation to an existing product.
 admin.post("/products/:id/variants", async (c) => {
-  const { size, price, stock } = await c.req.json();
+  const b = await c.req.json();
   const pid = c.req.param("id");
-  const s = String(size || "").trim();
-  const p = parseInt(price, 10) || 0;
+  const s = optionLabel(b.option1 ?? b.size, b.option2, b.option3);
+  const p = parseInt(b.price, 10) || 0;
   if (!s || !p) return c.json({ error: "A size and a price are required." }, 400);
   const db = c.env.DB;
   const dupe = await db.prepare("SELECT id FROM variants WHERE product_id=? AND lower(size)=lower(?)").bind(pid, s).first();
   if (dupe) return c.json({ error: "That size already exists on this product." }, 400);
-  const vr = await db.prepare("INSERT INTO variants (product_id, size, price_ngn) VALUES (?, ?, ?)").bind(pid, s, p).run();
+  const next = await db.prepare("SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM variants WHERE product_id=?").bind(pid).first();
+  const image = String(b.imageUrl || "").trim() || null;
+  const vr = await db.prepare(
+    "INSERT INTO variants (product_id, size, option1, option2, option3, price_ngn, sku, image_url, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    pid, s, String(b.option1 ?? b.size ?? s).trim(), String(b.option2 ?? "").trim() || null, String(b.option3 ?? "").trim() || null,
+    p, await freeSku(db, String(b.sku || "").trim() || makeSku(pid, s)), image, next.n
+  ).run();
+  const vid = vr.meta.last_row_id;
+  if (image) {
+    await db.prepare("INSERT INTO product_images (product_id, variant_id, url, alt, sort) VALUES (?, ?, ?, ?, ?)")
+      .bind(pid, vid, image, s, next.n).run();
+  }
   await db.batch(LOCS.map((l) =>
     db.prepare("INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, ?)")
-      .bind(vr.meta.last_row_id, l, Math.max(0, parseInt((stock || {})[l], 10) || 0))
+      .bind(vid, l, Math.max(0, parseInt((b.stock || {})[l], 10) || 0))
   ));
-  return c.json({ ok: true, id: vr.meta.last_row_id });
+  return c.json({ ok: true, id: vid });
 });
 
 admin.delete("/variants/:id", async (c) => {
@@ -339,9 +398,78 @@ admin.delete("/variants/:id", async (c) => {
   const count = await db.prepare("SELECT COUNT(*) AS n FROM variants WHERE product_id=?").bind(v.product_id).first();
   if (count.n <= 1) return c.json({ error: "A product needs at least one size — delete the product instead." }, 400);
   await db.batch([
+    db.prepare("DELETE FROM product_images WHERE variant_id=?").bind(vid),
     db.prepare("DELETE FROM stock WHERE variant_id=?").bind(vid),
     db.prepare("DELETE FROM variants WHERE id=?").bind(vid),
   ]);
+  return c.json({ ok: true });
+});
+
+// ---- Product gallery ----
+// Images belong to the product; tagging one to a variation makes it the shot
+// shown when that variation is selected. Untagged shots are shared by all.
+admin.get("/products/:id/images", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT * FROM product_images WHERE product_id=? ORDER BY sort, id").bind(c.req.param("id")).all()).results;
+  return c.json({ images: rows.map((r) => ({ id: r.id, url: r.url, alt: r.alt, variantId: r.variant_id, sort: r.sort })) });
+});
+
+admin.post("/products/:id/images", async (c) => {
+  const b = await c.req.json();
+  const pid = c.req.param("id");
+  const url = String(b.url || "").trim();
+  if (!url) return c.json({ error: "An image URL is required." }, 400);
+  const db = c.env.DB;
+  const p = await db.prepare("SELECT name FROM products WHERE id=?").bind(pid).first();
+  if (!p) return c.json({ error: "No such product." }, 404);
+  const vid = b.variantId ? parseInt(b.variantId, 10) : null;
+  if (vid) {
+    const v = await db.prepare("SELECT id FROM variants WHERE id=? AND product_id=?").bind(vid, pid).first();
+    if (!v) return c.json({ error: "That size doesn't belong to this product." }, 400);
+  }
+  const next = await db.prepare("SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM product_images WHERE product_id=?").bind(pid).first();
+  const r = await db.prepare("INSERT INTO product_images (product_id, variant_id, url, alt, sort) VALUES (?, ?, ?, ?, ?)")
+    .bind(pid, vid, url, String(b.alt || p.name), b.sort === undefined ? next.n : parseInt(b.sort, 10) || 0).run();
+  // The first shot on a product with no photo becomes its listing image.
+  await db.prepare("UPDATE products SET image_url=? WHERE id=? AND (image_url IS NULL OR image_url='')").bind(url, pid).run();
+  // A shot tagged to a variation with no photo of its own becomes that one's.
+  if (vid) await db.prepare("UPDATE variants SET image_url=? WHERE id=? AND (image_url IS NULL OR image_url='')").bind(url, vid).run();
+  return c.json({ ok: true, id: r.meta.last_row_id });
+});
+
+admin.patch("/images/:id", async (c) => {
+  const b = await c.req.json();
+  const id = parseInt(c.req.param("id"), 10);
+  const db = c.env.DB;
+  const img = await db.prepare("SELECT * FROM product_images WHERE id=?").bind(id).first();
+  if (!img) return c.json({ error: "No such image." }, 404);
+  const sets = [], vals = [];
+  if (b.variantId !== undefined) {
+    const vid = b.variantId ? parseInt(b.variantId, 10) : null;
+    if (vid) {
+      const v = await db.prepare("SELECT id FROM variants WHERE id=? AND product_id=?").bind(vid, img.product_id).first();
+      if (!v) return c.json({ error: "That size doesn't belong to this product." }, 400);
+    }
+    sets.push("variant_id=?"); vals.push(vid);
+  }
+  if (b.alt !== undefined) { sets.push("alt=?"); vals.push(String(b.alt || "")); }
+  if (b.sort !== undefined) { sets.push("sort=?"); vals.push(parseInt(b.sort, 10) || 0); }
+  if (!sets.length) return c.json({ ok: true });
+  vals.push(id);
+  await db.prepare(`UPDATE product_images SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/images/:id", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  const db = c.env.DB;
+  const img = await db.prepare("SELECT * FROM product_images WHERE id=?").bind(id).first();
+  if (!img) return c.json({ error: "No such image." }, 404);
+  await db.prepare("DELETE FROM product_images WHERE id=?").bind(id).run();
+  // Drop the reference from anything still pointing at it, then re-point the
+  // product at whatever shot is left so a listing never loses its picture.
+  await db.prepare("UPDATE variants SET image_url=NULL WHERE image_url=?").bind(img.url).run();
+  const rest = await db.prepare("SELECT url FROM product_images WHERE product_id=? ORDER BY sort, id LIMIT 1").bind(img.product_id).first();
+  await db.prepare("UPDATE products SET image_url=? WHERE id=? AND image_url=?").bind(rest ? rest.url : null, img.product_id, img.url).run();
   return c.json({ ok: true });
 });
 
@@ -349,22 +477,58 @@ admin.delete("/variants/:id", async (c) => {
 // description, image). Only the fields present in the body are changed.
 admin.patch("/products/:id", async (c) => {
   const b = await c.req.json();
-  const map = { live: "live", name: "name", cat: "cat", family: "family", gender: "gender", notes: "notes", desc: "descr", imageUrl: "image_url" };
+  const map = { live: "live", name: "name", cat: "cat", family: "family", gender: "gender", notes: "notes", desc: "descr", imageUrl: "image_url", splitListing: "split_listing" };
   const sets = [], vals = [];
   for (const [k, col] of Object.entries(map)) {
-    if (b[k] !== undefined) { sets.push(`${col}=?`); vals.push(k === "live" ? (b[k] ? 1 : 0) : b[k]); }
+    if (b[k] !== undefined) { sets.push(`${col}=?`); vals.push(k === "live" || k === "splitListing" ? (b[k] ? 1 : 0) : b[k]); }
   }
+  if (b.optionNames !== undefined) { sets.push("option_names=?"); vals.push(JSON.stringify(normaliseOptionNames(b.optionNames))); }
   if (!sets.length) return c.json({ ok: true });
   vals.push(c.req.param("id"));
   await c.env.DB.prepare(`UPDATE products SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
   return c.json({ ok: true });
 });
 
+// Edit a variation. A variation is a product in its own right here — it carries
+// its own price, SKU, photo, options, sort order and active flag.
 admin.patch("/variants/:id", async (c) => {
-  const { price } = await c.req.json();
-  const p = parseInt(price, 10);
-  if (!p || p < 0) return c.json({ error: "A valid price is required." }, 400);
-  await c.env.DB.prepare("UPDATE variants SET price_ngn=? WHERE id=?").bind(p, parseInt(c.req.param("id"), 10)).run();
+  const b = await c.req.json();
+  const vid = parseInt(c.req.param("id"), 10);
+  const db = c.env.DB;
+  const cur = await db.prepare("SELECT * FROM variants WHERE id=?").bind(vid).first();
+  if (!cur) return c.json({ error: "No such size." }, 404);
+
+  const sets = [], vals = [];
+  const put = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+
+  if (b.price !== undefined) {
+    const p = parseInt(b.price, 10);
+    if (!p || p < 0) return c.json({ error: "A valid price is required." }, 400);
+    put("price_ngn", p);
+  }
+  if (b.compareAtNgn !== undefined) put("compare_at_ngn", parseInt(b.compareAtNgn, 10) || null);
+
+  // Renaming an option relabels the variation. Carts and order lines address it
+  // by id, so this no longer orphans anything.
+  if (b.option1 !== undefined || b.option2 !== undefined || b.option3 !== undefined || b.size !== undefined) {
+    const o1 = String(b.option1 ?? b.size ?? cur.option1 ?? cur.size ?? "").trim();
+    const o2 = b.option2 === undefined ? cur.option2 : String(b.option2 || "").trim() || null;
+    const o3 = b.option3 === undefined ? cur.option3 : String(b.option3 || "").trim() || null;
+    const label = optionLabel(o1, o2, o3);
+    if (!label) return c.json({ error: "Every size needs a label (e.g. 30ml)." }, 400);
+    const dupe = await db.prepare("SELECT id FROM variants WHERE product_id=? AND lower(size)=lower(?) AND id IS NOT ?")
+      .bind(cur.product_id, label, vid).first();
+    if (dupe) return c.json({ error: "That size already exists on this product." }, 400);
+    put("size", label); put("option1", o1); put("option2", o2); put("option3", o3);
+  }
+  if (b.sku !== undefined) put("sku", await freeSku(db, String(b.sku || "").trim() || makeSku(cur.product_id, cur.size), vid));
+  if (b.imageUrl !== undefined) put("image_url", String(b.imageUrl || "").trim() || null);
+  if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
+  if (b.active !== undefined) put("active", b.active ? 1 : 0);
+
+  if (!sets.length) return c.json({ ok: true });
+  vals.push(vid);
+  await db.prepare(`UPDATE variants SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
   return c.json({ ok: true });
 });
 
@@ -373,6 +537,7 @@ admin.delete("/products/:id", async (c) => {
   const db = c.env.DB;
   const vs = (await db.prepare("SELECT id FROM variants WHERE product_id=?").bind(id).all()).results;
   const stmts = vs.map((v) => db.prepare("DELETE FROM stock WHERE variant_id=?").bind(v.id));
+  stmts.push(db.prepare("DELETE FROM product_images WHERE product_id=?").bind(id));
   stmts.push(db.prepare("DELETE FROM variants WHERE product_id=?").bind(id));
   stmts.push(db.prepare("DELETE FROM wishlists WHERE product_id=?").bind(id));
   stmts.push(db.prepare("DELETE FROM products WHERE id=?").bind(id));
@@ -381,9 +546,13 @@ admin.delete("/products/:id", async (c) => {
 });
 
 admin.patch("/stock", async (c) => {
-  const { productId, size, location, delta } = await c.req.json();
+  const { productId, variantId, size, location, delta } = await c.req.json();
   const db = c.env.DB;
-  const v = await db.prepare("SELECT id FROM variants WHERE product_id=? AND size=?").bind(productId, size).first();
+  // Address the variation by id where the caller has one; the product+size
+  // lookup stays for older admin builds.
+  const v = variantId
+    ? await db.prepare("SELECT id FROM variants WHERE id=?").bind(parseInt(variantId, 10)).first()
+    : await db.prepare("SELECT id FROM variants WHERE product_id=? AND size=?").bind(productId, size).first();
   if (!v || !["abuja", "lagos", "ibadan"].includes(location)) return c.json({ error: "Unknown variant." }, 400);
   const before = await db.prepare("SELECT qty FROM stock WHERE variant_id=? AND location_id=?").bind(v.id, location).first();
   await db.prepare(

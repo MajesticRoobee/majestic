@@ -147,29 +147,92 @@ export function displayDate(date = new Date()) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "Africa/Lagos" });
 }
 
-// Load full product list with variants + per-location stock.
+// The display label for a variation, built from its options — "50ml", or
+// "50ml / Gold" when a product has a second axis. Stored back into
+// variants.size, which stays the canonical label the rest of the app reads.
+export function optionLabel(...options) {
+  return options.map((o) => String(o ?? "").trim()).filter(Boolean).join(" / ");
+}
+
+// A readable, stable SKU from a product slug and an option label:
+// ("dynasty", "50ml") -> "dynasty-50ml".
+export function makeSku(productId, label) {
+  const tail = String(label || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return tail ? `${productId}-${tail}` : productId;
+}
+
+// Load the full catalogue: products, their variations as SKU-level entities
+// (own imagery, own price, own per-store stock), and the image gallery.
+//
+// liveOnly is the storefront's view — draft products and deactivated
+// variations are dropped. Admin and the partner API load everything.
 export async function loadProducts(db, { liveOnly = false } = {}) {
   const products = (await db.prepare(`SELECT * FROM products ${liveOnly ? "WHERE live=1" : ""} ORDER BY rowid`).all()).results;
-  const variants = (await db.prepare("SELECT * FROM variants ORDER BY id").all()).results;
+  const variants = (await db.prepare(`SELECT * FROM variants ${liveOnly ? "WHERE active=1" : ""} ORDER BY sort, id`).all()).results;
   const stock = (await db.prepare("SELECT * FROM stock").all()).results;
+  const images = (await db.prepare("SELECT * FROM product_images ORDER BY sort, id").all()).results;
+
   const stockByVariant = {};
   for (const s of stock) {
     (stockByVariant[s.variant_id] ||= {})[s.location_id] = s.qty;
   }
-  return products.map((p) => ({
-    id: p.id,
-    name: p.name,
-    cat: p.cat,
-    gender: p.gender,
-    family: p.family,
-    notes: p.notes,
-    desc: p.descr,
-    imageUrl: p.image_url,
-    live: !!p.live,
-    variants: variants
-      .filter((v) => v.product_id === p.id)
-      .map((v) => ({ id: v.id, size: v.size, ngn: v.price_ngn, stock: { abuja: 0, lagos: 0, ibadan: 0, ...(stockByVariant[v.id] || {}) } })),
-  }));
+  const imagesByProduct = {};
+  for (const im of images) {
+    (imagesByProduct[im.product_id] ||= []).push({ id: im.id, url: im.url, alt: im.alt, variantId: im.variant_id, sort: im.sort });
+  }
+
+  return products.map((p) => {
+    const gallery = imagesByProduct[p.id] || [];
+    let optionNames;
+    try {
+      optionNames = JSON.parse(p.option_names || '["Size"]');
+    } catch {
+      optionNames = ["Size"];
+    }
+    if (!Array.isArray(optionNames) || !optionNames.length) optionNames = ["Size"];
+
+    return {
+      id: p.id,
+      name: p.name,
+      cat: p.cat,
+      gender: p.gender,
+      family: p.family,
+      notes: p.notes,
+      desc: p.descr,
+      imageUrl: p.image_url,
+      live: !!p.live,
+      optionNames,
+      splitListing: !!p.split_listing,
+      externalId: p.external_id || null,
+      externalSource: p.external_source || null,
+      images: gallery.map((im) => ({ id: im.id, url: im.url, alt: im.alt, variantId: im.variantId })),
+      variants: variants
+        .filter((v) => v.product_id === p.id)
+        .map((v) => {
+          const own = gallery.filter((im) => im.variantId === v.id);
+          return {
+            id: v.id,
+            sku: v.sku,
+            size: v.size,
+            options: [v.option1, v.option2, v.option3].filter((o) => o !== null && o !== undefined && o !== ""),
+            ngn: v.price_ngn,
+            compareAtNgn: v.compare_at_ngn || null,
+            // The variation's own shot, falling back to the first image tagged
+            // to it, then to the parent product's photo.
+            imageUrl: v.image_url || (own[0] ? own[0].url : null) || p.image_url || null,
+            images: own.map((im) => ({ id: im.id, url: im.url, alt: im.alt })),
+            active: v.active === undefined ? true : !!v.active,
+            sort: v.sort,
+            externalId: v.external_id || null,
+            stock: { abuja: 0, lagos: 0, ibadan: 0, ...(stockByVariant[v.id] || {}) },
+          };
+        }),
+    };
+  });
 }
 
 export function json(data, status = 200) {

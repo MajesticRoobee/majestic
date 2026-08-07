@@ -21,6 +21,25 @@ function promoIsActive(promo) {
   return promo && promo.status === "Active";
 }
 
+// Resolve a cart line to its variation.
+//
+// Lines address a variation by `variantId` (or `sku`) — a stable identity that
+// survives an admin renaming a size. `size` is still accepted as a fallback so
+// carts written to localStorage by an older build, which keyed on the size
+// text, keep working through the upgrade.
+function findVariant(products, it) {
+  if (it.variantId || it.sku) {
+    for (const p of products) {
+      const v = p.variants.find((x) => (it.variantId && x.id === it.variantId) || (it.sku && x.sku === it.sku));
+      if (v) return { product: p, variant: v };
+    }
+  }
+  const p = products.find((x) => x.id === it.productId);
+  if (!p) return null;
+  const v = it.size ? p.variants.find((x) => x.size === it.size) : null;
+  return v ? { product: p, variant: v } : null;
+}
+
 function computeDiscount(promo, items) {
   // items: [{ cat, lineTotal }]
   const cats = SCOPE_CATS[promo.scope] ?? null;
@@ -62,9 +81,8 @@ shop.post("/promos/validate", async (c) => {
   if (!promoIsActive(promo)) return c.json({ valid: false });
   const products = await loadProducts(db);
   const lines = (items || []).map((it) => {
-    const p = products.find((x) => x.id === it.productId);
-    const v = p && p.variants.find((x) => x.size === it.size);
-    return p && v ? { cat: p.cat, lineTotal: v.ngn * (it.qty || 1) } : null;
+    const hit = findVariant(products, it);
+    return hit ? { cat: hit.product.cat, lineTotal: hit.variant.ngn * (it.qty || 1) } : null;
   }).filter(Boolean);
   const discount = computeDiscount(promo, lines);
   return c.json({ valid: true, code: promo.code, kind: promo.kind, value: promo.value, scope: promo.scope, desc: promo.descr, discount, freeShip: promo.kind === "ship" });
@@ -117,10 +135,13 @@ shop.post("/inquiries/:id/messages", async (c) => {
 
 // Back-in-stock waitlist — "Notify me" on sold-out products.
 shop.post("/waitlist", async (c) => {
-  const { productId, size, contact, city } = await c.req.json();
+  const { productId, variantId, sku, size, contact, city } = await c.req.json();
   if (!productId || !contact || !String(contact).trim()) return c.json({ error: "Product and a contact are required." }, 400);
-  await c.env.DB.prepare("INSERT INTO stock_waitlist (product_id, size, contact, city) VALUES (?, ?, ?, ?)")
-    .bind(productId, size || null, String(contact).trim(), city || null).run();
+  // Resolve to the exact variation so the back-in-stock alert fires for the
+  // size the shopper actually wanted, not just any size of the product.
+  const hit = findVariant(await loadProducts(c.env.DB), { productId, variantId, sku, size });
+  await c.env.DB.prepare("INSERT INTO stock_waitlist (product_id, variant_id, size, contact, city) VALUES (?, ?, ?, ?, ?)")
+    .bind(productId, hit ? hit.variant.id : null, hit ? hit.variant.size : size || null, String(contact).trim(), city || null).run();
   await emitEvent(c.env, "waitlist_joined", { entity: productId, payload: { productId, contact: String(contact).trim() }, ctx: c.executionCtx });
   return c.json({ ok: true });
 });
@@ -155,10 +176,10 @@ shop.post("/orders", async (c) => {
   const products = await loadProducts(db, { liveOnly: true });
   const lines = [];
   for (const it of items) {
-    const p = products.find((x) => x.id === it.productId);
-    const v = p && p.variants.find((x) => x.size === it.size);
+    const hit = findVariant(products, it);
     const qty = Math.max(1, Math.min(50, Math.round(it.qty || 1)));
-    if (!p || !v) return c.json({ error: "An item in your cart is no longer available." }, 400);
+    if (!hit) return c.json({ error: "An item in your cart is no longer available." }, 400);
+    const { product: p, variant: v } = hit;
     lines.push({ product: p, variant: v, qty, cat: p.cat, lineTotal: v.ngn * qty });
   }
 
@@ -205,8 +226,8 @@ shop.post("/orders", async (c) => {
   ];
   for (const l of lines) {
     statements.push(
-      db.prepare("INSERT INTO order_items (order_no, product_id, name, size, qty, unit_ngn) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(no, l.product.id, l.product.name, l.variant.size, l.qty, l.variant.ngn)
+      db.prepare("INSERT INTO order_items (order_no, product_id, variant_id, sku, name, size, qty, unit_ngn) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(no, l.product.id, l.variant.id, l.variant.sku || null, l.product.name, l.variant.size, l.qty, l.variant.ngn)
     );
     // Reserve stock at the fulfilling store (never below zero).
     statements.push(
