@@ -68,7 +68,9 @@ function VariantChips({ variants, selectedId, onSelect, optionName }) {
 }
 
 export function ProductCard({ p, height = 230 }) {
-  const [selId, setSelId] = useState(p.defaultVariantId);
+  const [selId, setSelId] = useState(p ? p.defaultVariantId : null);
+  // `card()` yields nothing for a product with no sellable variation.
+  if (!p) return null;
   // The catalogue can reload under a mounted card (a placed order refreshes
   // stock); fall back to the default rather than rendering nothing.
   const v = p.variants.find((x) => x.id === selId) || p.variants.find((x) => x.id === p.defaultVariantId) || p.variants[0];
@@ -111,12 +113,13 @@ export function ProductCard({ p, height = 230 }) {
 export function HomePage({ ctx }) {
   const { settings, products, categories, cityName, L } = ctx;
   const dir = settings.heroDirection || "editorial split";
-  const inCity = products.filter((p) => ctx.availInfo(p).inCity).slice(0, 4).map(ctx.card);
+  const sellable = products.filter((p) => p.variants && p.variants.length);
+  const inCity = sellable.filter((p) => ctx.availInfo(p).inCity).slice(0, 4).map(ctx.card).filter(Boolean);
   // Three picks from whatever is live, city stock first — never named ids, which
   // would break the moment the catalogue changes.
-  const heroPicks = products
+  const heroPicks = sellable
     .slice().sort((a, b) => (ctx.availInfo(b).inCity ? 1 : 0) - (ctx.availInfo(a).inCity ? 1 : 0))
-    .slice(0, 3).map(ctx.card);
+    .slice(0, 3).map(ctx.card).filter(Boolean);
   const perk = (icon, title, sub) => (
     <div style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "18px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
       {icon}
@@ -382,13 +385,18 @@ export function ShopPage({ ctx }) {
 export function ProductPage({ ctx }) {
   const pr = ctx.products.find((p) => p.id === ctx.productId);
   const [shot, setShot] = useState(0);
-  if (!pr) return <ShopPage ctx={ctx} />;
+  // A product with nothing to sell has no page worth showing. Reading the
+  // catalogue defensively matters here: this page is the one that renders a
+  // *variation*, so a payload written by an older Worker (mid-deploy, or a
+  // stale edge) must degrade to the shop rather than white-screen the SPA.
+  const variants = (pr && pr.variants) || [];
+  if (!pr || !variants.length) return <ShopPage ctx={ctx} />;
 
   // The selected variation: whatever the shopper picked, else the SKU the URL
   // asked for, else the first one on the shelf in their city.
-  const prV = pr.variants.find((v) => v.id === ctx.prVariantId)
-    || (ctx.prSku && pr.variants.find((v) => v.sku === ctx.prSku))
-    || ctx.defaultVariant(pr.variants);
+  const prV = variants.find((v) => v.id === ctx.prVariantId)
+    || (ctx.prSku && variants.find((v) => v.sku === ctx.prSku))
+    || ctx.defaultVariant(variants);
   const prA = ctx.variantAvail(prV);
   const { cityName, L } = ctx;
   const soldOut = prA.soldOut;
@@ -398,8 +406,9 @@ export function ProductPage({ ctx }) {
   // across the product, so switching size changes the picture where there is a
   // picture to change to and holds steady where there isn't.
   const gallery = (() => {
-    const own = pr.images.filter((im) => im.variantId === prV.id);
-    const shared = pr.images.filter((im) => !im.variantId);
+    const shots = pr.images || [];
+    const own = shots.filter((im) => im.variantId === prV.id);
+    const shared = shots.filter((im) => !im.variantId);
     const urls = [...own, ...shared].map((im) => ({ url: im.url, alt: im.alt }));
     if (!urls.length && (prV.imageUrl || pr.imageUrl)) urls.push({ url: prV.imageUrl || pr.imageUrl, alt: pr.name });
     return urls;
@@ -414,7 +423,13 @@ export function ProductPage({ ctx }) {
     window.history.replaceState({}, "", `/product/${encodeURIComponent(pr.id)}${v.sku ? `?variant=${encodeURIComponent(v.sku)}` : ""}`);
   };
 
-  const related = ctx.products.filter((p) => p.id !== pr.id && p.cat === pr.cat).slice(0, 3).map(ctx.card);
+  // Only products that still have something to sell — `card` reads the default
+  // variation's price and photo, so an empty one has nothing to render.
+  const related = ctx.products
+    .filter((p) => p.id !== pr.id && p.cat === pr.cat && p.variants && p.variants.length)
+    .slice(0, 3)
+    .map(ctx.card)
+    .filter(Boolean);
   return (
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>
       <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to the collection</button>
@@ -447,7 +462,7 @@ export function ProductPage({ ctx }) {
           <p style={{ fontFamily: "var(--font-editorial)", fontSize: 15.5, lineHeight: "var(--lh-relaxed)", margin: "0 0 22px", maxWidth: "54ch" }}>{pr.desc}</p>
           <div style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: "0.04em", color: "var(--text-strong)", marginBottom: 8, textTransform: "uppercase" }}>{optionName}</div>
           <div role="group" aria-label={optionName} style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-            {pr.variants.map((v) => {
+            {variants.map((v) => {
               const on = v.id === prV.id;
               const vOut = ctx.variantAvail(v).soldOut;
               return (
@@ -547,198 +562,264 @@ export function AboutPage({ ctx }) {
   );
 }
 
-export function CheckoutPage({ ctx }) {
-  const { cc, co, setCo, cityName, L, settings } = ctx;
-  const radioStyle = (on) => ({
-    bd: on ? "var(--mr-purple-600)" : "var(--border-hairline)",
-    bg: on ? "var(--mr-lavender-200)" : "var(--surface-card)",
-    dot: on ? "var(--mr-purple-800)" : "var(--mr-lavender-300)",
-  });
-  const payDefs = [
-    { id: "paystack", label: "Pay with card — Paystack", note: "Cards, USSD & bank — confirmed instantly" },
-    { id: "transfer", label: "Bank transfer", note: "We hold your order 2 hours while you transfer" },
-    { id: "whatsapp", label: "Order via WhatsApp", note: "A concierge completes your order in chat" },
-  ];
-  const plan = ctx.plan;
-  const split = plan && plan.mode === "split";
-  const routingNote = !cc.items.length
-    ? ""
-    : ctx.planning && !plan
-      ? "Working out which store your order ships from…"
-      : plan && plan.mode === "unavailable"
-        ? plan.collectBlocked
-          ? `Not everything is at ${L ? L.store : "your store"} for collection — switch to delivery and we'll ship it to you.`
-          : "Some pieces are out of stock across every store — adjust your cart to continue."
-        : plan && plan.shipments.length === 1
-          ? plan.shipments[0].locationId === ctx.city
-            ? `Everything is in stock at ${plan.shipments[0].store}, ${cityName} — one parcel, ${plan.shipments[0].eta}.`
-            : `Routed to ${plan.shipments[0].store}, ${plan.shipments[0].city} — the nearest store holding your whole order.`
-          : split
-            ? `No single store holds everything, so this ships in ${plan.shipments.length} parcels.`
-            : cc.allInCity
-              ? `Everything is in stock at ${L ? L.store : ""}, ${cityName} — one parcel, ${L ? L.eta : ""}.`
-              : `Some pieces aren't in ${cityName} right now — we'll route your order from the nearest store that holds everything.`;
-  const radioBtn = (on, onClick, title, note) => {
-    const st = radioStyle(on);
-    return (
-      <button onClick={onClick} style={{ cursor: "pointer", textAlign: "left", fontFamily: "var(--font-sans)", display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 16px", borderRadius: "var(--radius-md)", border: `1px solid ${st.bd}`, background: st.bg }}>
-        <span style={{ width: 16, height: 16, borderRadius: "50%", border: `5px solid ${st.dot}`, background: "var(--surface-card)", flexShrink: 0, marginTop: 2 }} />
-        <span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{title}</span><br />
-          <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{note}</span>
-        </span>
-      </button>
-    );
-  };
-  const sectionCard = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 24 };
-  const sectionTitle = { fontSize: 13, fontWeight: 600, letterSpacing: "0.04em", color: "var(--text-strong)", marginBottom: 16 };
-  // Quote the real number once the plan is in, so this line and the parcel
-  // breakdown below can never disagree.
-  const shipEtaNote = plan && plan.mode !== "unavailable"
-    ? plan.shipments.length > 1
-      ? `${plan.shipments.length} parcels · ${ctx.fmt(plan.shipTotal)} total`
-      : `${plan.shipments[0].eta} · ${plan.shipments[0].ship === 0 ? "free" : ctx.fmt(plan.shipments[0].ship)}`
-    : cc.allInCity
-      ? (L ? L.eta : "") + " · " + ctx.fmt(L ? L.shipNGN : 2500) + (ctx.city === (settings.freeShipCity ?? "abuja") ? ` (free over ${ctx.fmt(settings.freeShipAbujaOver ?? 100000)})` : "")
-      : `3–5 days · ${ctx.fmt(settings.crossCityShipNGN ?? 4500)} (routed shipment)`;
+// A shopper at checkout is answering four questions: where is it going, who
+// are you, how are you paying, and what does it come to. Everything on this
+// page serves one of those. How the shop decides which branch packs the order,
+// what the server does with the payment — none of that is the shopper's
+// business, and none of it appears here.
+
+const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 24px" };
+const cardTitle = { fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 16 };
+const money = { fontVariantNumeric: "tabular-nums" };
+
+// A pair of tabs, not two radio cards with a paragraph each.
+function Segmented({ options, value, onChange }) {
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
-      <Eyebrow>Almost yours</Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 4vw, 40px)", color: "var(--text-strong)", margin: "12px 0 28px" }}>Checkout</h1>
-      {cc.items.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "60px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
-          <p style={{ fontFamily: "var(--font-serif)", fontSize: 20, color: "var(--text-body)", margin: "0 0 18px" }}>Your cart is quietly empty.</p>
-          <Button variant="primary" onClick={() => ctx.nav("shop")}>Browse the collection</Button>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: 28, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-            <div style={sectionCard}>
-              <div style={sectionTitle}>1 · YOUR DETAILS <span style={{ fontWeight: 400, color: "var(--text-muted)", letterSpacing: 0 }}>— guest checkout, no account needed</span></div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 14 }}>
-                <Input label="Full name" value={co.name} onChange={(e) => setCo({ ...co, name: e.target.value })} placeholder="Adaeze Okafor" />
-                <Input label="Phone" value={co.phone} onChange={(e) => setCo({ ...co, phone: e.target.value })} placeholder="0803 000 0000" />
-                <Input label="Email" value={co.email} onChange={(e) => setCo({ ...co, email: e.target.value })} placeholder="you@email.com" hint="Order updates & receipt land here" />
-              </div>
-            </div>
-            <div style={sectionCard}>
-              <div style={sectionTitle}>2 · FULFILMENT</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {radioBtn(co.fulfill === "delivery", () => setCo({ ...co, fulfill: "delivery" }), `Delivery to ${cityName}`, shipEtaNote)}
-                {radioBtn(
-                  co.fulfill === "collect", () => setCo({ ...co, fulfill: "collect" }),
-                  `Click & collect — ${L ? L.store : "your store"}`,
-                  co.fulfill === "collect" && plan && plan.collectBlocked
-                    ? `Not everything is at ${L ? L.store : "your store"} today — switch to delivery for these pieces`
-                    : `Free — ready in 3 hours when everything is in stock at ${L ? L.store : "your store"}`
-                )}
-              </div>
-              {co.fulfill === "delivery" && (
-                <div style={{ marginTop: 14 }}>
-                  <Input label="Delivery address" value={co.address} onChange={(e) => setCo({ ...co, address: e.target.value })} placeholder="House, street, area" />
-                </div>
-              )}
-            </div>
-            <div style={sectionCard}>
-              <div style={sectionTitle}>3 · PAYMENT</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {payDefs.map((p) => radioBtn(co.pay === p.id, () => setCo({ ...co, pay: p.id }), p.label, p.note))}
-              </div>
-            </div>
+    <div role="tablist" style={{ display: "flex", gap: 6, padding: 4, background: "var(--surface-sunken)", borderRadius: "var(--radius-pill)" }}>
+      {options.map((o) => {
+        const on = o.id === value;
+        return (
+          <button key={o.id} role="tab" aria-selected={on} onClick={() => onChange(o.id)}
+            style={{ flex: 1, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: on ? 600 : 500, padding: "10px 14px", borderRadius: "var(--radius-pill)", border: "none", background: on ? "var(--surface-card)" : "transparent", color: on ? "var(--mr-purple-900)" : "var(--text-muted)", boxShadow: on ? "var(--shadow-sm)" : "none", transition: "background var(--dur-fast) var(--ease-standard)" }}>
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PayOption({ on, onClick, label, note, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled} aria-pressed={on}
+      style={{ cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.45 : 1, textAlign: "left", fontFamily: "var(--font-sans)", display: "flex", gap: 12, alignItems: "center", padding: "13px 15px", borderRadius: "var(--radius-md)", border: `1px solid ${on ? "var(--mr-purple-700)" : "var(--border-hairline)"}`, background: on ? "var(--mr-lavender-200)" : "var(--surface-card)" }}>
+      <span style={{ width: 15, height: 15, borderRadius: "50%", flexShrink: 0, border: `1.5px solid ${on ? "var(--mr-purple-800)" : "var(--border-strong)"}`, background: on ? "var(--mr-purple-800)" : "transparent", boxShadow: on ? "inset 0 0 0 3px var(--surface-card)" : "none" }} />
+      <span style={{ flex: 1 }}>
+        <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-strong)" }}>{label}</span>
+        {note && <span style={{ display: "block", fontSize: 12.5, color: "var(--text-muted)", marginTop: 2 }}>{note}</span>}
+      </span>
+    </button>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  );
+}
+
+// The one line the shopper actually wants from all of the routing machinery:
+// when it turns up, and in how many pieces.
+function arrivalLine(ctx) {
+  const { plan, co, cc } = ctx;
+  if (co.fulfill === "collect") return "Ready to collect in about 3 hours";
+  if (!plan || plan.mode === "unavailable") return cc.items.length ? "" : "";
+  const etas = [...new Set(plan.deliveries.map((d) => d.eta).filter(Boolean))];
+  if (plan.deliveries.length > 1) return `Arrives in ${plan.deliveries.length} deliveries · ${etas.join(" · ")}`;
+  return etas.length ? `Arrives ${etas[0]}` : "";
+}
+
+function OrderSummary({ ctx, showPay }) {
+  const { cc, co, setCo, plan } = ctx;
+  const split = plan && plan.deliveries && plan.deliveries.length > 1;
+  const arrival = arrivalLine(ctx);
+  const blocked = plan && plan.mode === "unavailable";
+  const row = (label, value, tone) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, color: tone || "inherit" }}>
+      <span>{label}</span><span style={{ ...money, fontWeight: 500, color: tone || "var(--text-strong)" }}>{value}</span>
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {cc.items.map((it) => (
+          <div key={it.key} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <span style={{ position: "relative", flexShrink: 0 }}>
+              <ImageSlot src={it.imageUrl} name={it.name} shape="rounded" radius={8} style={{ width: 46, height: 46 }} />
+              <span style={{ position: "absolute", top: -6, right: -6, minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: "var(--mr-purple-900)", color: "var(--mr-cream)", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center" }}>{it.qty}</span>
+            </span>
+            <span style={{ flex: 1, fontSize: 13, color: "var(--text-strong)", lineHeight: 1.4 }}>
+              {it.name}<span style={{ display: "block", color: "var(--text-muted)", fontSize: 12 }}>{it.size}</span>
+            </span>
+            <span style={{ ...money, fontSize: 13, fontWeight: 600, color: "var(--mr-purple-900)" }}>{it.lineLabel}</span>
           </div>
-          <div style={{ ...sectionCard, position: "sticky", top: 84 }}>
-            <div style={sectionTitle}>ORDER SUMMARY</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16 }}>
-              {cc.items.map((it) => (
-                <div key={it.key} style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <span style={{ width: 44, height: 44, borderRadius: "var(--radius-md)", background: "var(--mr-lavender-200)", color: "var(--mr-purple-800)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 15, flexShrink: 0 }}>{it.initials}</span>
-                  <span style={{ flex: 1, fontSize: 13, color: "var(--text-strong)" }}>{it.name} <span style={{ color: "var(--text-muted)" }}>{it.size} × {it.qty}</span></span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--mr-purple-900)" }}>{it.lineLabel}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ background: "var(--mr-lavender-200)", borderRadius: "var(--radius-md)", padding: "12px 14px", fontSize: 12.5, lineHeight: 1.55, color: "var(--mr-purple-800)", marginBottom: 16, display: "flex", gap: 10 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
-              <span>{routingNote}</span>
-            </div>
-            {/* Parcels. A split costs more than one delivery, so the shopper
-                sees each parcel and agrees before the order can be placed. */}
-            {plan && plan.shipments.length > 1 && (
-              <div style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: "14px 16px", marginBottom: 16 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-strong)", marginBottom: 10 }}>
-                  {plan.shipments.length} parcels · {ctx.fmt(plan.shipTotal)} delivery
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {plan.shipments.map((s, i) => (
-                    <div key={s.locationId} style={{ display: "flex", gap: 10, alignItems: "flex-start", fontSize: 12.5 }}>
-                      <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--mr-lavender-200)", color: "var(--mr-purple-800)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{i + 1}</span>
-                      <span style={{ flex: 1 }}>
-                        <span style={{ fontWeight: 600, color: "var(--text-strong)" }}>{s.store}, {s.city}</span>
-                        <span style={{ color: "var(--text-muted)" }}> — {s.items.map((it) => `${it.name} (${it.size} × ${it.qty})`).join(", ")}</span>
-                        <br />
-                        <span style={{ color: "var(--text-muted)" }}>{s.eta}</span>
-                      </span>
-                      <span style={{ fontWeight: 600, color: "var(--mr-purple-900)" }}>{s.ship === 0 ? "Free" : ctx.fmt(s.ship)}</span>
-                    </div>
-                  ))}
-                </div>
-                {split && (
-                  <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border-hairline)", cursor: "pointer" }}>
-                    <input type="checkbox" checked={ctx.acceptSplit} onChange={(e) => ctx.setAcceptSplit(e.target.checked)} style={{ accentColor: "var(--mr-purple-800)", marginTop: 2, width: 15, height: 15 }} />
-                    <span style={{ fontSize: 12.5, color: "var(--text-body)" }}>
-                      Ship in {plan.shipments.length} parcels — I understand delivery is {ctx.fmt(plan.shipTotal)} and they may arrive on different days.
-                    </span>
-                  </label>
-                )}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-              <input value={co.promo} onChange={(e) => setCo({ ...co, promo: e.target.value.toUpperCase() })} placeholder="Promo code" style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 13, padding: "10px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", textTransform: "uppercase", color: "var(--text-strong)", background: "var(--surface-card)" }} />
-              <Button variant="secondary" size="sm" onClick={ctx.applyPromo}>Apply</Button>
-            </div>
-            {ctx.promoMsg && (
-              <div style={{ fontSize: 12.5, margin: "-8px 0 12px", display: "flex", gap: 8, alignItems: "flex-start", color: ctx.promoInfo ? "var(--accent-gold-ink)" : "#c0587a" }}>
-                <span style={{ flex: 1 }}>{ctx.promoMsg}</span>
-                <button onClick={ctx.clearPromo} aria-label="Remove promo code" title="Remove" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1, padding: "0 2px" }}>✕</button>
-              </div>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13.5, borderTop: "1px solid var(--border-hairline)", paddingTop: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Subtotal</span><span style={{ fontWeight: 500, color: "var(--text-strong)" }}>{ctx.fmt(cc.sub)}</span></div>
-              {cc.discount > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", color: "var(--accent-gold-ink)" }}>
-                  <span>
-                    Promo — {ctx.promoInfo && ctx.promoInfo.code}
-                    <button onClick={ctx.clearPromo} aria-label="Remove promo code" title="Remove this code" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 13, lineHeight: 1, padding: "0 4px" }}>✕</button>
-                  </span>
-                  <span>−{ctx.fmt(cc.discount)}</span>
-                </div>
-              )}
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>{co.fulfill === "collect" ? "Click & collect" : "Delivery"}</span>
-                <span style={{ fontWeight: 500, color: "var(--text-strong)" }}>{cc.ship === 0 ? "Free" : ctx.fmt(cc.ship)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 600, color: "var(--mr-purple-900)", borderTop: "1px solid var(--border-hairline)", paddingTop: 10, marginTop: 4 }}>
-                <span>Total</span><span>{ctx.fmt(cc.total)}</span>
-              </div>
-            </div>
-            <div style={{ marginTop: 18 }}>
-              <Button
-                variant="gold" size="lg" block
-                disabled={ctx.placing || (plan && plan.mode === "unavailable") || (split && !ctx.acceptSplit)}
-                onClick={ctx.placeOrder}
-              >
-                {ctx.placing
-                  ? "Placing…"
-                  : split && !ctx.acceptSplit
-                    ? `Confirm the ${plan.shipments.length} parcels above`
-                    : co.pay === "whatsapp" ? "Continue on WhatsApp" : "Place order — " + ctx.fmt(cc.total)}
-              </Button>
-            </div>
-            {ctx.coErr && <div style={{ fontSize: 12.5, color: "#c0587a", marginTop: 10, textAlign: "center" }}>{ctx.coErr}</div>}
-            <div style={{ fontSize: 11.5, color: "var(--text-muted)", textAlign: "center", marginTop: 12 }}>Payment is confirmed server-side before your order is recorded as paid.</div>
-          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <input value={co.promo} onChange={(e) => setCo({ ...co, promo: e.target.value.toUpperCase() })}
+          onKeyDown={(e) => e.key === "Enter" && ctx.applyPromo()} placeholder="Promo code" aria-label="Promo code"
+          style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-sans)", fontSize: 13, padding: "10px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", textTransform: "uppercase", color: "var(--text-strong)", background: "var(--surface-card)" }} />
+        <Button variant="secondary" size="sm" onClick={ctx.applyPromo}>Apply</Button>
+      </div>
+      {ctx.promoMsg && (
+        <div style={{ fontSize: 12.5, marginTop: -8, display: "flex", gap: 8, color: ctx.promoInfo ? "var(--accent-gold-ink)" : "#c0587a" }}>
+          <span style={{ flex: 1 }}>{ctx.promoMsg}</span>
+          {ctx.promoInfo && <button onClick={ctx.clearPromo} aria-label="Remove promo code" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1 }}>✕</button>}
         </div>
       )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13.5, borderTop: "1px solid var(--border-hairline)", paddingTop: 15 }}>
+        {row("Subtotal", ctx.fmt(cc.sub))}
+        {cc.discount > 0 && row(ctx.promoInfo ? ctx.promoInfo.code : "Promo", "−" + ctx.fmt(cc.discount), "var(--accent-gold-ink)")}
+        {row(
+          co.fulfill === "collect" ? "Collection" : split ? `Delivery (${plan.deliveries.length})` : "Delivery",
+          ctx.planning && !plan ? "—" : cc.ship === 0 ? "Free" : ctx.fmt(cc.ship)
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 17, fontWeight: 600, color: "var(--mr-purple-900)", borderTop: "1px solid var(--border-hairline)", paddingTop: 12, marginTop: 3 }}>
+          <span>Total</span><span style={money}>{ctx.fmt(cc.total)}</span>
+        </div>
+      </div>
+
+      {arrival && !blocked && (
+        <div style={{ fontSize: 12.5, color: "var(--text-body)", background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: "10px 12px" }}>{arrival}</div>
+      )}
+      {/* Several deliveries means several arrival dates. The shopper is told
+          what turns up when — not which branch each one leaves from. */}
+      {split && !blocked && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: "12px 14px" }}>
+          {plan.deliveries.map((d, i) => (
+            <div key={i} style={{ display: "flex", gap: 10, fontSize: 12.5, alignItems: "flex-start" }}>
+              <span style={{ width: 19, height: 19, borderRadius: "50%", background: "var(--mr-lavender-200)", color: "var(--mr-purple-800)", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+              <span style={{ flex: 1, color: "var(--text-muted)" }}>
+                <span style={{ color: "var(--text-strong)", fontWeight: 500 }}>{d.eta}</span>
+                <span style={{ display: "block" }}>{d.items.map((it) => `${it.name} ${it.size}${it.qty > 1 ? ` ×${it.qty}` : ""}`).join(", ")}</span>
+              </span>
+              <span style={{ ...money, fontWeight: 500, color: "var(--mr-purple-900)" }}>{d.ship === 0 ? "Free" : ctx.fmt(d.ship)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showPay && <PayButton ctx={ctx} />}
+    </div>
+  );
+}
+
+function PayButton({ ctx }) {
+  const { cc, co, plan } = ctx;
+  const blocked = plan && plan.mode === "unavailable";
+  const label = ctx.placing
+    ? "Working…"
+    : ctx.reconfirm
+      ? "Confirm and pay " + ctx.fmt(cc.total)
+      : co.pay === "whatsapp"
+        ? "Continue on WhatsApp"
+        : co.pay === "transfer"
+          ? "Place order — " + ctx.fmt(cc.total)
+          : "Pay " + ctx.fmt(cc.total);
+  return (
+    <div>
+      <Button variant="gold" size="lg" block disabled={ctx.placing || blocked} onClick={ctx.placeOrder}>{label}</Button>
+      {ctx.coErr && <div role="alert" style={{ fontSize: 12.5, color: "#c0587a", marginTop: 10, textAlign: "center", lineHeight: 1.5 }}>{ctx.coErr}</div>}
+      {co.pay === "paystack" && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 11.5, color: "var(--text-muted)", marginTop: 12 }}>
+          <LockIcon />Secured by Paystack
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CheckoutPage({ ctx }) {
+  const { cc, co, setCo, cityName, isMobile } = ctx;
+  const [openSummary, setOpenSummary] = useState(false);
+
+  if (!cc.items.length) {
+    return (
+      <main style={{ maxWidth: 1080, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 4vw, 36px)", color: "var(--text-strong)", margin: "0 0 24px" }}>Checkout</h1>
+        <div style={{ ...card, textAlign: "center", padding: "56px 20px" }}>
+          <p style={{ fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--text-body)", margin: "0 0 18px" }}>Your cart is empty.</p>
+          <Button variant="primary" onClick={() => ctx.nav("shop")}>Browse the collection</Button>
+        </div>
+      </main>
+    );
+  }
+
+  const payDefs = [
+    { id: "paystack", label: "Card, transfer or USSD", note: "Pay securely with Paystack" },
+    { id: "transfer", label: "Bank transfer", note: "Held for 2 hours" },
+    { id: "whatsapp", label: "WhatsApp", note: "Finish with us in chat" },
+  ];
+
+  return (
+    <main style={{ maxWidth: 1080, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 4vw, 36px)", color: "var(--text-strong)", margin: "0 0 22px" }}>Checkout</h1>
+
+      {/* On a phone the summary opens above the form, so the total is one tap
+          away without pushing the first field below the fold. */}
+      {isMobile && (
+        <div style={{ ...card, padding: 0, marginBottom: 18, overflow: "hidden" }}>
+          <button onClick={() => setOpenSummary((o) => !o)} aria-expanded={openSummary}
+            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "15px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)" }}>
+            <span style={{ textAlign: "left" }}>
+              <span style={{ fontSize: 13.5, color: "var(--mr-purple-800)" }}>
+                Order summary <span style={{ color: "var(--text-muted)" }}>({cc.items.length})</span> {openSummary ? "▴" : "▾"}
+              </span>
+              {arrivalLine(ctx) && <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{arrivalLine(ctx)}</span>}
+            </span>
+            <span style={{ ...money, fontSize: 16, fontWeight: 600, color: "var(--mr-purple-900)" }}>{ctx.fmt(cc.total)}</span>
+          </button>
+          {openSummary && <div style={{ padding: "0 20px 20px" }}><OrderSummary ctx={ctx} /></div>}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.35fr) minmax(320px, 1fr)", gap: 24, alignItems: "start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <section style={card}>
+            <div style={cardTitle}>Delivery</div>
+            <Segmented
+              value={co.fulfill}
+              onChange={(id) => setCo({ ...co, fulfill: id })}
+              options={[{ id: "delivery", label: `Deliver to ${cityName}` }, { id: "collect", label: "Collect in store" }]}
+            />
+            {co.fulfill === "delivery" && (
+              <div style={{ marginTop: 16 }}>
+                <Input label="Address" value={co.address} onChange={(e) => setCo({ ...co, address: e.target.value })} placeholder="House, street, area" autoComplete="street-address" />
+              </div>
+            )}
+            {co.fulfill === "collect" && ctx.L && (
+              <div style={{ marginTop: 14, fontSize: 13, color: "var(--text-body)", lineHeight: 1.6 }}>
+                <strong style={{ color: "var(--text-strong)" }}>{ctx.L.store}</strong><br />{ctx.L.address}
+              </div>
+            )}
+          </section>
+
+          <section style={card}>
+            <div style={cardTitle}>Your details</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 14 }}>
+              <Input label="Full name" value={co.name} onChange={(e) => setCo({ ...co, name: e.target.value })} autoComplete="name" />
+              <Input label="Phone" type="tel" value={co.phone} onChange={(e) => setCo({ ...co, phone: e.target.value })} autoComplete="tel" />
+              <Input
+                label={co.pay === "paystack" ? "Email" : "Email (optional)"}
+                type="email" value={co.email} onChange={(e) => setCo({ ...co, email: e.target.value })}
+                autoComplete="email" hint="Your receipt goes here"
+              />
+            </div>
+          </section>
+
+          <section style={card}>
+            <div style={cardTitle}>Payment</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {payDefs.map((p) => (
+                <PayOption key={p.id} on={co.pay === p.id} onClick={() => setCo({ ...co, pay: p.id })} label={p.label} note={p.note} />
+              ))}
+            </div>
+          </section>
+
+          {isMobile && <PayButton ctx={ctx} />}
+        </div>
+
+        {!isMobile && (
+          <aside style={{ ...card, position: "sticky", top: 84 }}>
+            <div style={cardTitle}>Order summary</div>
+            <OrderSummary ctx={ctx} showPay />
+          </aside>
+        )}
+      </div>
     </main>
   );
 }
@@ -746,32 +827,61 @@ export function CheckoutPage({ ctx }) {
 export function ConfirmPage({ ctx }) {
   const p = ctx.placed;
   if (!p) return <HomePage ctx={ctx} />;
+  // A card order comes back from the gateway either settled or not. Anything
+  // else was placed to be paid for by hand and is simply confirmed.
+  const awaitingCard = p.payKey === "paystack" && p.paid === false;
+  const line = { display: "flex", justifyContent: "space-between", gap: 16, fontSize: 13.5, padding: "11px 0", borderTop: "1px solid var(--border-hairline)" };
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: `clamp(40px, 6vw, 72px) ${PAD}`, textAlign: "center" }}>
-      <GildedRule width="180px" style={{ margin: "18px auto" }} />
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 42px)", color: "var(--text-strong)", margin: "22px 0 10px" }}>Your trail is on its way.</h1>
-      <p style={{ fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--text-body)", margin: "0 0 26px" }}>
-        Order <strong style={{ color: "var(--mr-purple-900)" }}>{p.no}</strong>{p.totalLabel ? ` — ${p.totalLabel}` : ""} · {p.pay}
-      </p>
-      {p.pay === "Bank transfer" && (
-        <div style={{ background: "var(--mr-gold-200)", borderRadius: "var(--radius-md)", padding: "14px 18px", fontSize: 13, color: "var(--mr-gold-600)", marginBottom: 18, textAlign: "left" }}>
-          We're holding your order for 2 hours. Transfer to <strong>Majestic Roobee — 0123456789 (Providus Bank)</strong> with <strong>{p.no}</strong> as reference, and we'll confirm by SMS.
+    <main style={{ maxWidth: 560, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD}` }}>
+      <div style={{ textAlign: "center" }}>
+        <span style={{ width: 52, height: 52, borderRadius: "50%", background: awaitingCard ? "var(--mr-sand)" : "#e4efe4", color: awaitingCard ? "var(--accent-gold-ink)" : "#3f6b45", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 18 }}>
+          {awaitingCard ? (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+          ) : (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m4 12 5 5L20 7" /></svg>
+          )}
+        </span>
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 4vw, 34px)", color: "var(--text-strong)", margin: "0 0 8px" }}>
+          {awaitingCard ? "Payment not confirmed yet" : "Order confirmed"}
+        </h1>
+        <p style={{ fontSize: 14.5, color: "var(--text-muted)", margin: "0 0 26px" }}>
+          Order <strong style={{ color: "var(--mr-purple-900)" }}>{p.no}</strong>
+        </p>
+      </div>
+
+      <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "6px 22px 18px" }}>
+        {p.totalLabel && <div style={line}><span style={{ color: "var(--text-muted)" }}>Total</span><span style={{ fontWeight: 600, color: "var(--mr-purple-900)" }}>{p.totalLabel}</span></div>}
+        <div style={line}><span style={{ color: "var(--text-muted)" }}>Payment</span><span style={{ color: "var(--text-strong)" }}>{p.pay}</span></div>
+        {p.deliverTo && (
+          <div style={line}>
+            <span style={{ color: "var(--text-muted)" }}>{p.method === "Click & collect" ? "Collect from" : "Deliver to"}</span>
+            <span style={{ color: "var(--text-strong)", textAlign: "right", maxWidth: "62%" }}>{p.deliverTo}</span>
+          </div>
+        )}
+        {p.eta && (
+          <div style={line}>
+            <span style={{ color: "var(--text-muted)" }}>{p.parcels > 1 ? `Arrives (${p.parcels} deliveries)` : "Arrives"}</span>
+            <span style={{ color: "var(--text-strong)", textAlign: "right" }}>{p.eta}</span>
+          </div>
+        )}
+      </div>
+
+      {awaitingCard && (
+        <div style={{ marginTop: 18 }}>
+          <Button variant="gold" size="lg" block onClick={() => ctx.payNow(p.no, ctx.co.email || ctx.co.phone)}>Pay now</Button>
         </div>
       )}
-      {p.paid === false && p.pay === "Paystack" && (
-        <div style={{ background: "var(--mr-sand)", borderRadius: "var(--radius-md)", padding: "14px 18px", fontSize: 13, color: "var(--mr-gold-600)", marginBottom: 18 }}>
-          Payment hasn't been confirmed yet — if you completed it, it will reflect shortly.
+
+      {p.payKey === "transfer" && (
+        <div style={{ marginTop: 18, background: "var(--mr-gold-200)", borderRadius: "var(--radius-md)", padding: "14px 18px", fontSize: 13.5, lineHeight: 1.7, color: "var(--mr-gold-600)" }}>
+          {ctx.settings.bankDetails
+            ? <>Transfer <strong>{p.totalLabel}</strong> to <strong>{ctx.settings.bankDetails}</strong>, using <strong>{p.no}</strong> as the reference.</>
+            : <>We'll send you the account details shortly. Your order is held for 2 hours.</>}
         </div>
       )}
-      {(p.route || p.eta) && (
-        <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 24, textAlign: "left", marginBottom: 24 }}>
-          <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", marginBottom: 10 }}>Fulfilment</div>
-          <div style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text-body)" }}>{p.route}</div>
-          <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>{p.eta}</div>
-        </div>
-      )}
+
       {!ctx.cust && ctx.co.email && <AccountNudge ctx={ctx} />}
-      <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap", marginTop: 24 }}>
         <Button variant="primary" onClick={() => { ctx.setTrack((t) => ({ ...t, no: p.no, contact: ctx.co.email || ctx.co.phone, err: "" })); ctx.nav("track"); }}>Track this order</Button>
         <Button variant="ghost" onClick={() => ctx.nav("shop")}>Keep browsing</Button>
       </div>
@@ -779,15 +889,15 @@ export function ConfirmPage({ ctx }) {
   );
 }
 
-// Progressive nudge shown on the confirmation page for guests — turns the order
-// they just placed into a saved account with one tap (email already known).
+// Turns the order just placed into a saved account in one step — the email is
+// already known, so all that's missing is a password.
 function AccountNudge({ ctx }) {
   const [pw, setPw] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const create = async () => {
-    if (pw.length < 8) return setErr("Choose a password of at least 8 characters.");
+    if (pw.length < 8) return setErr("Use at least 8 characters.");
     setBusy(true); setErr("");
     try {
       await ctx.custRegister({ email: ctx.co.email, password: pw, name: ctx.co.name, phone: ctx.co.phone, city: ctx.city, marketingOptIn: true });
@@ -795,16 +905,16 @@ function AccountNudge({ ctx }) {
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
   if (done) return (
-    <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "18px 22px", marginBottom: 24, fontSize: 14, color: "var(--mr-purple-900)" }}>
-      Account created — this order is now saved to <strong>{ctx.co.email}</strong>. Welcome to the house. 💜
+    <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "16px 20px", marginTop: 20, fontSize: 13.5, color: "var(--mr-purple-900)" }}>
+      Saved to <strong>{ctx.co.email}</strong>.
     </div>
   );
   return (
-    <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "20px 22px", marginBottom: 24, textAlign: "left" }}>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)", marginBottom: 4 }}>Save this order — create an account</div>
-      <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>Track faster next time, save your address, build a wishlist and earn perks. We'll use <strong>{ctx.co.email}</strong>.</div>
+    <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "18px 20px", marginTop: 20, textAlign: "left" }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginBottom: 4 }}>Save this order</div>
+      <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>Track it faster and keep your address for next time.</div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <Input label="Choose a password" type="password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} style={{ flex: 1, minWidth: 200 }} />
+        <Input label="Choose a password" type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} style={{ flex: 1, minWidth: 200 }} />
         <Button variant="gold" disabled={busy} onClick={create}>{busy ? "Saving…" : "Create account"}</Button>
       </div>
       {err && <div style={{ fontSize: 12.5, color: "#c0587a", marginTop: 8 }}>{err}</div>}
@@ -817,14 +927,10 @@ export function TrackPage({ ctx }) {
   const o = track.order;
   return (
     <main style={{ maxWidth: 720, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
-      <Eyebrow>Follow the trail</Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 42px)", color: "var(--text-strong)", margin: "12px 0 8px" }}>Track your order</h1>
-      <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px" }}>
-        No account needed — your order number and the phone or email you ordered with. <span style={{ color: "var(--mr-purple-700)" }}>Try MR-10234.</span>
-      </p>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 4vw, 38px)", color: "var(--text-strong)", margin: "0 0 20px" }}>Track your order</h1>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 14, alignItems: "end", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 22 }}>
         <Input label="Order number" value={track.no} onChange={(e) => setTrack((t) => ({ ...t, no: e.target.value }))} placeholder="MR-10234" />
-        <Input label="Phone or email" value={track.contact} onChange={(e) => setTrack((t) => ({ ...t, contact: e.target.value }))} placeholder="0803 000 0000" />
+        <Input label="Phone or email" value={track.contact} onChange={(e) => setTrack((t) => ({ ...t, contact: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && ctx.doTrack()} />
         <Button variant="primary" onClick={ctx.doTrack}>Find my order</Button>
       </div>
       {track.err && <div style={{ fontSize: 13, color: "#c0587a", marginTop: 14 }}>{track.err}</div>}
@@ -834,7 +940,16 @@ export function TrackPage({ ctx }) {
             <div style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--text-strong)" }}>{o.no}</div>
             <Badge tone="gold">{o.status}</Badge>
           </div>
-          <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 22 }}>Placed {o.placed} · {ctx.fmt(o.total)} · Fulfilled by {o.from}</div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 22 }}>
+            Placed {o.placed} · {ctx.fmt(o.total)}{o.eta ? ` · Arrives ${o.eta}` : ""}
+          </div>
+          {/* An order that was never paid for is a sale still waiting to happen
+              — offer the way to finish it rather than leaving it stranded. */}
+          {o.payable && (
+            <div style={{ marginBottom: 22 }}>
+              <Button variant="gold" block onClick={() => ctx.payNow(o.no, track.contact)}>Pay {ctx.fmt(o.total)} now</Button>
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column" }}>
             {o.steps.map((s, i) => (
               <div key={i} style={{ display: "flex", gap: 16 }}>

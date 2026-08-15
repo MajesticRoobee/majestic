@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "lint": "eslint .",
-    "test": "node scripts/fulfilment.test.mjs",
+    "test": "node scripts/fulfilment.test.mjs && node scripts/payments.test.mjs",
     "build": "vite build",
     "dev:worker": "npm run build && wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply majestic-roobee --local",
@@ -26,6 +26,7 @@
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.8.0",
+    "playwright": "^1.62.1",
     "vite": "^6.0.7",
     "wrangler": "^4.0.0"
   }

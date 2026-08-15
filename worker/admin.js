@@ -725,6 +725,10 @@ admin.put("/settings", async (c) => {
     "ga4Id", "metaPixelId", "tiktokPixelId", "googleAdsId", "googleAdsPurchaseLabel", "clarityId", "gscVerification",
     // Storefront look & behaviour
     "heroDirection", "promoPopup", "defaultCity", "crossCityShipNGN", "crossCityEta", "freeShipAbujaOver", "freeShipCity",
+    // Where a bank-transfer shopper is told to send the money. Empty until the
+    // house fills it in, and the transfer option says so rather than inventing
+    // an account number.
+    "bankDetails",
   ];
   const patch = {};
   for (const k of allowed) if (settings && settings[k] !== undefined) patch[k] = settings[k];

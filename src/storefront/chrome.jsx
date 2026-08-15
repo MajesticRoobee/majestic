@@ -1,7 +1,7 @@
 // Storefront chrome: announcement bar, city gate, header, cart drawer,
 // concierge chat, lead popup, footer. Markup ported from the design handoff.
 import React, { useState } from "react";
-import { Eyebrow, Button } from "../ds/components.jsx";
+import { Eyebrow, Button, ImageSlot } from "../ds/components.jsx";
 import { routeToPath } from "./router.js";
 
 // Profile menu — sign in / create account when logged out, the customer's name
@@ -180,14 +180,14 @@ function CartDrawer({ ctx }) {
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
           {cc.items.length === 0 && (
-            <p style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "var(--text-muted)", textAlign: "center", marginTop: 40 }}>Quietly empty — for now.</p>
+            <p style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "var(--text-muted)", textAlign: "center", marginTop: 40 }}>Your cart is empty.</p>
           )}
           {cc.items.map((it) => (
             <div key={it.key} style={{ display: "flex", gap: 14 }}>
-              <span style={{ width: 58, height: 58, borderRadius: "var(--radius-md)", background: "var(--mr-lavender-200)", color: "var(--mr-purple-800)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 18, flexShrink: 0 }}>{it.initials}</span>
+              <ImageSlot src={it.imageUrl} name={it.name} shape="rounded" radius={10} style={{ width: 58, height: 58, flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{it.name}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 8px" }}>{it.size} · {it.availNote}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 8px" }}>{it.size}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ display: "inline-flex", alignItems: "center", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)" }}>
                     <button onClick={it.dec} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 10px", fontSize: 14, color: "var(--mr-purple-800)" }}>−</button>
@@ -205,9 +205,7 @@ function CartDrawer({ ctx }) {
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 600, color: "var(--text-strong)", marginBottom: 6 }}>
             <span>Subtotal</span><span>{ctx.fmt(cc.sub)}</span>
           </div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14 }}>
-            Shipping calculated at checkout — routed from {cc.allInCity ? (ctx.L ? ctx.L.store : "") : "the nearest stocked store"}.
-          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 14 }}>Delivery calculated at checkout.</div>
           <Button variant="gold" size="lg" block disabled={cc.items.length === 0} onClick={() => ctx.nav("checkout")}>Checkout</Button>
         </div>
       </aside>

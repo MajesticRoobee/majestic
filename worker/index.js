@@ -4,6 +4,7 @@ import { admin } from "./admin.js";
 import { account } from "./customers.js";
 import { v1, handleMcp } from "./integrations.js";
 import { runScheduled } from "./events.js";
+import { releaseExpiredOrders } from "./payments.js";
 
 const app = new Hono();
 
@@ -78,8 +79,15 @@ app.onError((err, c) => {
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
+// Cron. Lapsed card payments are released first — every minute an unpaid order
+// sits there is a minute its stock can't be sold, and an order that has just
+// been released should not then be chased as an abandoned cart.
+async function cron(env) {
+  try { await releaseExpiredOrders(env); } catch (e) { console.error("payment sweep failed", e); }
+  try { await runScheduled(env); } catch (e) { console.error("automation run failed", e); }
+}
+
 export default {
   fetch: (req, env, ctx) => app.fetch(req, env, ctx),
-  // Cron: drain the automation outbox and enqueue time-based automations.
-  scheduled: (event, env, ctx) => ctx.waitUntil(runScheduled(env)),
+  scheduled: (event, env, ctx) => ctx.waitUntil(cron(env)),
 };

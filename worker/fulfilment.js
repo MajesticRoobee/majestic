@@ -149,14 +149,3 @@ function itemOf(line) {
   };
 }
 
-// One-line summary for the order timeline and the confirmation page.
-export function planSummary(plan, city) {
-  if (plan.mode === "single") {
-    const s = plan.shipments[0];
-    return s.locationId === city
-      ? `All items in stock at ${s.store}, ${s.city}`
-      : `Routed to ${s.store}, ${s.city} — the nearest store holding your full order`;
-  }
-  const names = plan.shipments.map((s) => `${s.store}, ${s.city}`).join(" · ");
-  return `${plan.shipments.length} parcels — ${names}`;
-}
