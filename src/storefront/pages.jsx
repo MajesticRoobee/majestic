@@ -739,11 +739,13 @@ export function CheckoutPage({ ctx }) {
     );
   }
 
+  // Only methods the server will accept — a card option with no gateway behind
+  // it is a dead end at the last step.
   const payDefs = [
     { id: "paystack", label: "Card, transfer or USSD", note: "Pay securely with Paystack" },
     { id: "transfer", label: "Bank transfer", note: "Held for 2 hours" },
     { id: "whatsapp", label: "WhatsApp", note: "Finish with us in chat" },
-  ];
+  ].filter((p) => ctx.payMethods[p.id]);
 
   return (
     <main style={{ maxWidth: 1080, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>

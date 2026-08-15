@@ -67,7 +67,15 @@ shop.get("/store", async (c) => {
   const popup = await db
     .prepare("SELECT title, message, cta FROM campaigns WHERE kind='Popup' AND status='Live' ORDER BY created_at DESC LIMIT 1")
     .first();
-  return c.json({ settings, locations, categories, collections, products, popup });
+  // Which ways to pay the checkout may actually offer. Card depends on a
+  // Paystack key being present, and the storefront must know that up front —
+  // offering a method the server will refuse is a dead end at the last step.
+  const pay = {
+    paystack: paystackEnabled(c.env),
+    transfer: true,
+    whatsapp: !!settings.contactPhone,
+  };
+  return c.json({ settings, locations, categories, collections, products, popup, pay });
 });
 
 shop.post("/leads", async (c) => {

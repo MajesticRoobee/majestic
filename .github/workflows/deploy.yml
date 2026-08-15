@@ -60,7 +60,10 @@ jobs:
             sleep 2
           done
           SITE_URL=http://127.0.0.1:8787 node scripts/render-check.mjs
-          kill "$(cat "${RUNNER_TEMP}/wrangler.pid")" || true
+          # `npx` spawns workerd underneath it, so killing the pid alone leaves
+          # the Worker holding the port.
+          pkill -f "wrangler dev" || true
+          pkill -f workerd || true
 
       # ---- Ship -----------------------------------------------------------
 
@@ -72,8 +75,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # BUILD_SHA rides along so /api/health can name the build that is
+      # answering, and the smoke test below can wait for *this* commit.
       - name: Deploy Worker
-        run: npx wrangler deploy
+        run: npx wrangler deploy --var BUILD_SHA:${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -96,20 +101,20 @@ jobs:
       #
       # A new Worker version does not reach every edge the instant `deploy`
       # returns, and the assets and the script are two uploads. So this waits
-      # for the live API to agree with the code that was just pushed before it
-      # judges anything — checking a page against a half-rolled-out deploy is
-      # what produced a red build on a perfectly good commit.
+      # until /api/health reports the commit that was just pushed. Anything
+      # weaker is not a gate: a check for a field the *previous* build already
+      # served passes immediately and proves nothing, which is exactly how a
+      # smoke test came to assert against the old Worker and pass.
       - name: Smoke test live site
         env:
           SITE_URL: https://majestic-roobee.victorugwu4real.workers.dev
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
-          echo "— waiting for the new version to serve —"
-          for i in $(seq 1 30); do
-            if curl -sfS "$SITE_URL/api/store" \
-              | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if all('images' in p for p in d['products']) else 1)" 2>/dev/null; then
-              echo "live API is on the current contract"; break
-            fi
-            if [ "$i" = "30" ]; then echo "live API never caught up with this deploy"; exit 1; fi
+          echo "— waiting for $EXPECTED_SHA to serve —"
+          for i in $(seq 1 45); do
+            live=$(curl -sfS "$SITE_URL/api/health" | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            if [ "$live" = "$EXPECTED_SHA" ]; then echo "live build is $live"; break; fi
+            if [ "$i" = "45" ]; then echo "live build is '$live', expected '$EXPECTED_SHA' — deploy never propagated"; exit 1; fi
             sleep 4
           done
           echo "— storefront shell —"

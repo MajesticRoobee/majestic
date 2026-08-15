@@ -22,6 +22,80 @@ function Secret({ label, value, onDone }) {
   );
 }
 
+// Payments — is a gateway connected, is it pointed at test or at real money,
+// and what has it actually said lately.
+//
+// The mode line matters more than it looks: from inside the app there is
+// otherwise no way to tell a test key from a live one, and the difference is
+// whether a checkout takes play money or somebody's salary.
+function PaymentsPanel({ pay, origin, ctx, reload }) {
+  const [sweeping, setSweeping] = useState(false);
+  const sweep = async () => {
+    setSweeping(true);
+    try {
+      const r = await api.post("/api/admin/payments/sweep", {}, ctx.token);
+      window.alert(
+        r.expired || r.rescued
+          ? `${r.expired} order(s) released back to stock, ${r.rescued} found already paid.`
+          : "Nothing to release — no unpaid order has run out its hold."
+      );
+      reload();
+    } catch (e) { window.alert(e.message); } finally { setSweeping(false); }
+  };
+  const modes = {
+    off: { label: "Not connected", tone: "bad", note: "Card payment is hidden at checkout until a secret key is set." },
+    test: { label: "Test mode", tone: "warn", note: "Using a sk_test_ key — real cards are not charged. Use Paystack's test cards." },
+    live: { label: "Live", tone: "good", note: "Using a sk_live_ key — real cards are charged." },
+    unknown: { label: "Key not recognised", tone: "warn", note: "The key doesn't start with sk_test_ or sk_live_. Check it was copied whole." },
+  };
+  const m = modes[pay ? pay.gateway.mode : "off"];
+  const b = statusBadge(m.tone);
+  const rowTone = (s) => ({ success: "good", initialized: "mute", failed: "bad", mismatch: "bad", expired: "warn" }[s] || "mute");
+  return (
+    <div style={{ ...card, padding: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Payments — Paystack</div>
+        <span style={{ fontSize: 11.5, fontWeight: 500, padding: "3px 11px", borderRadius: "var(--radius-pill)", background: b.bg, color: b.fg }}>{m.label}</span>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 16px" }}>{m.note}</div>
+
+      <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: "12px 14px", fontSize: 12.5, color: "var(--mr-purple-800)", lineHeight: 1.8, marginBottom: 16 }}>
+        <div>Webhook URL — paste this into Paystack → Settings → API Keys &amp; Webhooks:</div>
+        <code style={{ fontSize: 12.5, wordBreak: "break-all" }}>{origin}/api/paystack/webhook</code>
+        {pay && pay.unpaidOrders > 0 && (
+          <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ color: "var(--mr-gold-600)" }}>{pay.unpaidOrders} order{pay.unpaidOrders === 1 ? "" : "s"} awaiting payment.</span>
+            <Button variant="secondary" size="sm" disabled={sweeping} onClick={sweep}>
+              {sweeping ? "Checking…" : "Release lapsed holds"}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 4 }}>RECENT ATTEMPTS</div>
+      {(!pay || !pay.payments.length) && (
+        <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, fontSize: 12.5, color: "var(--text-muted)" }}>
+          Nothing yet — every initialization, confirmation and refusal lands here, including charges rejected for the wrong amount.
+        </div>
+      )}
+      {pay && pay.payments.map((p) => {
+        const t = statusBadge(rowTone(p.status));
+        return (
+          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: "1px solid var(--border-hairline)", fontSize: 13, alignItems: "center" }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: "var(--text-strong)" }}>{p.order_no} <span style={{ color: "var(--text-muted)", fontSize: 11.5 }}>{p.customer || ""}</span></div>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)", wordBreak: "break-all" }}>
+                ₦{(p.amount / 100).toLocaleString("en-US")} · {p.source}{p.channel ? ` · ${p.channel}` : ""}{p.detail ? ` · ${p.detail}` : ""}
+              </div>
+            </div>
+            <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: t.bg, color: t.fg }}>{p.status}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function IntegrationsPage({ ctx }) {
   const [autos, setAutos] = useState([]);
   const [runStats, setRunStats] = useState([]);
@@ -32,9 +106,11 @@ export function IntegrationsPage({ ctx }) {
   const [wh, setWh] = useState({ url: "", events: "*" });
   const [keyForm, setKeyForm] = useState({ name: "", scopes: "read" });
   const [secret, setSecret] = useState(null);
+  const [pay, setPay] = useState(null);
   const origin = window.location.origin;
 
   const load = () => {
+    api.get("/api/admin/payments", ctx.token).then(setPay).catch(() => {});
     api.get("/api/admin/automations", ctx.token).then((r) => { setAutos(r.automations); setRunStats(r.runStats); }).catch(ctx.authFail);
     api.get("/api/admin/automation-runs", ctx.token).then((r) => setRuns(r.runs)).catch(ctx.authFail);
     api.get("/api/admin/events", ctx.token).then((r) => setEvents(r.events)).catch(() => {});
@@ -59,6 +135,8 @@ export function IntegrationsPage({ ctx }) {
 
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 20, maxWidth: 1000 }}>
+      <PaymentsPanel pay={pay} origin={origin} ctx={ctx} reload={load} />
+
       {/* Automations */}
       <div style={{ ...card, overflow: "hidden" }}>
         <div style={{ padding: "18px 22px" }}>

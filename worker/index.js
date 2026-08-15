@@ -14,6 +14,19 @@ app.route("/api/account", account);
 app.route("/api/v1", v1);
 app.post("/api/mcp", (c) => handleMcp(c));
 
+// Which build is answering.
+//
+// A deploy uploads the assets and the Worker script separately, and a new
+// version does not reach every edge the instant `wrangler deploy` returns. That
+// window is real — it is how a new storefront bundle came to be served against
+// an older API payload, and how a post-deploy smoke test came to assert against
+// the *previous* build and pass. CI now polls this until it sees the commit it
+// just pushed, so "deployed" means "actually serving".
+//
+// BUILD_SHA is injected at deploy time (`wrangler deploy --var BUILD_SHA:…`);
+// locally it is simply absent.
+app.get("/api/health", (c) => c.json({ ok: true, version: c.env.BUILD_SHA || "dev" }));
+
 // Product imagery. Content-addressed by id, so it can cache forever at the edge.
 app.get("/images/:id", async (c) => {
   const row = await c.env.DB.prepare("SELECT mime, bytes FROM media WHERE id=?").bind(c.req.param("id")).first();

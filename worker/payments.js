@@ -12,6 +12,11 @@ import { emitEvent } from "./events.js";
 
 const API = "https://api.paystack.co";
 
+// Local testing can point the gateway at `scripts/paystack-stub.mjs`. This is
+// read from the Worker's own environment — never from a request — and is unset
+// everywhere except a developer's `.dev.vars`.
+const apiBase = (env) => env.PAYSTACK_API_BASE || API;
+
 // How long an unpaid card order holds its stock. Long enough to find a card and
 // finish a 3-D Secure challenge, short enough that a walked-away checkout does
 // not keep a bottle off the shelf all day.
@@ -54,7 +59,7 @@ async function logPayment(db, order_no, row) {
 }
 
 async function paystack(env, path, init) {
-  const res = await fetch(API + path, {
+  const res = await fetch(apiBase(env) + path, {
     ...init,
     headers: {
       authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}`,
@@ -159,6 +164,20 @@ export async function markPaid(env, order, data, source) {
     },
   });
   return true;
+}
+
+// Settle an order a human has confirmed the money for — a bank transfer that
+// landed, cash at the counter. It goes through the same door as a gateway
+// confirmation so the timeline, the automation and the audit log all behave
+// identically, but it records *who* said so, because unlike a Paystack callback
+// this claim has no independent evidence behind it.
+export async function markPaidManually(env, order, by) {
+  return markPaid(
+    env,
+    order,
+    { reference: order.pay_ref || `manual_${order.no}`, amount: order.pay_amount || toKobo(order.total), currency: CURRENCY, channel: "manual" },
+    `manual:${by}`
+  );
 }
 
 // ---- The three entry points --------------------------------------------

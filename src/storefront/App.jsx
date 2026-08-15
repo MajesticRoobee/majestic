@@ -199,6 +199,9 @@ export default function App() {
   const products = useMemo(() => (D ? D.products : EMPTY_ARR), [D]);
   const categories = useMemo(() => (D ? D.categories : EMPTY_ARR), [D]);
   const collections = useMemo(() => (D ? (D.collections || EMPTY_ARR) : EMPTY_ARR), [D]);
+  // Which payment methods the server will actually accept. Defaults to card
+  // being available so the option doesn't flicker away on a slow bootstrap.
+  const payMethods = useMemo(() => (D && D.pay ? D.pay : { paystack: true, transfer: true, whatsapp: true }), [D]);
   const L = useMemo(() => locations.find((l) => l.id === city) || null, [locations, city]);
   const cityName = cap(city);
 
@@ -387,6 +390,15 @@ export default function App() {
 
   // Any change to what is being shipped withdraws a previous agreement.
   useEffect(() => { setReconfirm(false); }, [cart, city, co.fulfill]);
+
+  // Card is the default, but it is only real when a gateway key is configured.
+  // If it isn't, move the selection to something the server will accept rather
+  // than letting the shopper reach the last step and be refused.
+  useEffect(() => {
+    if (payMethods[co.pay]) return;
+    const fallback = ["paystack", "transfer", "whatsapp"].find((m) => payMethods[m]);
+    if (fallback) setCo((s) => ({ ...s, pay: fallback }));
+  }, [payMethods, co.pay]);
 
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
@@ -585,7 +597,7 @@ export default function App() {
     },
     gateOpen,
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
-    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings,
+    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
     collections,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,

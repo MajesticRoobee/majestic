@@ -6,6 +6,7 @@ import {
   optionLabel, makeSku, allLocations, locationIds,
 } from "./util.js";
 import { emitEvent } from "./events.js";
+import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -951,6 +952,57 @@ admin.get("/automation-runs", async (c) => {
 admin.get("/events", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT id, type, entity, at FROM events ORDER BY id DESC LIMIT 40").all()).results;
   return c.json({ events: rows });
+});
+
+// ---- Payments: gateway status + the reconciliation log ----
+//
+// The key itself is never returned. Only its *prefix* is read, to say whether
+// the shop is pointed at Paystack's test environment or at real money — which
+// is the single thing you most want confirmed before taking a live order, and
+// the thing that is otherwise invisible from inside the app.
+admin.get("/payments", requireSuper, async (c) => {
+  const key = c.env.PAYSTACK_SECRET_KEY || "";
+  const mode = !key ? "off" : key.startsWith("sk_live_") ? "live" : key.startsWith("sk_test_") ? "test" : "unknown";
+  const rows = (await c.env.DB.prepare(
+    `SELECT p.id, p.order_no, p.reference, p.amount, p.currency, p.status, p.channel, p.source, p.detail, p.at,
+            o.total AS order_total, o.customer
+       FROM payments p LEFT JOIN orders o ON o.no = p.order_no
+      ORDER BY p.id DESC LIMIT 50`
+  ).all()).results;
+  const unpaid = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM orders WHERE pay_status IN ('pending','failed') AND status <> 'Cancelled'"
+  ).first();
+  return c.json({
+    gateway: { provider: "paystack", mode, configured: !!key },
+    webhookPath: "/api/paystack/webhook",
+    unpaidOrders: unpaid ? unpaid.n : 0,
+    payments: rows,
+  });
+});
+
+// Run the lapsed-payment sweep now rather than waiting for the next cron.
+//
+// Same code the cron runs, so this is a nudge and never a second implementation:
+// useful when a shopper is on the phone asking why the last bottle shows as out
+// of stock, and it makes the sweep observable instead of something that only
+// ever happens on a timer.
+admin.post("/payments/sweep", requireSuper, async (c) => {
+  return c.json(await releaseExpiredOrders(c.env));
+});
+
+// Settle a bank-transfer or WhatsApp order by hand, once the money has landed.
+// Deliberately not available for card orders: those are settled by the gateway,
+// and a human marking one paid would be inventing a payment.
+admin.post("/orders/:no/mark-paid", requireSuper, async (c) => {
+  const db = c.env.DB;
+  const no = String(c.req.param("no") || "").toUpperCase();
+  const order = await db.prepare("SELECT * FROM orders WHERE no=?").bind(no).first();
+  if (!order) return c.json({ error: "Order not found." }, 404);
+  if (order.pay === "Paystack") return c.json({ error: "Card orders are settled by Paystack, not by hand." }, 400);
+  if (order.pay_status === "paid") return c.json({ ok: true, already: true });
+  const who = c.get("admin");
+  await markPaidManually(c.env, order, who.name || who.username || `admin #${who.uid}`);
+  return c.json({ ok: true });
 });
 
 // ---- F3: webhooks & API keys (super only) ----
