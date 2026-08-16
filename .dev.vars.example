@@ -1,4 +1,12 @@
 # Copy to .dev.vars for local development (never commit .dev.vars)
 ADMIN_PASSWORD=majestic-dev
 ADMIN_TOKEN_SECRET=dev-only-change-me
+
+# Paystack. The secret key is the only credential needed — the integration uses
+# the redirect flow, so no public key is involved and nothing reaches the
+# browser. Use the sk_test_ key from Paystack → Settings → API Keys & Webhooks;
+# with it, the test cards charge play money.
+#
+# Leave it unset and the card option is hidden at checkout entirely, so bank
+# transfer and WhatsApp still work.
 # PAYSTACK_SECRET_KEY=sk_test_xxx

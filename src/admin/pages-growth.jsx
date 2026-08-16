@@ -410,6 +410,13 @@ export function SettingsPage({ ctx }) {
           <Input label="Email" value={form.contactEmail || ""} onChange={set("contactEmail")} />
         </div>
         <Input label="Support hours" value={form.contactHours || ""} onChange={set("contactHours")} />
+        <Input
+          label="Bank transfer details"
+          value={form.bankDetails || ""}
+          onChange={set("bankDetails")}
+          placeholder="Majestic Roobee — 0123456789, Providus Bank"
+          hint="Shown to shoppers who choose bank transfer. Leave empty and we'll ask them to contact you instead."
+        />
       </div>
       <div style={{ ...section, gap: 14 }}>
         {sectionHead("Footer", "Tagline and the Instagram link in the storefront footer.")}

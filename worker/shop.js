@@ -1,8 +1,9 @@
 // Public storefront API.
 import { Hono } from "hono";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations } from "./util.js";
-import { planFulfilment, planSummary } from "./fulfilment.js";
+import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
+import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
 
 export const shop = new Hono();
 
@@ -66,7 +67,15 @@ shop.get("/store", async (c) => {
   const popup = await db
     .prepare("SELECT title, message, cta FROM campaigns WHERE kind='Popup' AND status='Live' ORDER BY created_at DESC LIMIT 1")
     .first();
-  return c.json({ settings, locations, categories, collections, products, popup });
+  // Which ways to pay the checkout may actually offer. Card depends on a
+  // Paystack key being present, and the storefront must know that up front —
+  // offering a method the server will refuse is a dead end at the last step.
+  const pay = {
+    paystack: paystackEnabled(c.env),
+    transfer: true,
+    whatsapp: !!settings.contactPhone,
+  };
+  return c.json({ settings, locations, categories, collections, products, popup, pay });
 });
 
 shop.post("/leads", async (c) => {
@@ -187,7 +196,9 @@ shop.post("/fulfilment/quote", async (c) => {
   return c.json({ plan: publicPlan(plan) });
 });
 
-// The client never needs the internals — just what to show and what to confirm.
+// What the shopper is shown: when each delivery arrives, what it costs, and
+// what is in it. Which store it leaves from is the shop's concern, not theirs,
+// so the store and city names stop here.
 function publicPlan(plan) {
   return {
     mode: plan.mode,
@@ -195,11 +206,31 @@ function publicPlan(plan) {
     shipTotal: plan.shipTotal,
     collectBlocked: !!plan.collectBlocked,
     unavailable: plan.unavailable,
-    shipments: plan.shipments.map((s) => ({
-      locationId: s.locationId, store: s.store, city: s.city, eta: s.eta, ship: s.ship,
-      items: s.items.map((i) => ({ productId: i.productId, variantId: i.variantId, sku: i.sku, name: i.name, size: i.size, qty: i.qty })),
+    deliveries: plan.shipments.map((s) => ({
+      eta: s.eta,
+      ship: s.ship,
+      items: s.items.map((i) => ({ name: i.name, size: i.size, qty: i.qty })),
     })),
   };
+}
+
+const PAY_METHODS = { paystack: "Paystack", transfer: "Bank transfer", whatsapp: "WhatsApp" };
+
+// Everything the shopper types is checked here rather than in the browser, so a
+// request that skips the form still can't write a half-formed order.
+function validateOrder({ customer, city, fulfill, pay, items, locations }) {
+  if (!customer.name || !String(customer.name).trim()) return "Enter your name.";
+  if (!customer.phone || !String(customer.phone).trim()) return "Enter your phone number.";
+  if (fulfill === "delivery" && (!customer.address || !String(customer.address).trim())) return "Enter a delivery address.";
+  if (!Array.isArray(items) || !items.length) return "Your cart is empty.";
+  if (!locations.some((l) => l.id === city)) return "Choose a city.";
+  if (!PAY_METHODS[pay]) return "Choose how you'd like to pay.";
+  // Paystack keys a transaction to an email address — it is where the receipt
+  // goes and how a charge is reconciled, so a card order can't proceed without
+  // one. The other methods are settled by a human and only need the phone.
+  const email = String(customer.email || "").trim();
+  if (pay === "paystack" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "Enter a valid email address for your receipt.";
+  return null;
 }
 
 shop.post("/orders", async (c) => {
@@ -208,12 +239,10 @@ shop.post("/orders", async (c) => {
   const { customer = {}, city, fulfill, pay, promo: promoCode, items, acceptSplit } = body;
 
   const locations = await activeLocations(db);
-  if (!customer.name || !String(customer.name).trim() || !customer.phone || !String(customer.phone).trim())
-    return c.json({ error: "Your name and phone help us find you — both are required." }, 400);
-  if (fulfill === "delivery" && (!customer.address || !String(customer.address).trim()))
-    return c.json({ error: "Add a delivery address, or switch to click & collect." }, 400);
-  if (!Array.isArray(items) || !items.length) return c.json({ error: "Your cart is empty." }, 400);
-  if (!locations.some((l) => l.id === city)) return c.json({ error: "Pick a city first." }, 400);
+  const invalid = validateOrder({ customer, city, fulfill, pay, items, locations });
+  if (invalid) return c.json({ error: invalid }, 400);
+  if (pay === "paystack" && !paystackEnabled(c.env))
+    return c.json({ error: "Card payment is unavailable right now — choose bank transfer or WhatsApp." }, 400);
 
   const settings = await getSettings(db);
   const resolved = await resolveLines(db, items);
@@ -236,19 +265,19 @@ shop.post("/orders", async (c) => {
   // parcels and the delivery total are always the server's own.
   const plan = planFulfilment({ lines, locations, city, settings, fulfil: fulfill === "collect" ? "collect" : "delivery" });
   if (plan.mode === "unavailable") {
-    const what = plan.unavailable.map((u) => `${u.name} (${u.size} × ${u.qty})`).join(", ");
+    const what = plan.unavailable.map((u) => `${u.name} (${u.size})`).join(", ");
     return c.json({
       error: plan.collectBlocked
-        ? `Not everything is at your store for collection right now — ${what}. Switch to delivery and we'll ship it to you.`
-        : `We're short on ${what} across every store. Remove it, or join the waitlist and we'll tell you the moment it's back.`,
+        ? `Not available to collect: ${what}. Switch to delivery.`
+        : `Out of stock: ${what}. Remove it to continue.`,
       plan: publicPlan(plan),
     }, 400);
   }
-  // A split arrives in several parcels and costs more than one — the buyer
-  // confirms that on the checkout page before the order is written.
+  // Several deliveries cost more than one, so the buyer sees the arrangement
+  // before the order is written.
   if (plan.needsConfirmation && !acceptSplit) {
     return c.json({
-      error: `Your order ships in ${plan.shipments.length} parcels from different stores. Confirm the delivery breakdown to continue.`,
+      error: `Your order arrives in ${plan.shipments.length} deliveries — confirm to continue.`,
       plan: publicPlan(plan),
       needsConfirmation: true,
     }, 409);
@@ -269,7 +298,7 @@ shop.post("/orders", async (c) => {
   for (const s of plan.shipments) for (const i of s.items) lineLocation.set(i.variantId, s.locationId);
 
   const no = await nextOrderNo(db);
-  const payLabels = { paystack: "Paystack", transfer: "Bank transfer", whatsapp: "WhatsApp" };
+  const payLabels = PAY_METHODS;
   const method = fulfill === "collect" ? "Click & collect" : "Delivery";
   const now = new Date();
 
@@ -301,21 +330,17 @@ shop.post("/orders", async (c) => {
       db.prepare("UPDATE stock SET qty = MAX(0, qty - ?) WHERE variant_id=? AND location_id=?").bind(l.qty, l.variant.id, from)
     );
   }
-  const routeDetail = planSummary(plan, city);
-  const payDetail = { paystack: "Awaiting Paystack confirmation", transfer: "We hold your order 2 hours while you transfer", whatsapp: "A concierge completes your order in chat" }[pay] || "";
+  // The timeline a shopper reads. Each line says what has happened to their
+  // order — not how the system decided it. Which store was chosen and why is
+  // the shop's business; the delivery date is theirs.
   const t = displayTime(now);
   const events = [
-    ["Order placed", `${payLabels[pay] || "Paystack"} — ${fmtNaira(total)}. ${payDetail}`, t, 1, 0, 1],
+    ["Order placed", `${payLabels[pay]} — ${fmtNaira(total)}`, t, 1, 0, 1],
+    ["Confirmed", plan.shipments.length > 1 ? `Arriving in ${plan.shipments.length} deliveries` : "", t, 1, 1, 2],
+    ["Packed", "", null, 0, 0, 3],
     [
-      plan.mode === "split" ? `Splitting across ${plan.shipments.length} stores` : `Routed to ${fromLoc.store}, ${fromLoc.city}`,
-      routeDetail, t, 1, 1, 2,
-    ],
-    ["Packed & perfumed", plan.mode === "split" ? "Each parcel hand-wrapped with a note" : "Hand-wrapped with a note", null, 0, 0, 3],
-    [
-      fulfill === "collect" ? "Ready for pickup" : "In transit",
-      fulfill === "collect"
-        ? `Ready in about 3 hours — we'll text ${customer.phone.trim()}`
-        : plan.shipments.map((s) => `${s.store}: ${s.eta}`).join(" · "),
+      fulfill === "collect" ? "Ready to collect" : "On its way",
+      fulfill === "collect" ? "Ready in about 3 hours — we'll text you" : plan.shipments.map((s) => s.eta).join(" · "),
       null, 0, 0, 4,
     ],
   ];
@@ -337,93 +362,74 @@ shop.post("/orders", async (c) => {
     ctx: c.executionCtx,
   });
 
+  // What the confirmation screen shows. Where it is coming from is left out on
+  // purpose — the shopper needs the date and the address, not the warehouse.
   const order = {
     no,
     totalLabel: fmtNaira(total),
     total,
-    pay: payLabels[pay] || "Paystack",
+    pay: payLabels[pay],
+    payKey: pay,
     method,
-    route: fulfill === "collect"
-      ? `Ready for collection at ${fromLoc.store}, ${fromLoc.address}.`
-      : plan.mode === "split"
-        ? `Shipping in ${plan.shipments.length} parcels — ${plan.shipments.map((s) => `${s.store}, ${s.city}`).join(" and ")} — to ${customer.address}.`
-        : allInCity
-          ? `Shipping in one parcel from ${fromLoc.store}, ${fromLoc.city} to ${customer.address}.`
-          : `Routed to ${fromLoc.store}, ${fromLoc.city} — the nearest store holding your full order — shipping to ${customer.address}.`,
+    deliverTo: fulfill === "collect" ? `${fromLoc.store}, ${fromLoc.address}` : (customer.address || "").trim(),
     eta: fulfill === "collect"
-      ? `Ready in about 3 hours — we'll text ${customer.phone.trim()}.`
-      : plan.shipments.map((s) => `${s.store}: ${s.eta}`).join(" · "),
-    shipments: plan.shipments.map((s) => ({ store: s.store, city: s.city, eta: s.eta, ship: s.ship, items: s.items.length })),
+      ? "Ready in about 3 hours"
+      : [...new Set(plan.shipments.map((s) => s.eta))].join(" · "),
+    parcels: plan.shipments.length,
   };
 
-  // Paystack hand-off when configured; otherwise the order stays pending
-  // and is confirmed manually (bank transfer / WhatsApp flows).
-  if (pay === "paystack" && c.env.PAYSTACK_SECRET_KEY) {
-    const origin = new URL(c.req.url).origin;
-    const res = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: { authorization: `Bearer ${c.env.PAYSTACK_SECRET_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        email: (customer.email || "").trim() || "guest@majesticroobee.com",
-        amount: total * 100,
-        reference: no.replace("-", "_") + "_" + Date.now(),
-        callback_url: `${origin}/?psorder=${encodeURIComponent(no)}`,
-        metadata: { order_no: no, custom_fields: [] },
-      }),
-    });
-    const data = await res.json().catch(() => null);
-    if (data && data.status && data.data && data.data.authorization_url) {
-      await db.prepare("UPDATE orders SET pay_ref=? WHERE no=?").bind(data.data.reference, no).run();
-      return c.json({ order, paystackUrl: data.data.authorization_url });
-    }
+  if (pay !== "paystack") return c.json({ order });
+
+  // Card orders hand off to Paystack. If that hand-off fails there is nothing
+  // for the shopper to pay against, so the order is stood down and its stock
+  // goes straight back on the shelf rather than being held by a dead order.
+  const init = await initializePayment(c.env, {
+    no, total, email: (customer.email || "").trim(), customer: customer.name.trim(), phone: customer.phone.trim(),
+  }, new URL(c.req.url).origin);
+  if (init.error) {
+    await db.batch([
+      db.prepare("UPDATE orders SET pay_status='failed', status='Cancelled', stock_released=1 WHERE no=?").bind(no),
+      ...lines.map((l) =>
+        db.prepare("UPDATE stock SET qty = qty + ? WHERE variant_id=? AND location_id=?")
+          .bind(l.qty, l.variant.id, lineLocation.get(l.variant.id) || loc)
+      ),
+    ]);
+    return c.json({ error: init.error }, 502);
   }
-  return c.json({ order });
+  return c.json({ order, paystackUrl: init.url });
 });
 
-async function markPaid(env, no) {
-  const db = env.DB;
-  await db.prepare("UPDATE orders SET pay_status='paid' WHERE no=?").bind(no).run();
-  await db
-    .prepare("UPDATE order_events SET detail = detail || ' — payment confirmed' WHERE order_no=? AND sort=1")
-    .bind(no)
-    .run();
-  const o = await db.prepare("SELECT customer, email, phone, total FROM orders WHERE no=?").bind(no).first();
-  if (o) await emitEvent(env, "order_paid", { entity: no, payload: { orderNo: no, name: o.customer, email: o.email, phone: o.phone, contact: o.email || o.phone, total: o.total } });
-}
+// Pay for an order that was placed but never settled — the card was declined,
+// the tab was closed, or bank transfer turned out to be inconvenient. Proved
+// the same way as order tracking: the number plus the contact used to order.
+shop.post("/orders/:no/pay", async (c) => {
+  const { contact } = await c.req.json().catch(() => ({}));
+  const no = String(c.req.param("no") || "").trim().toUpperCase();
+  const order = no && (await c.env.DB.prepare("SELECT * FROM orders WHERE no=?").bind(no).first());
+  if (!order) return c.json({ error: "We couldn't find that order." }, 404);
+  const key = normalizeContact(contact);
+  if (!key || (key !== normalizeContact(order.phone) && key !== normalizeContact(order.email)))
+    return c.json({ error: "Use the phone or email you ordered with." }, 403);
+  const r = await resumePayment(c.env, order, new URL(c.req.url).origin);
+  if (r.error) return c.json({ error: r.error }, 400);
+  return c.json({ paystackUrl: r.url });
+});
 
-// Paystack redirects back here (client calls this to confirm).
+// The redirect leg. The shopper is back from Paystack; the browser only tells
+// us *which* order to ask about, and the gateway is asked directly whether it
+// was actually paid for.
 shop.get("/paystack/verify", async (c) => {
-  const no = c.req.query("order");
-  const db = c.env.DB;
-  const order = no && (await db.prepare("SELECT * FROM orders WHERE no=?").bind(no).first());
-  if (!order) return c.json({ error: "Order not found." }, 404);
-  if (order.pay_status === "paid") return c.json({ ok: true, paid: true });
-  if (!c.env.PAYSTACK_SECRET_KEY || !order.pay_ref) return c.json({ ok: true, paid: false });
-  const res = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(order.pay_ref)}`, {
-    headers: { authorization: `Bearer ${c.env.PAYSTACK_SECRET_KEY}` },
-  });
-  const data = await res.json().catch(() => null);
-  const paid = !!(data && data.status && data.data && data.data.status === "success");
-  if (paid) await markPaid(c.env, no);
-  return c.json({ ok: true, paid });
+  const r = await verifyPayment(c.env, String(c.req.query("order") || "").trim().toUpperCase());
+  if (r.error) return c.json({ error: r.error }, r.status || 400);
+  return c.json({ ok: true, paid: r.paid });
 });
 
-// Paystack server-to-server webhook.
+// The server-to-server leg — signed, and the one that arrives even when the
+// shopper closes the tab on their bank's 3-D Secure page.
 shop.post("/paystack/webhook", async (c) => {
-  const secret = c.env.PAYSTACK_SECRET_KEY;
-  if (!secret) return c.text("not configured", 400);
   const raw = await c.req.text();
-  const sig = c.req.header("x-paystack-signature") || "";
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-512" }, false, ["sign"]);
-  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw));
-  const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  if (hex !== sig) return c.text("invalid signature", 401);
-  const event = JSON.parse(raw);
-  if (event.event === "charge.success") {
-    const no = event.data?.metadata?.order_no;
-    if (no) await markPaid(c.env, no);
-  }
-  return c.text("ok");
+  const r = await handleWebhook(c.env, raw, c.req.header("x-paystack-signature"));
+  return c.text(r.text, r.status);
 });
 
 // Guest order tracking: order number + the phone or email used.
@@ -432,26 +438,26 @@ shop.get("/orders/track", async (c) => {
   const contact = normalizeContact(c.req.query("contact"));
   const db = c.env.DB;
   const order = no && (await db.prepare("SELECT * FROM orders WHERE no=?").bind(no).first());
-  if (!order) return c.json({ error: "We couldn't find that order. Check the number, or chat with us below." }, 404);
+  if (!order) return c.json({ error: "We couldn't find that order — check the number." }, 404);
   if (contact && contact !== normalizeContact(order.phone) && contact !== normalizeContact(order.email))
-    return c.json({ error: "That contact doesn't match this order — use the phone or email you ordered with." }, 403);
+    return c.json({ error: "Use the phone or email you ordered with." }, 403);
   const events = (await db.prepare("SELECT * FROM order_events WHERE order_no=? ORDER BY sort").bind(no).all()).results;
-  const from = await db.prepare("SELECT * FROM locations WHERE id=?").bind(order.fulfilled_from).first();
   // Orders placed before split shipments existed have no shipment rows — they
   // all shipped whole from fulfilled_from.
   const parcels = (await db.prepare(
-    `SELECT s.location_id, s.ship_ngn, s.eta, l.store, l.city FROM order_shipments s
-     LEFT JOIN locations l ON l.id = s.location_id WHERE s.order_no=? ORDER BY s.sort, s.id`
+    `SELECT s.location_id, s.ship_ngn, s.eta FROM order_shipments s WHERE s.order_no=? ORDER BY s.sort, s.id`
   ).bind(no).all()).results;
+  const unpaid = order.pay_status === "pending" || order.pay_status === "failed";
   return c.json({
     no: order.no,
-    status: order.pay_status === "pending" && order.status === "Processing" ? "Awaiting payment" : order.status,
+    status: unpaid && order.status === "Processing" ? "Awaiting payment" : order.status,
     placed: displayDate(new Date(order.placed_at.replace(" ", "T") + "Z")),
     total: order.total,
-    from: from ? `${from.store}, ${from.city}` : order.fulfilled_from,
-    parcels: parcels.map((p) => ({
-      store: p.store || p.location_id, city: p.city || "", eta: p.eta, ship: p.ship_ngn,
-    })),
+    // Whether this order can still be paid for online, so the tracking page can
+    // offer the button instead of leaving the shopper stranded.
+    payable: unpaid && order.status !== "Cancelled",
+    eta: [...new Set(parcels.map((p) => p.eta).filter(Boolean))].join(" · "),
+    parcels: parcels.length,
     steps: events.map((e) => ({ step: e.step, detail: e.detail, time: e.at || "", done: !!e.done, current: !!e.current })),
   });
 });

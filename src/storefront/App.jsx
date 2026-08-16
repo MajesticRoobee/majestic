@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.js";
-import { useWindowWidth, cap, initialsOf, fmtCurrency } from "../lib/hooks.js";
+import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import { HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage } from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
@@ -46,7 +46,10 @@ export default function App() {
   const [fSort, setFSort] = useState("featured");
   const [plan, setPlan] = useState(null);          // server's fulfilment plan for this cart
   const [planning, setPlanning] = useState(false);
-  const [acceptSplit, setAcceptSplit] = useState(false);
+  // Set only when the server rejects a split the shopper hadn't been shown.
+  // Ordinarily the breakdown sits directly above the pay button and pressing it
+  // is the agreement — this is the second ask when the two disagree.
+  const [reconfirm, setReconfirm] = useState(false);
   const [co, setCo] = useState({ name: "", email: "", phone: "", address: "", fulfill: "delivery", pay: "paystack", promo: "" });
   const [promoInfo, setPromoInfo] = useState(null); // { code, kind, value, scope: desc, freeShip } from validate
   const [promoMsg, setPromoMsg] = useState("");
@@ -95,7 +98,11 @@ export default function App() {
     }
   }, [D]);
 
-  // Paystack return leg: /?psorder=MR-xxxxx
+  // Back from Paystack: /?psorder=MR-xxxxx
+  //
+  // The URL only says which order to ask about. Whether it was paid for is the
+  // server's answer, checked against the gateway — a shopper who edits the
+  // address bar gets an unpaid order, not a receipt.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const no = params.get("psorder");
@@ -103,12 +110,15 @@ export default function App() {
     window.history.replaceState({}, "", window.location.pathname);
     let stored = null;
     try { stored = JSON.parse(sessionStorage.getItem("mr-pending-order") || "null"); } catch {}
-    api.get(`/api/paystack/verify?order=${encodeURIComponent(no)}`).then((r) => {
-      setPlaced(stored && stored.no === no ? { ...stored, paid: r.paid } : { no, paid: r.paid, totalLabel: "", pay: "Paystack", route: "", eta: "" });
-      setCart([]);
-      setPage("confirm");
-      sessionStorage.removeItem("mr-pending-order");
-    }).catch(() => {});
+    const base = stored && stored.no === no ? stored : { no, totalLabel: "", pay: "Paystack", payKey: "paystack", deliverTo: "", eta: "" };
+    api.get(`/api/paystack/verify?order=${encodeURIComponent(no)}`)
+      .then((r) => setPlaced({ ...base, paid: r.paid }))
+      .catch(() => setPlaced({ ...base, paid: false }))
+      .finally(() => {
+        setCart([]);
+        setPage("confirm");
+        try { sessionStorage.removeItem("mr-pending-order"); } catch {}
+      });
   }, []);
 
   useEffect(() => {
@@ -189,21 +199,30 @@ export default function App() {
   const products = useMemo(() => (D ? D.products : EMPTY_ARR), [D]);
   const categories = useMemo(() => (D ? D.categories : EMPTY_ARR), [D]);
   const collections = useMemo(() => (D ? (D.collections || EMPTY_ARR) : EMPTY_ARR), [D]);
+  // Which payment methods the server will actually accept. Defaults to card
+  // being available so the option doesn't flicker away on a slow bootstrap.
+  const payMethods = useMemo(() => (D && D.pay ? D.pay : { paystack: true, transfer: true, whatsapp: true }), [D]);
   const L = useMemo(() => locations.find((l) => l.id === city) || null, [locations, city]);
   const cityName = cap(city);
 
   const fmt = useCallback((ngn) => fmtCurrency(ngn, currency, settings.ngnPerUsd || 1550), [currency, settings.ngnPerUsd]);
   const catLabel = useCallback((id) => (categories.find((c) => c.id === id) || {}).label || "", [categories]);
 
+  // Stock is read from the catalogue payload, which is written by whichever
+  // Worker version answered the request. Every read of it is defaulted so a
+  // shape the client didn't expect degrades to "unavailable" rather than
+  // throwing inside a render and blanking the storefront.
+  const stockAt = (v, id) => (v && v.stock ? v.stock[id] : 0) || 0;
+
   const bestAlt = useCallback((v) => {
-    const alt = locations.filter((l) => l.id !== city && (v.stock[l.id] || 0) > 0);
+    const alt = locations.filter((l) => l.id !== city && stockAt(v, l.id) > 0);
     return alt.length ? alt[0] : null;
   }, [locations, city]);
 
   // Availability is a property of the variation, not the product — the 30ml can
   // be on the shelf in Abuja while the 50ml is only in Lagos.
   const variantAvail = useCallback((v) => {
-    const inCity = (v.stock[city] || 0) > 0;
+    const inCity = stockAt(v, city) > 0;
     const alt = inCity ? null : bestAlt(v);
     if (inCity) return { inCity, avail: "In " + cityName, badgeBg: "#e4efe4", badgeFg: "#3f6b45", soldOut: false, note: "At your store" };
     if (alt) return { inCity, avail: "Ships from " + alt.city, badgeBg: "transparent", badgeFg: "var(--mr-lavender-600)", soldOut: false, note: "3–5 days from " + alt.city, outline: true };
@@ -213,7 +232,7 @@ export default function App() {
   // The variation a shopper should land on: the first one actually on the shelf
   // in their city, rather than whichever happens to be first in the list.
   const defaultVariant = useCallback(
-    (variants) => variants.find((v) => (v.stock[city] || 0) > 0) || variants[0],
+    (variants) => (variants || []).find((v) => stockAt(v, city) > 0) || (variants || [])[0],
     [city]
   );
 
@@ -250,9 +269,10 @@ export default function App() {
 
   const card = useCallback((entry) => {
     // Tolerate being handed a bare product (home page, related products).
-    const e = entry.product ? entry : { key: entry.id, product: entry, variants: entry.variants, split: false };
+    const e = entry.product ? entry : { key: entry.id, product: entry, variants: entry.variants || [], split: false };
     const { product: p, variants } = e;
     const def = defaultVariant(variants);
+    if (!def) return null;
     const prices = variants.map((v) => v.ngn);
     const cheapest = Math.min(...prices);
     const rangeLabel = !e.split && variants.length > 1 && cheapest !== Math.max(...prices) ? "From " + fmt(cheapest) : "";
@@ -305,11 +325,15 @@ export default function App() {
       if (!p) return null;
       // Lines saved by an older build carry only a size — fall back to it so a
       // cart in someone's browser survives the upgrade.
-      const v = (c.variantId && p.variants.find((x) => x.id === c.variantId))
-        || (c.sku && p.variants.find((x) => x.sku === c.sku))
-        || p.variants.find((x) => x.size === c.size)
-        || p.variants[0];
-      const inCity = (v.stock[city] || 0) >= c.qty;
+      const pv = p.variants || [];
+      const v = (c.variantId && pv.find((x) => x.id === c.variantId))
+        || (c.sku && pv.find((x) => x.sku === c.sku))
+        || pv.find((x) => x.size === c.size)
+        || pv[0];
+      // The variation was withdrawn while it sat in someone's cart — drop the
+      // line rather than pricing something that no longer exists.
+      if (!v) return null;
+      const inCity = stockAt(v, city) >= c.qty;
       if (!inCity) allInCity = false;
       sub += v.ngn * c.qty;
       lines.push({ cat: p.cat, lineTotal: v.ngn * c.qty });
@@ -317,7 +341,6 @@ export default function App() {
       return {
         key: "v" + v.id, id: c.id, variantId: v.id, name: p.name, size: v.size, qty: c.qty,
         imageUrl: v.imageUrl || p.imageUrl,
-        initials: initialsOf(p.name),
         lineLabel: fmt(v.ngn * c.qty),
         availNote: inCity ? "In " + cityName : alt ? "Ships from " + alt.city : "Backorder",
         inc: () => setCart((s) => s.map((x, i) => (i === idx ? { ...x, qty: x.qty + 1 } : x))),
@@ -365,8 +388,17 @@ export default function App() {
     return () => { live = false; clearTimeout(t); };
   }, [page, cart, city, co.fulfill]);
 
-  // Any change to what is being shipped withdraws a previous "yes, split it".
-  useEffect(() => { setAcceptSplit(false); }, [cart, city, co.fulfill]);
+  // Any change to what is being shipped withdraws a previous agreement.
+  useEffect(() => { setReconfirm(false); }, [cart, city, co.fulfill]);
+
+  // Card is the default, but it is only real when a gateway key is configured.
+  // If it isn't, move the selection to something the server will accept rather
+  // than letting the shopper reach the last step and be refused.
+  useEffect(() => {
+    if (payMethods[co.pay]) return;
+    const fallback = ["paystack", "transfer", "whatsapp"].find((m) => payMethods[m]);
+    if (fallback) setCo((s) => ({ ...s, pay: fallback }));
+  }, [payMethods, co.pay]);
 
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
@@ -449,8 +481,11 @@ export default function App() {
   }, [page, co, cc.total, cc.items.length, cityName]);
 
   const placeOrder = useCallback(async () => {
-    if (!co.name.trim() || !co.phone.trim()) return setCoErr("Your name and phone help us find you — both are required.");
-    if (co.fulfill === "delivery" && !co.address.trim()) return setCoErr("Add a delivery address, or switch to click & collect.");
+    if (!co.name.trim()) return setCoErr("Enter your name.");
+    if (!co.phone.trim()) return setCoErr("Enter your phone number.");
+    if (co.fulfill === "delivery" && !co.address.trim()) return setCoErr("Enter a delivery address.");
+    if (co.pay === "paystack" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(co.email.trim()))
+      return setCoErr("Enter a valid email address for your receipt.");
     setCoErr("");
     setPlacing(true);
     try {
@@ -459,7 +494,10 @@ export default function App() {
         city, fulfill: co.fulfill, pay: co.pay,
         promo: promoInfo ? promoInfo.code : "",
         items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })),
-        acceptSplit,
+        // The delivery breakdown is shown directly above the button, so pressing
+        // it agrees to the arrangement on screen. If the server has planned a
+        // different one it says so, and `reconfirm` makes the next press explicit.
+        acceptSplit: reconfirm || !!(plan && plan.mode === "split"),
       });
       if (r.paystackUrl) {
         try { sessionStorage.setItem("mr-pending-order", JSON.stringify(r.order)); } catch {}
@@ -476,19 +514,32 @@ export default function App() {
       setPromoInfo(null);
       setCo((s) => ({ ...s, promo: "" }));
       setPromoMsg("");
-      setAcceptSplit(false);
+      setReconfirm(false);
       setPlan(null);
       nav("confirm");
       api.get("/api/store").then(setD).catch(() => {}); // refresh stock
     } catch (e) {
-      // The server refuses a split it hasn't been shown agreeing to, and hands
-      // the plan back so the shopper can look at it and say yes.
+      // The server plans the delivery itself and refuses one the shopper hasn't
+      // been shown, handing back its own breakdown to display.
       if (e.data && e.data.plan) setPlan(e.data.plan);
+      if (e.data && e.data.needsConfirmation) setReconfirm(true);
       setCoErr(e.message);
     } finally {
       setPlacing(false);
     }
-  }, [co, city, cart, promoInfo, acceptSplit, settings.contactPhone, nav]);
+  }, [co, city, cart, promoInfo, plan, reconfirm, settings.contactPhone, nav]);
+
+  // Finish paying for an order that was placed but never settled — from the
+  // confirmation screen or from order tracking.
+  const payNow = useCallback(async (no, contact) => {
+    try {
+      const r = await api.post(`/api/orders/${encodeURIComponent(no)}/pay`, { contact });
+      if (r.paystackUrl) window.location.href = r.paystackUrl;
+    } catch (e) {
+      setTrack((t) => ({ ...t, err: e.message }));
+      setCoErr(e.message);
+    }
+  }, []);
 
   const doTrack = useCallback(async () => {
     const no = track.no.trim().toUpperCase();
@@ -546,11 +597,11 @@ export default function App() {
     },
     gateOpen,
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
-    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings,
+    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
     collections,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
-    plan, planning, acceptSplit, setAcceptSplit, clearPromo,
+    plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
     track, setTrack, doTrack,

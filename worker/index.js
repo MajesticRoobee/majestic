@@ -4,6 +4,7 @@ import { admin } from "./admin.js";
 import { account } from "./customers.js";
 import { v1, handleMcp } from "./integrations.js";
 import { runScheduled } from "./events.js";
+import { releaseExpiredOrders } from "./payments.js";
 
 const app = new Hono();
 
@@ -12,6 +13,19 @@ app.route("/api/admin", admin);
 app.route("/api/account", account);
 app.route("/api/v1", v1);
 app.post("/api/mcp", (c) => handleMcp(c));
+
+// Which build is answering.
+//
+// A deploy uploads the assets and the Worker script separately, and a new
+// version does not reach every edge the instant `wrangler deploy` returns. That
+// window is real — it is how a new storefront bundle came to be served against
+// an older API payload, and how a post-deploy smoke test came to assert against
+// the *previous* build and pass. CI now polls this until it sees the commit it
+// just pushed, so "deployed" means "actually serving".
+//
+// BUILD_SHA is injected at deploy time (`wrangler deploy --var BUILD_SHA:…`);
+// locally it is simply absent.
+app.get("/api/health", (c) => c.json({ ok: true, version: c.env.BUILD_SHA || "dev" }));
 
 // Product imagery. Content-addressed by id, so it can cache forever at the edge.
 app.get("/images/:id", async (c) => {
@@ -78,8 +92,15 @@ app.onError((err, c) => {
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
+// Cron. Lapsed card payments are released first — every minute an unpaid order
+// sits there is a minute its stock can't be sold, and an order that has just
+// been released should not then be chased as an abandoned cart.
+async function cron(env) {
+  try { await releaseExpiredOrders(env); } catch (e) { console.error("payment sweep failed", e); }
+  try { await runScheduled(env); } catch (e) { console.error("automation run failed", e); }
+}
+
 export default {
   fetch: (req, env, ctx) => app.fetch(req, env, ctx),
-  // Cron: drain the automation outbox and enqueue time-based automations.
-  scheduled: (event, env, ctx) => ctx.waitUntil(runScheduled(env)),
+  scheduled: (event, env, ctx) => ctx.waitUntil(cron(env)),
 };

@@ -38,11 +38,67 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `ADMIN_PASSWORD` | Admin portal login passphrase |
 | `ADMIN_TOKEN_SECRET` | Random string that signs admin session tokens |
 | `CLOUDFLARE_ACCOUNT_ID` | Only needed if the token can see multiple accounts |
-| `PAYSTACK_SECRET_KEY` | Optional — enables live Paystack checkout |
+| `PAYSTACK_SECRET_KEY` | Enables card payment — see below |
 
-To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above. After enabling Paystack, point its webhook to `https://<your-domain>/api/paystack/webhook`.
+To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above.
 
-Without `PAYSTACK_SECRET_KEY`, card orders are still recorded (as awaiting payment) so nothing breaks in development.
+## Paystack
+
+The integration uses Paystack's **redirect** flow, so there is only ever one
+credential to hold: the **secret key**. No public key is needed, and none is
+shipped to the browser.
+
+### Where the key goes
+
+| Environment | Where | How |
+| --- | --- | --- |
+| **Production** | GitHub → *Settings → Secrets and variables → Actions* | Add `PAYSTACK_SECRET_KEY`. The deploy workflow pushes it to the Worker on the next run. |
+| **Production, without a deploy** | Cloudflare | `npx wrangler secret put PAYSTACK_SECRET_KEY` |
+| **Local** | `.dev.vars` (gitignored) | `PAYSTACK_SECRET_KEY=sk_test_…` |
+
+Use the **test** key (`sk_test_…`) from *Paystack Dashboard → Settings → API Keys
+& Webhooks* until you have made a full test purchase. Swap in the live key
+(`sk_live_…`) only when you want real cards charged.
+
+### The webhook
+
+Point Paystack at:
+
+```
+https://<your-domain>/api/paystack/webhook
+```
+
+Set it in the same dashboard panel as the keys. This is the leg that arrives
+even when the shopper closes the tab on their bank's 3-D Secure page, so
+payment still settles. It is signature-verified; unsigned requests are refused.
+
+### Checking it worked
+
+*Admin → Integrations* shows a **Payments** panel: whether a key is present,
+whether it is a test or live key, the webhook URL to copy, and a log of every
+exchange with Paystack — including charges that were **refused** for the wrong
+amount. If the panel says "Not connected", the card option is hidden at
+checkout entirely rather than failing at the last step.
+
+### What the server guarantees
+
+- An order is marked paid only when Paystack confirms a successful charge for
+  the **exact amount and currency** this server initialized. A charge for a
+  different amount is logged as a mismatch and settles nothing.
+- The redirect leg and the webhook race by design; settlement is idempotent, so
+  whichever arrives second changes nothing and does not re-send the
+  post-purchase email.
+- An unpaid card order holds its stock for 45 minutes, then the cron releases it
+  — after re-checking with Paystack, so an order paid at the last second is
+  rescued rather than cancelled.
+- Card orders require a valid email address, because that is what a Paystack
+  transaction is keyed to.
+
+### Test cards
+
+Paystack's test cards work with a `sk_test_` key — see
+<https://paystack.com/docs/payments/test-payments/>. The standard success card
+is `4084 0840 8408 4081`, any future expiry, any CVV, OTP `123456`.
 
 ## How the ecommerce logic works
 

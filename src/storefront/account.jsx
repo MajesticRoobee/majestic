@@ -72,7 +72,9 @@ function Dashboard({ ctx }) {
   const [profile, setProfile] = useState({ name: cust.name || "", phone: cust.phone || "", marketingOptIn: !!cust.marketingOptIn });
   const [savedMsg, setSavedMsg] = useState("");
   const [addr, setAddr] = useState({ label: "Home", address: "", city: ctx.city });
-  const wishlistCards = custData.wishlist.map((id) => ctx.products.find((p) => p.id === id)).filter(Boolean).map(ctx.card);
+  // Filtered after `card`, not before: a saved product whose last variation was
+  // withdrawn yields no card, and must drop out rather than render an empty one.
+  const wishlistCards = custData.wishlist.map((id) => ctx.products.find((p) => p.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
   const saveProfile = async () => { await ctx.updateProfile(profile); setSavedMsg("Saved."); setTimeout(() => setSavedMsg(""), 2000); };
   const statusTone = (s) => ({ "In transit": "neutral", "Ready for pickup": "gold", Delivered: "success", Collected: "success" }[s] || "neutral");
   return (

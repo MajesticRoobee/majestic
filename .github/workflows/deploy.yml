@@ -2,7 +2,7 @@ name: Deploy to Cloudflare
 
 on:
   push:
-    branches: [main, claude/majestic-roobee-ecommerce-aagopj]
+    branches: [main, claude/cloudflare-deploy-checkout-paystack-8dwtr3]
   workflow_dispatch:
 
 concurrency:
@@ -28,22 +28,57 @@ jobs:
       - run: npm run lint
 
       # Routing decides what a shopper is charged for delivery and which store
-      # packs the order, so its rules are asserted before anything ships.
+      # packs the order; settlement decides whether a charge is allowed to mark
+      # an order paid. Both are asserted before anything ships.
       - run: npm run test
 
       - run: npm run build
 
-      # Apply any pending D1 migrations to production before the new Worker
-      # goes live, so schema and code stay in lock-step. Version-controlled —
-      # no hand-written SQL against the live database.
+      # ---- The gate -------------------------------------------------------
+      #
+      # This runs BEFORE the deploy, on purpose.
+      #
+      # It used to run last, against production — which meant a build that
+      # white-screened the storefront was already serving customers by the time
+      # the check went red. That is exactly how the product page shipped broken:
+      # the job failed, but the failure was a report, not a gate.
+      #
+      # Booting the Worker locally against a freshly migrated database also
+      # proves the new code and the new schema agree, which is the other half of
+      # what went wrong.
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Render check (before deploying)
+        run: |
+          npx wrangler d1 migrations apply majestic-roobee --local
+          npx wrangler dev --local --port 8787 --ip 127.0.0.1 &
+          echo $! > "${RUNNER_TEMP}/wrangler.pid"
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:8787/api/store; then break; fi
+            if [ "$i" = "60" ]; then echo "local Worker never came up"; exit 1; fi
+            sleep 2
+          done
+          SITE_URL=http://127.0.0.1:8787 node scripts/render-check.mjs
+          # `npx` spawns workerd underneath it, so killing the pid alone leaves
+          # the Worker holding the port.
+          pkill -f "wrangler dev" || true
+          pkill -f workerd || true
+
+      # ---- Ship -----------------------------------------------------------
+
+      # Migrations go first so the schema is never behind the code that reads
+      # it. Version-controlled — no hand-written SQL against the live database.
       - name: Apply database migrations
         run: npx wrangler d1 migrations apply majestic-roobee --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # BUILD_SHA rides along so /api/health can name the build that is
+      # answering, and the smoke test below can wait for *this* commit.
       - name: Deploy Worker
-        run: npx wrangler deploy
+        run: npx wrangler deploy --var BUILD_SHA:${{ github.sha }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -62,11 +97,26 @@ jobs:
           if [ -n "$ADMIN_TOKEN_SECRET" ]; then printf '%s' "$ADMIN_TOKEN_SECRET" | npx wrangler secret put ADMIN_TOKEN_SECRET; fi
           if [ -n "$PAYSTACK_SECRET_KEY" ]; then printf '%s' "$PAYSTACK_SECRET_KEY" | npx wrangler secret put PAYSTACK_SECRET_KEY; fi
 
+      # ---- Confirm what actually went live --------------------------------
+      #
+      # A new Worker version does not reach every edge the instant `deploy`
+      # returns, and the assets and the script are two uploads. So this waits
+      # until /api/health reports the commit that was just pushed. Anything
+      # weaker is not a gate: a check for a field the *previous* build already
+      # served passes immediately and proves nothing, which is exactly how a
+      # smoke test came to assert against the old Worker and pass.
       - name: Smoke test live site
         env:
           SITE_URL: https://majestic-roobee.victorugwu4real.workers.dev
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
-          sleep 5
+          echo "— waiting for $EXPECTED_SHA to serve —"
+          for i in $(seq 1 45); do
+            live=$(curl -sfS "$SITE_URL/api/health" | python3 -c "import json,sys; print(json.load(sys.stdin).get('version',''))" 2>/dev/null || true)
+            if [ "$live" = "$EXPECTED_SHA" ]; then echo "live build is $live"; break; fi
+            if [ "$i" = "45" ]; then echo "live build is '$live', expected '$EXPECTED_SHA' — deploy never propagated"; exit 1; fi
+            sleep 4
+          done
           echo "— storefront shell —"
           curl -sfS "$SITE_URL/" | grep -o '<title>[^<]*</title>'
           echo "— admin shell —"
@@ -85,12 +135,14 @@ jobs:
           echo "— admin auth rejects bad passphrase —"
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/admin/login" -H 'content-type: application/json' -d '{"password":"definitely-wrong"}')
           echo "bad login -> HTTP $code"; test "$code" = "401"
+          # A forged webhook must never settle an order. Cheap to assert, and
+          # the one failure here that would cost real money.
+          echo "— unsigned Paystack webhook is refused —"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/paystack/webhook" -H 'content-type: application/json' -d '{"event":"charge.success","data":{"reference":"forged"}}')
+          echo "forged webhook -> HTTP $code"; test "$code" = "401" -o "$code" = "400"
           echo "All smoke tests passed."
 
-      - name: Render check (headless browser)
+      - name: Render check (live)
         env:
           SITE_URL: https://majestic-roobee.victorugwu4real.workers.dev
-        run: |
-          npm i -D playwright@1.48.0 >/dev/null 2>&1
-          npx playwright install --with-deps chromium
-          node scripts/render-check.mjs
+        run: node scripts/render-check.mjs
