@@ -45,7 +45,7 @@ _foundations → features that ride them → polish._
 | International gateway | 🔑⬜ | — | Stripe/PayPal for true USD settlement (decision) |
 | Multi-currency | 🟡 | NGN/USD **display** toggle, static rate 1550 | Live FX source; optional multi-currency settlement |
 | Click & collect | ✅ | Per-store pickup at checkout | — |
-| Discount codes | ✅ | Scoped %/₦/free-ship, redemptions | Usage limits, per-customer caps, auto-apply |
+| Discount codes | 🟡 | Scoped %/₦/free-ship, redemptions, removable at checkout | **`starts`/`ends` are not enforced** — `promoIsActive()` checks `status` only, so an expired code keeps working until a human ends it. Also: usage limits, per-customer caps, minimum spend, auto-apply |
 | Gift cards | ⬜ | — | Issue, redeem, balance ledger |
 | Order tracking | ✅ | Guest by order# + contact, timeline | Account order history (rides F1) |
 | Shipping rates | 🟡 | Flat per-store + cross-city fee, **charged per parcel on a split order** | Carrier-calculated rates → **GIG** (F3) |
@@ -53,7 +53,7 @@ _foundations → features that ride them → polish._
 ### B. Customer Identity — **Foundation F1**
 | Capability | Status | Notes |
 |---|---|---|
-| Customer accounts | ✅ | **Live** — password register/login (guest-first & optional), a guest record is *claimed* into an account, profile edit, marketing opt-in. Profile menu in the header doubles as sign-in and the staff-portal gateway. Email verification deferred to Resend (Phase 2). |
+| Customer accounts | 🟡 | **Live** — password register/login (guest-first & optional), a guest record is *claimed* into an account, profile edit, marketing opt-in. Profile menu in the header doubles as sign-in and the staff-portal gateway. **No password reset exists**, so a customer who forgets theirs is locked out permanently; email verification also deferred to Resend. |
 | Saved addresses & order history | ✅ | Orders auto-linked by email; addresses CRUD; checkout prefills for signed-in shoppers |
 | Wishlists | ✅ | Heart on cards + product page; synced to the account; shown on the dashboard |
 | Progressive prompts | ✅ | Confirmation page offers one-tap account creation from the just-placed order |
@@ -90,7 +90,7 @@ _foundations → features that ride them → polish._
 | Gift finder | ⬜ | Filter by recipient/occasion/budget |
 | Discovery / sample sets | 🟡 | **Collections/sets are live** — curated groupings built in the admin, shown above the catalogue. Sample-size products still to come |
 | Consultation booking | ⬜ | Slot booking → calendar; ties to CRM |
-| Back-in-stock notifications | ⬜ | We already flag low/out stock; needs identity + email + stock event (F1/F2) |
+| Back-in-stock notifications | ✅ | **Live** — per-variation waitlist, "Notify me" on every sold-out variation, `product_restocked` enqueues one message per waiting shopper. Sends activate with Resend |
 
 ### F. Integration Platform — **Foundation F3 (incl. MCP)**
 | Capability | Status | Notes |
@@ -109,6 +109,7 @@ _foundations → features that ride them → polish._
 | SSL / TLS | ✅ | Automatic via Cloudflare | — |
 | DDoS protection | ✅ | Cloudflare default | — |
 | WAF / firewall | 🟡 | Cloudflare WAF available; needs dashboard enablement (see §6) | Turn on managed ruleset + admin/API rate-limit rule |
+| Rate limiting | ⬜ | **None at any layer** — no throttle or attempt counter anywhere in `worker/`, so `/api/admin/login` accepts unlimited guesses | Cloudflare rate-limit rule **and** an application-level attempt counter |
 | Backups | ✅ | D1 Time Travel (30-day PITR) **plus** a daily GitHub Action `wrangler d1 export` artifact | — |
 | Security headers | ✅ | `_headers`: nosniff, HSTS, frame-options, referrer-policy, permissions-policy; `/admin` noindex | Tuned CSP (later, once pixel domains settle) |
 | Malware scanning | 🟡 | No server surface; matters for **uploads** (review/product images) | Scan-on-upload once media uploads exist |
@@ -240,6 +241,7 @@ affect Workers Builds.
 ---
 
 ## 5. Change log
+- _v14_ — **Audited the whole platform against the client's requirements list**; see [`REQUIREMENTS-AUDIT.md`](./REQUIREMENTS-AUDIT.md) for the full findings, the recommended third-party stack with licence costs, and the prioritised remainder. Every row was re-checked against the code rather than against this document, which had drifted in four places, now corrected here: **back-in-stock is live** (was recorded as not started — the waitlist, the per-variation "Notify me" and the restock fan-out all exist and only the email dispatcher is pending), **discount codes are partial** (`starts`/`ends` are display text and are never enforced, so an expired code keeps discounting until a human ends it), **customer accounts are partial** (there is no password-reset route at all, so a forgotten password is a permanent lockout), and **rate limiting** gained a row of its own because the WAF row implied protection the application layer does not have — there is no throttle anywhere in `worker/`, and `/api/admin/login` will accept unlimited passphrase guesses. Two further findings worth carrying forward: product images live in D1 as BLOBs, which inflates the database, the nightly export and any restore, and wants moving to R2 or Cloudflare Images before the photo library lands; and the storefront renders client-side only, which Google tolerates but Bing and every social/WhatsApp link preview do not, making SSR or pre-rendering the largest remaining SEO item. The audit's headline: the Nigerian business is well served today, the international half of the brief is not (no second gateway, display-only currency, no gift cards), the integration plane is finished but nothing is plugged into it, and all six marketing tags are coded and inert until their IDs are pasted into Admin → Settings.
 - _v1_ — Initial systems map and phase plan.
 - _v2_ — Locked decisions D1 (Resend), D2 (click-to-chat now), D3 (Paystack + Stripe), D7 (progressive/optional accounts). Started **Phase 0**.
 - _v3_ — Shipped **Phase 0a (instrument)** + **0b (discover)**: consent-gated analytics/pixels with admin-managed IDs, ecommerce event tracking, path-based routing, per-page SEO + JSON-LD, sitemap & robots. Remaining: **0c (harden)**.
