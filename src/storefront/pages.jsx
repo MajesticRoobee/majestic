@@ -79,7 +79,7 @@ export function ProductCard({ p, height = 230 }) {
     <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
       <div style={{ position: "relative" }}>
         <div onClick={v.open} style={{ cursor: "pointer" }}>
-          <ImageSlot src={v.imageUrl} name={p.name} style={{ width: "100%", height }} />
+          <ImageSlot src={v.imageUrl} name={p.name} sizes="(max-width: 640px) 92vw, (max-width: 1100px) 45vw, 300px" style={{ width: "100%", height }} />
         </div>
         {p.toggleWish && <WishHeart wished={p.wished} onClick={p.toggleWish} />}
       </div>
@@ -172,7 +172,7 @@ export function HomePage({ ctx }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(250px, 100%), 1fr))", gap: 20 }}>
             {heroPicks.map((hp) => (
               <div key={hp.key} onClick={hp.open} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
-                <ImageSlot src={hp.imageUrl} name={hp.name} style={{ width: "100%", height: 240 }} />
+                <ImageSlot src={hp.imageUrl} name={hp.name} eager sizes="(max-width: 640px) 92vw, 300px" style={{ width: "100%", height: 240 }} />
                 <div style={{ padding: "16px 18px 20px" }}>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--text-strong)" }}>{hp.name}</div>
                   <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 3 }}>{hp.priceLabel}</div>
@@ -435,14 +435,15 @@ export function ProductPage({ ctx }) {
       <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to the collection</button>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(400px, 100%), 1fr))", gap: "clamp(28px, 5vw, 56px)", alignItems: "start" }}>
         <div style={{ position: "relative" }}>
-          <ImageSlot src={hero && hero.url} shape="rounded" radius={16} name={pr.name}
+          <ImageSlot src={hero && hero.url} shape="rounded" radius={16} name={pr.name} eager
+            sizes="(max-width: 820px) 96vw, 560px"
             label={`${pr.name} ${prV.size} — product photo`} style={{ width: "100%", height: 520 }} />
           {gallery.length > 1 && (
             <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
               {gallery.map((im, i) => (
                 <button key={im.url + i} onClick={() => setShot(i)} aria-label={`View photo ${i + 1}`}
                   style={{ padding: 0, width: 64, height: 64, borderRadius: "var(--radius-md)", overflow: "hidden", cursor: "pointer", background: "none", border: `1px solid ${i === shot ? "var(--mr-purple-900)" : "var(--border-hairline)"}` }}>
-                  <img src={im.url} alt={im.alt || ""} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <ImageSlot src={im.url} name={im.alt || ""} sizes="64px" style={{ width: "100%", height: "100%" }} />
                 </button>
               ))}
             </div>
@@ -518,7 +519,7 @@ export function ProductPage({ ctx }) {
           {related.map((p) => (
             <div key={p.key} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
               <div onClick={p.open} style={{ cursor: "pointer" }}>
-                <ImageSlot src={p.imageUrl} name={p.name} style={{ width: "100%", height: 200 }} />
+                <ImageSlot src={p.imageUrl} name={p.name} sizes="(max-width: 640px) 92vw, 260px" style={{ width: "100%", height: 200 }} />
               </div>
               <div style={{ padding: "14px 16px 16px" }}>
                 <a href={p.href} onClick={(e) => { e.preventDefault(); p.open(); }} style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)" }}>{p.name}</a>
@@ -637,7 +638,7 @@ function OrderSummary({ ctx, showPay }) {
         {cc.items.map((it) => (
           <div key={it.key} style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <span style={{ position: "relative", flexShrink: 0 }}>
-              <ImageSlot src={it.imageUrl} name={it.name} shape="rounded" radius={8} style={{ width: 46, height: 46 }} />
+              <ImageSlot src={it.imageUrl} name={it.name} sizes="46px" shape="rounded" radius={8} style={{ width: 46, height: 46 }} />
               <span style={{ position: "absolute", top: -6, right: -6, minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: "var(--mr-purple-900)", color: "var(--mr-cream)", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center" }}>{it.qty}</span>
             </span>
             <span style={{ flex: 1, fontSize: 13, color: "var(--text-strong)", lineHeight: 1.4 }}>

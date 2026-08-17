@@ -184,7 +184,7 @@ function CartDrawer({ ctx }) {
           )}
           {cc.items.map((it) => (
             <div key={it.key} style={{ display: "flex", gap: 14 }}>
-              <ImageSlot src={it.imageUrl} name={it.name} shape="rounded" radius={10} style={{ width: 58, height: 58, flexShrink: 0 }} />
+              <ImageSlot src={it.imageUrl} name={it.name} sizes="58px" shape="rounded" radius={10} style={{ width: 58, height: 58, flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{it.name}</div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 8px" }}>{it.size}</div>
@@ -320,14 +320,38 @@ function ConsentBanner({ ctx }) {
   );
 }
 
+// The announcement bar carries whatever promotion is running. A shopper who
+// doesn't want it can close it, and it stays closed — keyed on the message
+// itself, so the next promotion is still shown rather than being suppressed by
+// a dismissal of the one before it.
+function AnnouncementBar({ ctx }) {
+  const message = (ctx.settings.announcement || "").trim();
+  const key = "mr-announce-dismissed";
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem(key) === message; } catch { return false; }
+  });
+  if (!message || dismissed) return null;
+  const close = () => {
+    try { localStorage.setItem(key, message); } catch {}
+    setDismissed(true);
+  };
+  return (
+    <div style={{ position: "relative", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", fontSize: 12, letterSpacing: "0.06em", textAlign: "center", padding: "9px 44px" }}>
+      {message}
+      <button onClick={close} aria-label="Dismiss this announcement" title="Dismiss"
+        style={{ position: "absolute", top: "50%", right: 10, transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "inherit", opacity: 0.7, fontSize: 14, lineHeight: 1, padding: 6 }}>
+        ✕
+      </button>
+    </div>
+  );
+}
+
 export function Chrome({ ctx, children }) {
   return (
     <div style={{ fontFamily: "var(--font-sans)", color: "var(--text-body)", background: "var(--mr-cream)", minHeight: "100vh" }}>
       <PromoPopup ctx={ctx} />
       <ConsentBanner ctx={ctx} />
-      <div style={{ background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", fontSize: 12, letterSpacing: "0.06em", textAlign: "center", padding: "9px 16px" }}>
-        {ctx.settings.announcement || " "}
-      </div>
+      <AnnouncementBar ctx={ctx} />
       <CityGate ctx={ctx} />
       <Header ctx={ctx} />
       {children}

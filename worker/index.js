@@ -5,6 +5,7 @@ import { account } from "./customers.js";
 import { v1, handleMcp } from "./integrations.js";
 import { runScheduled } from "./events.js";
 import { releaseExpiredOrders } from "./payments.js";
+import { resolveMedia, readMedia } from "./media.js";
 
 const app = new Hono();
 
@@ -27,17 +28,21 @@ app.post("/api/mcp", (c) => handleMcp(c));
 // locally it is simply absent.
 app.get("/api/health", (c) => c.json({ ok: true, version: c.env.BUILD_SHA || "dev" }));
 
-// Product imagery. Content-addressed by id, so it can cache forever at the edge.
+// Product imagery. Content-addressed by id, so it can cache forever at the
+// edge. `?w=` selects a narrower derivative for phones; each width caches
+// separately because it is a distinct URL. See worker/media.js.
 app.get("/images/:id", async (c) => {
-  const row = await c.env.DB.prepare("SELECT mime, bytes FROM media WHERE id=?").bind(c.req.param("id")).first();
+  const row = await resolveMedia(c.env, c.req.param("id"), c.req.query("w"));
   if (!row) return c.text("Not found", 404);
-  // D1 returns a BLOB as a plain number array — Response() would stringify that,
-  // so it has to be wrapped back into bytes before it goes out.
-  const bytes = row.bytes instanceof ArrayBuffer ? row.bytes : new Uint8Array(row.bytes);
+  const bytes = await readMedia(c.env, row);
+  if (!bytes) return c.text("Not found", 404);
   return new Response(bytes, {
     headers: {
       "content-type": row.mime,
       "cache-control": "public, max-age=31536000, immutable",
+      // Same id, different bytes per width — say so, or a shared cache can
+      // hand a phone's copy to a desktop.
+      "vary": "Accept",
     },
   });
 });

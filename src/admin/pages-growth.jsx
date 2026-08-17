@@ -56,8 +56,11 @@ export function Sales({ ctx }) {
             <option value="Feminine care">Feminine care</option>
           </Select>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Input label="Starts" value={pr.start} onChange={(e) => setPr({ ...pr, start: e.target.value })} placeholder="Aug 1" />
-            <Input label="Ends" value={pr.end} onChange={(e) => setPr({ ...pr, end: e.target.value })} placeholder="Aug 9" />
+            <Input label="Starts" type="date" value={pr.start} onChange={(e) => setPr({ ...pr, start: e.target.value })} hint="Leave empty to start now" />
+            <Input label="Ends" type="date" value={pr.end} onChange={(e) => setPr({ ...pr, end: e.target.value })} hint="Last day it works" />
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -4 }}>
+            The end date is enforced at checkout — the code stops working the day after it, without anyone having to remember.
           </div>
           <Button variant="gold" block onClick={createPromo}>Launch sale</Button>
           {prErr && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{prErr}</div>}
@@ -75,15 +78,27 @@ export function Sales({ ctx }) {
             <div style={{ ...th, paddingRight: 22 }}></div>
             {!ctx.promos.length && <EmptyRow span={6}>No promo codes yet — create one with the form above and it works at checkout straight away.</EmptyRow>}
             {ctx.promos.map((p) => {
+              // What the server will actually do, not just the manual switch:
+              // a code inside its window but past its end date is not "Active".
               const ended = p.status === "Ended";
+              const state = ended ? "Ended" : p.expired ? "Expired" : p.scheduled ? "Scheduled" : "Active";
+              const tone = state === "Active" ? "good" : state === "Scheduled" ? "warn" : "mute";
               const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)" };
               return (
                 <React.Fragment key={p.code}>
                   <div style={{ ...cell, paddingLeft: 22, fontWeight: 600, color: "var(--mr-purple-800)", letterSpacing: "0.04em" }}>{p.code}</div>
                   <div style={{ ...cell, color: "var(--text-strong)" }}>{p.desc}<span style={{ color: "var(--text-muted)" }}> · {p.scope}</span></div>
-                  <div style={{ ...cell, color: "var(--text-muted)" }}>{p.starts} — {p.ends}</div>
+                  <div style={{ ...cell, color: "var(--text-muted)" }}>
+                    {p.startsAt || p.starts} — {p.endsAt || p.ends}
+                    {p.unenforceable && (
+                      <span title="This date is free text from before dates were enforced, so nothing stops this code. Re-enter it to set a real end date."
+                        style={{ display: "block", fontSize: 11, color: "var(--mr-gold-600)", marginTop: 3 }}>
+                        Not enforced — re-enter to set a real date
+                      </span>
+                    )}
+                  </div>
                   <div style={{ ...cell, color: "var(--text-body)" }}>{p.redemptions}</div>
-                  <div style={{ ...cell, padding: "11px 14px" }}><StBadge tone={ended ? "mute" : "good"}>{p.status}</StBadge></div>
+                  <div style={{ ...cell, padding: "11px 14px" }}><StBadge tone={tone}>{state}</StBadge></div>
                   <div style={{ ...cell, padding: "11px 22px 11px 14px" }}>
                     {!ended && (
                       <button onClick={() => endPromo(p.code)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0 }}>End now</button>

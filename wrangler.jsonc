@@ -29,6 +29,17 @@
       "database_id": "584c76c0-293e-4dff-ba57-3506629a9076",
       "migrations_dir": "migrations"
     }
+  ],
+  // Product imagery. Photos used to be BLOBs in D1, which inflated the
+  // database, the nightly export and every restore. With this bucket bound,
+  // new uploads go to R2 and images already in D1 keep serving from there —
+  // worker/media.js reads either, and the stored /images/<id> URLs never
+  // change. Unbind it and uploads simply fall back to D1 again.
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "majesticroobee"
+    }
   ]
   // Secrets (never committed): ADMIN_PASSWORD, ADMIN_TOKEN_SECRET, and
   // optionally PAYSTACK_SECRET_KEY. Local dev reads them from .dev.vars

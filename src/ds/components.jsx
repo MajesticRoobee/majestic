@@ -1,5 +1,6 @@
 // Majestic Roobee design system — ported from the handoff bundle.
 import React from "react";
+import { srcSetFor } from "../lib/images.js";
 
 export function Eyebrow({ children, tick = true, tone = "gold", style = {}, ...rest }) {
   const color = tone === "gold" ? "var(--accent-gold-ink)" : tone === "light" ? "var(--text-on-dark-muted)" : "var(--mr-purple-600)";
@@ -165,10 +166,26 @@ export function Switch({ label, checked, onChange, disabled = false, style = {},
 
 // Product imagery slot — shows the product photo when one exists, otherwise a
 // branded placeholder (heather wash + display-font monogram).
-export function ImageSlot({ src, name = "", label, shape = "rect", radius = 0, style = {} }) {
+export function ImageSlot({ src, name = "", label, shape = "rect", radius = 0, sizes, eager = false, style = {} }) {
   const r = shape === "rounded" ? radius || 14 : 0;
   if (src) {
-    return <img src={src} alt={name || label || ""} style={{ display: "block", objectFit: "cover", borderRadius: r, ...style }} />;
+    // Every product photo on the storefront comes through here, so this is the
+    // one place that has to know about responsive widths. `srcSetFor` returns
+    // "" for a pasted external URL, which leaves that image exactly as it was.
+    return (
+      <img
+        src={src}
+        srcSet={srcSetFor(src) || undefined}
+        // Without this the browser assumes the image fills the viewport and
+        // picks the largest copy, undoing the whole exercise. Callers laying
+        // out a grid pass their own; a full-width block is the safe default.
+        sizes={srcSetFor(src) ? sizes || "100vw" : undefined}
+        alt={name || label || ""}
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
+        style={{ display: "block", objectFit: "cover", borderRadius: r, ...style }}
+      />
+    );
   }
   const initials = (name || label || "MR").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
   return (

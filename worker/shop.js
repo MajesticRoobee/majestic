@@ -1,6 +1,6 @@
 // Public storefront API.
 import { Hono } from "hono";
-import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations } from "./util.js";
+import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal } from "./util.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -17,9 +17,10 @@ const SCOPE_CATS = {
   "Feminine care": ["care", "deo"],
 };
 
-function promoIsActive(promo) {
-  return promo && promo.status === "Active";
-}
+// A promo is live when the house hasn't ended it *and* today falls inside its
+// window. The window is the part that used to be decoration: the dates were
+// free display text nothing read, so an expired code kept discounting.
+const promoIsActive = (promo) => promoIsLive(promo);
 
 // Resolve a cart line to its variation.
 //
@@ -92,7 +93,9 @@ shop.post("/promos/validate", async (c) => {
   const { code, items } = await c.req.json();
   const db = c.env.DB;
   const promo = await db.prepare("SELECT * FROM promos WHERE code=?").bind(String(code || "").trim().toUpperCase()).first();
-  if (!promoIsActive(promo)) return c.json({ valid: false });
+  // Tell the shopper *why*: "that code has expired" sends them looking for a
+  // current one, where a bare "invalid" reads as the checkout being broken.
+  if (!promoIsActive(promo)) return c.json({ valid: false, reason: promoRefusal(promo) });
   const products = await loadProducts(db);
   const lines = (items || []).map((it) => {
     const hit = findVariant(products, it);
@@ -256,7 +259,7 @@ shop.post("/orders", async (c) => {
   let freeShipPromo = false;
   if (promoCode && String(promoCode).trim()) {
     promo = await db.prepare("SELECT * FROM promos WHERE code=?").bind(String(promoCode).trim().toUpperCase()).first();
-    if (!promoIsActive(promo)) return c.json({ error: "That promo code isn't active." }, 400);
+    if (!promoIsActive(promo)) return c.json({ error: promoRefusal(promo) }, 400);
     discount = computeDiscount(promo, lines);
     freeShipPromo = promo.kind === "ship";
   }

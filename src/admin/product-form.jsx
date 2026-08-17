@@ -5,6 +5,7 @@
 import React, { useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
+import { resizeToWidths } from "../lib/images.js";
 import { CAT_LABELS } from "./App.jsx";
 
 const GENDERS = ["Unisex", "Female", "Male"];
@@ -18,18 +19,35 @@ export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
   const [err, setErr] = useState("");
   const [urlMode, setUrlMode] = useState(false);
 
+  // Upload the original, then the narrower copies the storefront serves to
+  // phones. The original goes first because the derivatives are stored against
+  // its id — and it is the only one that has to succeed: if the browser can't
+  // re-encode (an exotic format, a very old browser), the photo is still
+  // uploaded and every width simply resolves back to it.
   const pick = async (file) => {
     if (!file) return;
     setBusy(true); setErr("");
     try {
-      const res = await fetch("/api/admin/media", {
+      const post = (body, headers) => fetch("/api/admin/media", {
         method: "POST",
-        headers: { "content-type": file.type, authorization: `Bearer ${ctx.token}` },
-        body: file,
+        headers: { authorization: `Bearer ${ctx.token}`, ...headers },
+        body,
       });
+
+      const res = await post(file, { "content-type": file.type });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || `Upload failed (${res.status})`);
       onChange(d.url);
+
+      try {
+        const sizes = await resizeToWidths(file);
+        await Promise.all(sizes.map((s) =>
+          post(s.blob, { "content-type": s.mime, "x-parent": d.id, "x-width": String(s.width) })
+        ));
+      } catch {
+        // Derivatives are an optimisation, not the upload.
+        setErr("Photo saved, but the phone-sized copies couldn't be made — it will still display.");
+      }
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 

@@ -75,6 +75,41 @@ export async function emitEvent(env, type, { entity = null, payload = {}, ctx } 
   return eventId;
 }
 
+/**
+ * Send one email right now, outside the automation outbox.
+ *
+ * Password reset is the first thing here that is *transactional in the strict
+ * sense*: it is worthless fifteen minutes later when the cron next drains the
+ * outbox, so it cannot ride the same queue as a birthday greeting.
+ *
+ * With no provider configured it still records the message — as a `queued` run
+ * carrying its own subject and body — so the reset link is recoverable from
+ * Admin → Integrations rather than silently lost. That is what makes this
+ * feature testable, and usable by the house, before Resend is connected.
+ *
+ * Returns { sent, detail }.
+ */
+export async function sendTransactional(env, { to, subject, body, kind = "transactional" }) {
+  const recipient = String(to || "").trim();
+  let outcome = { sent: false, detail: "no email provider configured" };
+  if (env.RESEND_API_KEY && recipient.includes("@")) {
+    try {
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+        body: JSON.stringify({ from: env.RESEND_FROM || "Majestic Roobee <hello@majesticroobee.com>", to: recipient, subject, text: body }),
+      });
+      outcome = res.ok ? { sent: true, detail: "via Resend" } : { sent: false, detail: `Resend ${res.status}` };
+    } catch (e) {
+      outcome = { sent: false, detail: String(e).slice(0, 60) };
+    }
+  }
+  await env.DB.prepare(
+    "INSERT INTO automation_runs (automation_id, recipient, subject, body, status, detail, processed_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))"
+  ).bind(kind, recipient, subject, body, outcome.sent ? "sent" : "queued", outcome.detail).run();
+  return outcome;
+}
+
 // Dispatch a single outbox run. Email/WhatsApp send once a provider is wired
 // (Phase 2/3); until then they're marked "queued" so nothing is lost.
 async function dispatchRun(env, run, automation) {
