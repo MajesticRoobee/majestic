@@ -1,8 +1,9 @@
 // Phase 1 (F1) — customer accounts. Guest-first and optional. Tokens are
 // namespaced with typ:"cust" so they can never authenticate against admin.
 import { Hono } from "hono";
-import { issueToken, verifyToken, hashPassword, verifyPassword, displayDate, fmtNaira } from "./util.js";
-import { emitEvent } from "./events.js";
+import { issueToken, verifyToken, hashPassword, verifyPassword, displayDate, fmtNaira, sha256hex } from "./util.js";
+import { emitEvent, sendTransactional } from "./events.js";
+import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 
 export const account = new Hono();
 
@@ -52,14 +53,98 @@ account.post("/register", async (c) => {
 account.post("/login", async (c) => {
   const { email, password } = await c.req.json();
   const db = c.env.DB;
+
+  const buckets = loginBuckets("cust", clientIp(c.req), lc(email));
+  const gate = await checkThrottle(db, buckets);
+  if (!gate.ok) return c.json({ error: lockedMessage(gate.retryAfter) }, 429, { "retry-after": String(gate.retryAfter) });
+
   const u = await db.prepare("SELECT * FROM customers WHERE email=?").bind(lc(email)).first();
   if (!u || !u.pass_hash || !(await verifyPassword(password || "", u.pass_salt, u.pass_hash))) {
+    await recordFailure(db, buckets);
     return c.json({ error: "That email or password isn't right." }, 401);
   }
+  await clearFailures(db, buckets);
   await db.prepare("UPDATE customers SET last_login=datetime('now') WHERE id=?").bind(u.id).run();
   await linkOrders(db, u.id, u.email);
   const token = await issueCustomerToken(c.env, u);
   return c.json({ token, customer: publicProfile(u) });
+});
+
+// ---- Password reset ------------------------------------------------------
+//
+// Guest-first commerce means an account is optional, but the ones that exist
+// have to be recoverable — before this there was no reset route at all, so a
+// forgotten password locked a customer out of their order history for good.
+//
+// Two rules shape the flow. The request endpoint always answers the same way,
+// whether or not the address is known, because a differing response turns this
+// into a "does this person shop here" oracle. And only the *hash* of the token
+// is stored, so this table leaking does not hand anyone a working link.
+
+const RESET_TTL_MINUTES = 60;
+
+account.post("/password/forgot", async (c) => {
+  const { email } = await c.req.json().catch(() => ({}));
+  const db = c.env.DB;
+  const addr = lc(email);
+  // Same answer in every branch below.
+  const answer = () => c.json({ ok: true, message: "If that email has an account, a reset link is on its way." });
+
+  if (!addr.includes("@")) return answer();
+
+  // Throttled on the address rather than the IP alone: without this, the
+  // endpoint is a free way to send someone a hundred emails.
+  const buckets = loginBuckets("reset", clientIp(c.req), addr);
+  const gate = await checkThrottle(db, buckets);
+  if (!gate.ok) return answer();
+  await recordFailure(db, buckets);
+
+  const u = await db.prepare("SELECT * FROM customers WHERE email=?").bind(addr).first();
+  if (!u) return answer();
+
+  // Any link already outstanding stops working the moment a new one is asked
+  // for, so a forwarded old email can't be used behind the customer's back.
+  await db.prepare("UPDATE password_resets SET used_at=datetime('now') WHERE customer_id=? AND used_at IS NULL").bind(u.id).run();
+
+  const token = [...crypto.getRandomValues(new Uint8Array(32))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  await db.prepare("INSERT INTO password_resets (customer_id, token_hash, expires_at) VALUES (?, ?, datetime('now', ?))")
+    .bind(u.id, await sha256hex(token), `+${RESET_TTL_MINUTES} minutes`).run();
+
+  const link = `${new URL(c.req.url).origin}/account?reset=${token}`;
+  const name = (u.name || "").split(" ")[0] || "there";
+  await sendTransactional(c.env, {
+    to: u.email,
+    kind: "password_reset",
+    subject: "Reset your Majestic Roobee password",
+    body: `Hi ${name},\n\nSomeone asked to reset the password on your account. Open the link below within the next hour to choose a new one:\n\n${link}\n\nIf that wasn't you, ignore this email — your password stays as it is.\n\nMajestic Roobee`,
+  });
+  return answer();
+});
+
+account.post("/password/reset", async (c) => {
+  const { token, password } = await c.req.json().catch(() => ({}));
+  if (!password || String(password).length < 8) return c.json({ error: "Choose a password of at least 8 characters." }, 400);
+  const db = c.env.DB;
+
+  const row = await db.prepare(
+    "SELECT * FROM password_resets WHERE token_hash=? AND used_at IS NULL AND expires_at > datetime('now')"
+  ).bind(await sha256hex(String(token || ""))).first();
+  if (!row) return c.json({ error: "That reset link has expired or already been used. Ask for a new one." }, 400);
+
+  const u = await db.prepare("SELECT * FROM customers WHERE id=?").bind(row.customer_id).first();
+  if (!u) return c.json({ error: "That reset link has expired or already been used. Ask for a new one." }, 400);
+
+  const { salt, hash } = await hashPassword(String(password));
+  await db.batch([
+    db.prepare("UPDATE customers SET pass_hash=?, pass_salt=?, last_login=datetime('now') WHERE id=?").bind(hash, salt, u.id),
+    // Single use, and every other outstanding link for this account dies too.
+    db.prepare("UPDATE password_resets SET used_at=datetime('now') WHERE customer_id=? AND used_at IS NULL").bind(u.id),
+  ]);
+  // Whoever was being throttled has now proved they own the mailbox.
+  await clearFailures(db, loginBuckets("cust", clientIp(c.req), u.email));
+
+  const t = await issueCustomerToken(c.env, u);
+  return c.json({ token: t, customer: publicProfile(u) });
 });
 
 // Auth guard for the routes below.

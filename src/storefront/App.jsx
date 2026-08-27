@@ -65,6 +65,8 @@ export default function App() {
   const [plDone, setPlDone] = useState(false);
   const [custToken, setCustToken] = useState(() => localStorage.getItem("mr-cust-token") || "");
   const [cust, setCust] = useState(null);
+  // Present only when the shopper arrived from a password-reset email.
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get("reset") || "");
   const [custData, setCustData] = useState({ addresses: [], wishlist: [], orders: [] });
   const w = useWindowWidth();
   const isMobile = w < 860;
@@ -170,6 +172,22 @@ export default function App() {
   const custRegister = useCallback(async (payload) => { const r = await api.post("/api/account/register", payload); localStorage.setItem("mr-cust-token", r.token); setCustToken(r.token); setCust(r.customer); }, []);
   const custLogin = useCallback(async (email, password) => { const r = await api.post("/api/account/login", { email, password }); localStorage.setItem("mr-cust-token", r.token); setCustToken(r.token); setCust(r.customer); }, []);
   const custLogout = useCallback(() => { localStorage.removeItem("mr-cust-token"); setCustToken(""); setCust(null); setCustData({ addresses: [], wishlist: [], orders: [] }); nav("home"); }, [nav]);
+  // The server answers the same way whether or not the address is known, so
+  // this hands back its message rather than deciding one of its own.
+  const custForgotPassword = useCallback(async (email) => {
+    const r = await api.post("/api/account/password/forgot", { email });
+    return r.message || "If that email has an account, a reset link is on its way.";
+  }, []);
+  const custResetPassword = useCallback(async (token, password) => {
+    const r = await api.post("/api/account/password/reset", { token, password });
+    localStorage.setItem("mr-cust-token", r.token);
+    setCustToken(r.token);
+    setCust(r.customer);
+    // Drop the token out of the URL so it isn't left in history or a shared
+    // link, then land on the dashboard the new password just unlocked.
+    setResetToken("");
+    window.history.replaceState({}, "", "/account");
+  }, []);
   const updateProfile = useCallback(async (p) => { await api.patch("/api/account/me", p, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
   const addAddress = useCallback(async (a) => { await api.post("/api/account/addresses", a, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
   const removeAddress = useCallback(async (id) => { await api.del(`/api/account/addresses/${id}`, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
@@ -613,6 +631,7 @@ export default function App() {
     grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
     denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
     cust, custData, custRegister, custLogin, custLogout, updateProfile, addAddress, removeAddress, toggleWishlist, joinWaitlist,
+    resetToken, custForgotPassword, custResetPassword,
   };
 
   const pageEl =

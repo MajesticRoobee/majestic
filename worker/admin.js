@@ -3,10 +3,12 @@ import { Hono } from "hono";
 import {
   getSettings, putSettings, loadProducts, issueToken, verifyToken, displayTime, displayDate,
   hashPassword, verifyPassword, randomPassphrase, randomTotpSecret, totpVerify, otpauthUri, sha256hex,
-  optionLabel, makeSku, allLocations, locationIds,
+  optionLabel, makeSku, allLocations, locationIds, promoIsLive, todayInWAT,
 } from "./util.js";
 import { emitEvent } from "./events.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
+import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
+import { putMedia, migrateToR2 } from "./media.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -18,16 +20,38 @@ admin.post("/login", async (c) => {
   const { username, password, totp } = await c.req.json();
   const db = c.env.DB;
 
+  // Throttling comes before any credential is looked at, so a locked-out
+  // caller learns nothing about whether the username exists. Both buckets are
+  // checked: this IP against this identity, and this IP against anything.
+  //
+  // The master passphrase carries no username, so it is given one. Without it
+  // the break-glass credential — the most powerful one there is — would fall
+  // back to the wide per-IP limit and be the *least* throttled thing here.
+  const buckets = username
+    ? loginBuckets("admin", clientIp(c.req), username)
+    : loginBuckets("admin", clientIp(c.req), "passphrase", "m");
+  const gate = await checkThrottle(db, buckets);
+  if (!gate.ok) {
+    return c.json({ error: lockedMessage(gate.retryAfter) }, 429, { "retry-after": String(gate.retryAfter) });
+  }
+
   // Per-user account login
   if (username) {
     const u = await db.prepare("SELECT * FROM admin_users WHERE username=? AND active=1").bind(String(username).trim().toLowerCase()).first();
     if (!u || !(await verifyPassword(password || "", u.pass_salt, u.pass_hash))) {
+      await recordFailure(db, buckets);
       return c.json({ error: "That username or passphrase isn't right." }, 401);
     }
     if (u.totp_enabled) {
+      // The passphrase was right, so this is not a failed attempt — but it is
+      // not a success either, and must not clear the slate.
       if (!totp) return c.json({ error: "2FA required.", needTotp: true }, 401);
-      if (!(await totpVerify(u.totp_secret, totp))) return c.json({ error: "That 2FA code isn't right.", needTotp: true }, 401);
+      if (!(await totpVerify(u.totp_secret, totp))) {
+        await recordFailure(db, buckets);
+        return c.json({ error: "That 2FA code isn't right.", needTotp: true }, 401);
+      }
     }
+    await clearFailures(db, buckets);
     await db.prepare("UPDATE admin_users SET last_login=datetime('now') WHERE id=?").bind(u.id).run();
     const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { typ: "admin", uid: u.id, role: u.role, scope: u.scope || null });
     return c.json({ token, role: roleLabel(u), name: u.name, scope: u.scope || null, mustChange: !!u.must_change, totpEnabled: !!u.totp_enabled });
@@ -35,9 +59,11 @@ admin.post("/login", async (c) => {
 
   // Master passphrase (break-glass super admin)
   if (password && c.env.ADMIN_PASSWORD && password === c.env.ADMIN_PASSWORD) {
+    await clearFailures(db, buckets);
     const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { typ: "admin", uid: 0, role: "super", scope: null, master: true });
     return c.json({ token, role: "Super admin", name: "Master", scope: null, master: true });
   }
+  await recordFailure(db, buckets);
   return c.json({ error: "That's not the key to the house." }, 401);
 });
 
@@ -581,20 +607,46 @@ admin.patch("/stock", async (c) => {
 
 admin.get("/promos", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT * FROM promos ORDER BY created_at DESC").all()).results;
-  return c.json({ promos: rows.map((p) => ({ code: p.code, kind: p.kind, value: p.value, desc: p.descr, scope: p.scope, starts: p.starts, ends: p.ends, status: p.status, redemptions: p.redemptions })) });
+  const today = todayInWAT();
+  return c.json({
+    promos: rows.map((p) => ({
+      code: p.code, kind: p.kind, value: p.value, desc: p.descr, scope: p.scope,
+      starts: p.starts, ends: p.ends, status: p.status, redemptions: p.redemptions,
+      startsAt: p.starts_at || "", endsAt: p.ends_at || "",
+      // What the *server* thinks right now, so the list can't claim a code is
+      // running when checkout would refuse it.
+      live: promoIsLive(p, today),
+      expired: !!(p.ends_at && today > p.ends_at),
+      scheduled: !!(p.starts_at && today < p.starts_at),
+      // A promo created before dates were enforced may carry free text like
+      // "Aug 9" that nothing can act on. Flag it so it can be re-entered
+      // rather than quietly running forever.
+      unenforceable: !p.ends_at && !!p.ends && !/^until ended$/i.test(String(p.ends).trim()),
+    })),
+  });
 });
+
+// Dates arrive as ISO from the admin's date pickers. Anything else is kept as
+// display text only and left unenforced — guessing at "early August" would be
+// worse than admitting the code runs until someone ends it.
+const isoDate = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim()) ? String(s).trim() : null);
 
 admin.post("/promos", async (c) => {
   const { code, kind, value, scope, starts, ends } = await c.req.json();
   const cleanCode = String(code || "").toUpperCase().replace(/\s/g, "");
   const v = parseInt(value, 10) || 0;
   if (!cleanCode || (!v && kind !== "ship")) return c.json({ error: "A code and a value make a sale." }, 400);
+  const startsAt = isoDate(starts);
+  const endsAt = isoDate(ends);
+  if (startsAt && endsAt && endsAt < startsAt) return c.json({ error: "That sale would end before it starts." }, 400);
   const descr = kind === "pct" ? `${v}% off` : kind === "amt" ? `₦${v.toLocaleString("en-US")} off` : "Free delivery";
+  // The display columns keep carrying human text for the admin table; the
+  // *_at columns are what the storefront enforces.
   await c.env.DB.prepare(
-    `INSERT INTO promos (code, kind, value, descr, scope, starts, ends, status, redemptions) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', 0)
+    `INSERT INTO promos (code, kind, value, descr, scope, starts, ends, starts_at, ends_at, status, redemptions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', 0)
      ON CONFLICT(code) DO UPDATE SET kind=excluded.kind, value=excluded.value, descr=excluded.descr, scope=excluded.scope,
-       starts=excluded.starts, ends=excluded.ends, status='Active'`
-  ).bind(cleanCode, kind || "pct", v, descr, scope || "Storewide", starts || "Today", ends || "Until ended").run();
+       starts=excluded.starts, ends=excluded.ends, starts_at=excluded.starts_at, ends_at=excluded.ends_at, status='Active'`
+  ).bind(cleanCode, kind || "pct", v, descr, scope || "Storewide", startsAt || starts || "Today", endsAt || ends || "Until ended", startsAt, endsAt).run();
   return c.json({ ok: true });
 });
 
@@ -915,6 +967,11 @@ async function setCollectionProducts(db, id, productIds) {
 // and served from /images/<id>; the URL shape is stable if storage moves to R2.
 const MAX_IMAGE_BYTES = 1_500_000;
 
+// Upload one image, original or derivative.
+//
+// The admin resizes in the browser and posts the set: the original first, then
+// each narrower width with `x-parent` and `x-width` set. Storage backend is
+// chosen inside putMedia — R2 when the bucket is bound, D1 until then.
 admin.post("/media", async (c) => {
   const mime = (c.req.header("content-type") || "").split(";")[0].trim();
   if (!/^image\/(jpeg|png|webp|avif|gif)$/.test(mime)) {
@@ -925,10 +982,51 @@ admin.post("/media", async (c) => {
   if (buf.byteLength > MAX_IMAGE_BYTES) {
     return c.json({ error: `Image is ${(buf.byteLength / 1e6).toFixed(1)}MB — please use one under 1.5MB (resize or compress it first).` }, 413);
   }
-  const id = "img_" + randHex(8);
-  await c.env.DB.prepare("INSERT INTO media (id, mime, bytes, size, alt) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, mime, buf, buf.byteLength, (c.req.header("x-alt") || "").slice(0, 200)).run();
-  return c.json({ ok: true, id, url: `/images/${id}`, size: buf.byteLength });
+  const parentId = (c.req.header("x-parent") || "").trim() || null;
+  const width = Math.max(0, parseInt(c.req.header("x-width") || "0", 10) || 0);
+  if (parentId) {
+    // A derivative must belong to an image that exists, or a caller could
+    // scatter rows under any id it liked.
+    const parent = await c.env.DB.prepare("SELECT id FROM media WHERE id=? AND parent_id IS NULL").bind(parentId).first();
+    if (!parent) return c.json({ error: "No such original image." }, 400);
+    if (!width) return c.json({ error: "A derivative needs its width." }, 400);
+  }
+  const id = parentId || "img_" + randHex(8);
+  const stored = await putMedia(c.env, {
+    id, mime, bytes: buf, width, parentId,
+    alt: (c.req.header("x-alt") || "").slice(0, 200),
+  });
+  // Derivatives are addressed through the original's URL plus ?w=, so the URL
+  // handed back is always the original's.
+  return c.json({ ok: true, id, url: `/images/${id}`, size: stored.size, storage: c.env.MEDIA ? "r2" : "d1" });
+});
+
+// Where the images live, and how much of the database they are still taking up.
+admin.get("/media/status", requireSuper, async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN storage='d1' AND length(bytes) > 0 THEN 1 ELSE 0 END) AS in_d1,
+            SUM(CASE WHEN storage='r2' THEN 1 ELSE 0 END) AS in_r2,
+            COALESCE(SUM(CASE WHEN storage='d1' THEN size ELSE 0 END), 0) AS d1_bytes,
+            SUM(CASE WHEN parent_id IS NOT NULL THEN 1 ELSE 0 END) AS derivatives
+       FROM media`
+  ).first();
+  return c.json({
+    bucketBound: !!c.env.MEDIA,
+    total: row.total || 0,
+    inD1: row.in_d1 || 0,
+    inR2: row.in_r2 || 0,
+    d1Bytes: row.d1_bytes || 0,
+    derivatives: row.derivatives || 0,
+  });
+});
+
+// Move whatever is still in D1 into the bucket. Batched and re-runnable — the
+// UI calls it until `remaining` is zero.
+admin.post("/media/migrate", requireSuper, async (c) => {
+  const { batch } = await c.req.json().catch(() => ({}));
+  const out = await migrateToR2(c.env, Math.min(50, Math.max(1, parseInt(batch, 10) || 20)));
+  return out.error ? c.json({ error: out.error }, 400) : c.json({ ok: true, ...out });
 });
 
 // ---- F2: automations & activity ----

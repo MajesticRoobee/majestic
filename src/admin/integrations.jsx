@@ -96,6 +96,65 @@ function PaymentsPanel({ pay, origin, ctx, reload }) {
   );
 }
 
+// Product imagery — where the bytes live. Photos used to sit inside the
+// database itself, which made every backup and restore carry the whole photo
+// library. This panel moves them into the R2 bucket, a batch at a time, and
+// says how far it has got.
+function MediaPanel({ media, ctx, reload }) {
+  const [moving, setMoving] = useState(false);
+  const [progress, setProgress] = useState("");
+  if (!media) return null;
+  const mb = (n) => (n / 1e6).toFixed(1) + "MB";
+
+  const migrate = async () => {
+    setMoving(true);
+    try {
+      // Batched on the server, so keep asking until nothing is left.
+      let left = 1, moved = 0;
+      while (left > 0) {
+        const r = await api.post("/api/admin/media/migrate", { batch: 20 }, ctx.token);
+        moved += r.moved;
+        left = r.remaining;
+        setProgress(`Moved ${moved}${left ? `, ${left} to go…` : ""}`);
+        if (!r.moved) break; // nothing moved and some remain: stop rather than spin
+      }
+      setProgress(moved ? `Moved ${moved} image${moved === 1 ? "" : "s"} to R2.` : "Nothing to move.");
+      reload();
+    } catch (e) { setProgress(e.message); } finally { setMoving(false); }
+  };
+
+  const st = media.bucketBound
+    ? (media.inD1 ? { label: "Partly migrated", tone: "warn" } : { label: "On R2", tone: "good" })
+    : { label: "In the database", tone: "warn" };
+  const b = statusBadge(st.tone);
+
+  return (
+    <div style={{ ...card, padding: "18px 22px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Product imagery</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+            {media.total} image{media.total === 1 ? "" : "s"} · {media.derivatives} phone-sized cop{media.derivatives === 1 ? "y" : "ies"}
+            {media.inD1 ? ` · ${media.inD1} still in the database (${mb(media.d1Bytes)})` : ""}
+          </div>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: b.bg, color: b.fg }}>{st.label}</span>
+      </div>
+      {media.bucketBound && media.inD1 > 0 && (
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
+          <Button variant="secondary" size="sm" disabled={moving} onClick={migrate}>{moving ? "Moving…" : "Move them to R2"}</Button>
+          {progress && <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{progress}</span>}
+        </div>
+      )}
+      {!media.bucketBound && (
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 10 }}>
+          No R2 bucket is bound to the Worker, so uploads are stored in the database. Bind one in <code>wrangler.jsonc</code> and this panel will offer to move them.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function IntegrationsPage({ ctx }) {
   const [autos, setAutos] = useState([]);
   const [runStats, setRunStats] = useState([]);
@@ -107,10 +166,12 @@ export function IntegrationsPage({ ctx }) {
   const [keyForm, setKeyForm] = useState({ name: "", scopes: "read" });
   const [secret, setSecret] = useState(null);
   const [pay, setPay] = useState(null);
+  const [media, setMedia] = useState(null);
   const origin = window.location.origin;
 
   const load = () => {
     api.get("/api/admin/payments", ctx.token).then(setPay).catch(() => {});
+    api.get("/api/admin/media/status", ctx.token).then(setMedia).catch(() => {});
     api.get("/api/admin/automations", ctx.token).then((r) => { setAutos(r.automations); setRunStats(r.runStats); }).catch(ctx.authFail);
     api.get("/api/admin/automation-runs", ctx.token).then((r) => setRuns(r.runs)).catch(ctx.authFail);
     api.get("/api/admin/events", ctx.token).then((r) => setEvents(r.events)).catch(() => {});
@@ -136,6 +197,7 @@ export function IntegrationsPage({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 20, maxWidth: 1000 }}>
       <PaymentsPanel pay={pay} origin={origin} ctx={ctx} reload={load} />
+      <MediaPanel media={media} ctx={ctx} reload={load} />
 
       {/* Automations */}
       <div style={{ ...card, overflow: "hidden" }}>

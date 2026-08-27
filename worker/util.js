@@ -253,3 +253,40 @@ export async function loadProducts(db, { liveOnly = false } = {}) {
 export function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 }
+
+// ---- Promo scheduling ----
+//
+// The house and its customers are in Nigeria (UTC+1, no daylight saving), and
+// a sale that reads "ends 20 August" should run to the end of that day *here*,
+// not cut out at 1am because the server thinks in UTC. So the comparison is
+// made against the current date in West Africa Time.
+const WAT_OFFSET_MS = 60 * 60 * 1000;
+
+export function todayInWAT(now = Date.now()) {
+  return new Date(now + WAT_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Is this promo live right now?
+ *
+ * Status is still the manual switch ("End now" in the admin), and the dates are
+ * the automatic one. Either can stop a code; neither alone can revive it.
+ * A missing date means unbounded on that side, which is what every promo
+ * created before this existed has, so none of them change behaviour.
+ *
+ * `ends_at` is inclusive — a code ending on the 20th works all day on the 20th.
+ */
+export function promoIsLive(promo, today = todayInWAT()) {
+  if (!promo || promo.status !== "Active") return false;
+  if (promo.starts_at && today < promo.starts_at) return false;
+  if (promo.ends_at && today > promo.ends_at) return false;
+  return true;
+}
+
+/** Why a code was refused, for a message a shopper can act on. */
+export function promoRefusal(promo, today = todayInWAT()) {
+  if (!promo) return "That code isn't recognised.";
+  if (promo.starts_at && today < promo.starts_at) return "That sale hasn't started yet.";
+  if (promo.ends_at && today > promo.ends_at) return "That code has expired.";
+  return "That promo code isn't active.";
+}
