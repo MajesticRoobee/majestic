@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
 import { fmtN, statusBadge } from "./App.jsx";
+import { ImagePicker } from "./product-form.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const th = { padding: "10px 14px", borderTop: "1px solid var(--border-hairline)", fontWeight: 600, color: "var(--text-muted)", fontSize: 11, letterSpacing: "0.06em" };
@@ -370,22 +371,43 @@ export function Inquiries({ ctx }) {
   );
 }
 
+// Which settings belong to which panel. The endpoint patches whatever keys it
+// is handed, so a panel can save its own without touching anything else — and
+// nobody has to scroll to the foot of the page to keep one edit.
+const SECTION_KEYS = {
+  storefront: ["announcement", "heroHeadline", "heroSub", "heroImage", "heroDirection", "defaultCity", "promoPopup"],
+  shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
+  editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
+  contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
+  footer: ["footerTagline", "igUrl", "igHandle"],
+  seo: ["siteName", "metaDescription", "ogImage"],
+  analytics: ["ga4Id", "clarityId", "googleAdsId", "googleAdsPurchaseLabel", "metaPixelId", "tiktokPixelId", "gscVerification"],
+};
+
 export function SettingsPage({ ctx }) {
   const [form, setForm] = useState(null);
-  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [saved, setSaved] = useState("");
   useEffect(() => {
     if (ctx.settingsData && !form) setForm({ ...ctx.settingsData.settings });
   }, [ctx.settingsData]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!form) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Fetching the house rules…</span></main>;
-  const set = (k) => (e) => { setForm({ ...form, [k]: e.target.value }); setSaved(false); };
-  const save = async () => {
+  const touch = (patch) => { setForm({ ...form, ...patch }); setSaved(""); };
+  const set = (k) => (e) => touch({ [k]: e.target.value });
+
+  // `id` names the panel being saved, or "all" for the button at the foot.
+  const save = async (id, keys) => {
+    setBusy(id);
     try {
-      await api.put("/api/admin/settings", { settings: form }, ctx.token);
-      setSaved(true);
+      const patch = {};
+      for (const k of keys) if (form[k] !== undefined) patch[k] = form[k];
+      await api.put("/api/admin/settings", { settings: patch }, ctx.token);
+      setSaved(id);
       ctx.flash("Settings saved");
       ctx.loadSettings();
-    } catch (e) { ctx.authFail(e); }
+    } catch (e) { ctx.authFail(e); } finally { setBusy(""); }
   };
+
   const section = { ...card, padding: 24, display: "flex", flexDirection: "column", gap: 16 };
   const sectionHead = (title, sub) => (
     <div>
@@ -393,13 +415,18 @@ export function SettingsPage({ ctx }) {
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{sub}</div>
     </div>
   );
+  // Every panel carries its own save, so one edit never means scrolling past
+  // six others to keep it.
+  const sectionSave = (id) => (
+    <div style={{ display: "flex", gap: 12, alignItems: "center", borderTop: "1px solid var(--border-hairline)", paddingTop: 14 }}>
+      <Button variant="primary" size="sm" disabled={busy === id} onClick={() => save(id, SECTION_KEYS[id])}>
+        {busy === id ? "Saving…" : "Save this section"}
+      </Button>
+      {saved === id && <span style={{ fontSize: 12.5, color: "#3f6b45" }}>Saved — the storefront reads it on its next load.</span>}
+    </div>
+  );
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 18, maxWidth: 960 }}>
-      {saved && (
-        <div style={{ background: "#e4efe4", border: "1px solid #c7ddc7", borderRadius: "var(--radius-md)", padding: "12px 16px", fontSize: 13, color: "#3f6b45" }}>
-          Saved — quietly. These now drive the storefront; reload the storefront to see the changes.
-        </div>
-      )}
       <div style={section}>
         {sectionHead("Storefront text", "The top announcement bar and the homepage hero copy.")}
         <Input label="Announcement bar" value={form.announcement || ""} onChange={set("announcement")} />
@@ -415,7 +442,10 @@ export function SettingsPage({ ctx }) {
             {ctx.openStores.map((l) => <option key={l.id} value={l.id}>{l.city}</option>)}
           </Select>
         </div>
-        <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => { setForm({ ...form, promoPopup: e.target.checked }); setSaved(false); }} />
+        <ImagePicker ctx={ctx} label="Hero image (optional)" value={form.heroImage || ""} onChange={(url) => touch({ heroImage: url })}
+          hint="The picture beside the headline on the home page — and the backdrop behind it on the full-bleed layout. Leave it empty for the monogram placeholder. Wide images look best." />
+        <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => touch({ promoPopup: e.target.checked })} />
+        {sectionSave("storefront")}
       </div>
       <div style={section}>
         {sectionHead("Shelves & social proof", "What the header's shelves read from, and whether shoppers see live purchases.")}
@@ -425,15 +455,16 @@ export function SettingsPage({ ctx }) {
           <Input label="Best sellers counted over (days)" value={form.bestSellerDays ?? ""} onChange={set("bestSellerDays")} placeholder="90"
             hint="Only paid, uncancelled orders count." />
         </div>
-        <Switch label="Show live purchases to shoppers" checked={form.purchasePopups ?? true} onChange={(e) => { setForm({ ...form, purchasePopups: e.target.checked }); setSaved(false); }} />
+        <Switch label="Show live purchases to shoppers" checked={form.purchasePopups ?? true} onChange={(e) => touch({ purchasePopups: e.target.checked })} />
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
           A small note in the corner — “Dorothy from Abuja purchased Osk 30ml”. Built from real paid orders; only a first name and city ever leave the server.
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Look back over (days)" value={form.purchasePopupDays ?? ""} onChange={set("purchasePopupDays")} placeholder="30" />
           <Input label="Seconds between notes" value={form.purchasePopupIntervalMs ? Math.round(form.purchasePopupIntervalMs / 1000) : ""}
-            onChange={(e) => { setForm({ ...form, purchasePopupIntervalMs: (parseInt(e.target.value, 10) || 0) * 1000 }); setSaved(false); }} placeholder="14" />
+            onChange={(e) => touch({ purchasePopupIntervalMs: (parseInt(e.target.value, 10) || 0) * 1000 })} placeholder="14" />
         </div>
+        {sectionSave("shelves")}
       </div>
       <div style={section}>
         {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
@@ -443,6 +474,7 @@ export function SettingsPage({ ctx }) {
         </div>
         <Textarea label="Blog intro" value={form.blogIntro || ""} onChange={set("blogIntro")} rows={2} />
         <Textarea label="Reviews intro" value={form.reviewsIntro || ""} onChange={set("reviewsIntro")} rows={2} />
+        {sectionSave("editorial")}
       </div>
       <StoresSection ctx={ctx} />
       <div style={{ ...section, gap: 14 }}>
@@ -459,6 +491,7 @@ export function SettingsPage({ ctx }) {
           placeholder="Majestic Roobee — 0123456789, Providus Bank"
           hint="Shown to shoppers who choose bank transfer. Leave empty and we'll ask them to contact you instead."
         />
+        {sectionSave("contact")}
       </div>
       <div style={{ ...section, gap: 14 }}>
         {sectionHead("Footer", "Tagline and the Instagram link in the storefront footer.")}
@@ -467,12 +500,15 @@ export function SettingsPage({ ctx }) {
           <Input label="Instagram URL" value={form.igUrl || ""} onChange={set("igUrl")} />
           <Input label="Instagram handle" value={form.igHandle || ""} onChange={set("igHandle")} />
         </div>
+        {sectionSave("footer")}
       </div>
       <div style={section}>
         {sectionHead("SEO", "How the store appears in search results and when shared. Product pages generate their own tags automatically.")}
         <Input label="Site name" value={form.siteName || ""} onChange={set("siteName")} placeholder="Majestic Roobee" />
         <Textarea label="Default meta description" value={form.metaDescription || ""} onChange={set("metaDescription")} rows={2} hint="Used on the homepage and as a fallback (aim for 150–160 characters)." />
-        <Input label="Social share image URL" value={form.ogImage || ""} onChange={set("ogImage")} placeholder="https://…/share.jpg" hint="Shown when a link is shared on WhatsApp, Instagram, X, etc." />
+        <ImagePicker ctx={ctx} label="Social share image (optional)" value={form.ogImage || ""} onChange={(url) => touch({ ogImage: url })}
+          hint="Shown when a link is shared on WhatsApp, Instagram, X, etc. 1200×630 is the shape they all crop to." />
+        {sectionSave("seo")}
       </div>
 
       <div style={section}>
@@ -490,11 +526,16 @@ export function SettingsPage({ ctx }) {
           <Input label="TikTok Pixel ID" value={form.tiktokPixelId || ""} onChange={set("tiktokPixelId")} placeholder="CXXXXXXXXXXXX" />
         </div>
         <Input label="Google Search Console verification" value={form.gscVerification || ""} onChange={set("gscVerification")} placeholder="google-site-verification token" hint="From the 'HTML tag' method — paste only the content token. Or verify via your linked Google Analytics / DNS instead." />
+        {sectionSave("analytics")}
       </div>
 
-      <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
-        <Button variant="gold" onClick={save}>Save changes</Button>
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Saved to the store database — the storefront reads the same settings.</span>
+      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <Button variant="gold" disabled={busy === "all"} onClick={() => save("all", Object.values(SECTION_KEYS).flat())}>
+          {busy === "all" ? "Saving…" : "Save every section"}
+        </Button>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          {saved === "all" ? "All saved — the storefront reads the same settings." : "Each panel above also saves on its own."}
+        </span>
       </div>
     </main>
   );

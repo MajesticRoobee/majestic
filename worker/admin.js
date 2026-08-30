@@ -775,7 +775,7 @@ admin.put("/settings", async (c) => {
   const { settings, locations } = await c.req.json();
   const db = c.env.DB;
   const allowed = [
-    "announcement", "heroHeadline", "heroSub", "footerTagline", "igUrl", "igHandle",
+    "announcement", "heroHeadline", "heroSub", "heroImage", "footerTagline", "igUrl", "igHandle",
     "contactPhone", "contactEmail", "contactHours", "ngnPerUsd", "lowStockThreshold",
     // SEO
     "siteName", "metaDescription", "ogImage",

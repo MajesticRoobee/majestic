@@ -16,6 +16,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "http://127.0.0.1:8787",
+      // Uploaded images are served by the Worker, not from disk — without this
+      // every photo added in the admin is a broken image in `npm run dev`.
+      "/images": "http://127.0.0.1:8787",
     },
   },
 });

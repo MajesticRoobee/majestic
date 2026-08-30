@@ -5,48 +5,29 @@
 import React, { useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
-import { resizeToWidths } from "../lib/images.js";
+import { uploadImage } from "../lib/images.js";
 
 const GENDERS = ["Unisex", "Female", "Male"];
 // Opening stock is one field per store the house has open — no fixed three.
 const blankVariant = () => ({ size: "", price: "", sku: "", imageUrl: "", stock: {} });
 
-// Upload a chosen file and hand back its served URL.
-export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
+// Upload a chosen file and hand back its served URL. `hint` and `note` let a
+// caller say what this particular picture is for; `clearAfterPick` turns it
+// into a one-shot uploader (the blog's in-story pictures, which are handed to
+// the text rather than held here).
+export function ImagePicker({ ctx, value, onChange, label = "Product photo", hint = "JPEG/PNG/WebP up to 1.5MB. Square images look best.", clearAfterPick = false }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [urlMode, setUrlMode] = useState(false);
 
-  // Upload the original, then the narrower copies the storefront serves to
-  // phones. The original goes first because the derivatives are stored against
-  // its id — and it is the only one that has to succeed: if the browser can't
-  // re-encode (an exotic format, a very old browser), the photo is still
-  // uploaded and every width simply resolves back to it.
   const pick = async (file) => {
     if (!file) return;
     setBusy(true); setErr("");
     try {
-      const post = (body, headers) => fetch("/api/admin/media", {
-        method: "POST",
-        headers: { authorization: `Bearer ${ctx.token}`, ...headers },
-        body,
-      });
-
-      const res = await post(file, { "content-type": file.type });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(d.error || `Upload failed (${res.status})`);
-      onChange(d.url);
-
-      try {
-        const sizes = await resizeToWidths(file);
-        await Promise.all(sizes.map((s) =>
-          post(s.blob, { "content-type": s.mime, "x-parent": d.id, "x-width": String(s.width) })
-        ));
-      } catch {
-        // Derivatives are an optimisation, not the upload.
-        setErr("Photo saved, but the phone-sized copies couldn't be made — it will still display.");
-      }
+      const url = await uploadImage(file, ctx.token, setErr);
+      onChange(url);
+      if (clearAfterPick && fileRef.current) fileRef.current.value = "";
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
@@ -54,11 +35,13 @@ export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>{label}</div>
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ width: 84, height: 84, borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--surface-sunken)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {value
-            ? <img src={value} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            : <span style={{ fontSize: 10.5, color: "var(--text-muted)", textAlign: "center", padding: 6 }}>No photo</span>}
-        </div>
+        {!clearAfterPick && (
+          <div style={{ width: 84, height: 84, borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--surface-sunken)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {value
+              ? <img src={value} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              : <span style={{ fontSize: 10.5, color: "var(--text-muted)", textAlign: "center", padding: 6 }}>No photo</span>}
+          </div>
+        )}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
           {urlMode ? (
             <Input label="" value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder="https://…/photo.jpg" />
@@ -70,10 +53,10 @@ export function ImagePicker({ ctx, value, onChange, label = "Product photo" }) {
             <button onClick={() => setUrlMode(!urlMode)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--mr-purple-700)", padding: 0 }}>
               {urlMode ? "Upload a file instead" : "Paste a URL instead"}
             </button>
-            {value && <button onClick={() => onChange("")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--text-muted)", padding: 0 }}>Remove</button>}
+            {value && !clearAfterPick && <button onClick={() => onChange("")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--text-muted)", padding: 0 }}>Remove</button>}
             {busy && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Uploading…</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>JPEG/PNG/WebP up to 1.5MB. Square images look best.</div>
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{hint}</div>
           {err && <div style={{ fontSize: 12, color: "#c0587a" }}>{err}</div>}
         </div>
       </div>
