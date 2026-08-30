@@ -259,8 +259,12 @@ export default function App() {
   const scopeStore = locations.find((l) => l.id === scope);
   const scopeLabel = scope === "all" ? "All locations" : scopeStore ? scopeStore.city : scope;
 
+  // Opening a page puts the reader at the top of it — otherwise a click from
+  // the bottom of a long screen lands halfway down a short one.
+  const goPage = (id) => { setPage(id); window.scrollTo({ top: 0 }); };
+
   const ctx = {
-    token, page, setPage, scope, setScope, scopeLabel, TH, me, loadMe, isSuper,
+    token, page, setPage: goPage, scope, setScope, scopeLabel, TH, me, loadMe, isSuper,
     overview, products, promos, campaigns, inquiries, settingsData,
     locations, openStores, collections, inqCounts, showArchived, setShowArchived,
     categories, deals, posts, testimonials,
@@ -283,16 +287,22 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "var(--font-sans)", color: "var(--text-body)", background: "var(--mr-cream)", minHeight: "100vh", display: "flex" }}>
-      <aside style={{ width: 232, flexShrink: 0, background: "var(--royal-wash)", color: "var(--text-on-dark-muted)", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh" }}>
+      {/* The rail is exactly one viewport tall and keeps its own overflow: with
+          sixteen pages on it, the list is taller than a laptop screen, and
+          anything spilling out of this box would both paint over the page and
+          stretch the document — which is what used to push the whole sticky
+          rail off the top of the screen. */}
+      <aside style={{ width: 232, flexShrink: 0, background: "var(--royal-wash)", color: "var(--text-on-dark-muted)", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflow: "hidden" }}>
         <div style={{ padding: "24px 22px 18px" }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)" }}>Majestic Roobee</div>
           <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10.5, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--mr-gold-400)", marginTop: 4 }}>Operations</div>
         </div>
-        <nav style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 12px" }}>
+        {/* minHeight 0 is what lets a flex child actually shrink and scroll. */}
+        <nav style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2, padding: "6px 12px", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.28) transparent" }}>
           {visiblePages.map((p) => {
             const on = activePage === p.id;
             return (
-              <button key={p.id} onClick={() => setPage(p.id)} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, padding: "11px 14px", borderRadius: "var(--radius-md)", border: "none", cursor: "pointer", background: on ? "rgba(255,255,255,0.1)" : "transparent", color: on ? "var(--mr-cream)" : "var(--text-on-dark-muted)", transition: "background var(--dur-fast) var(--ease-standard)" }}>
+              <button key={p.id} onClick={() => goPage(p.id)} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, padding: "11px 14px", borderRadius: "var(--radius-md)", border: "none", cursor: "pointer", background: on ? "rgba(255,255,255,0.1)" : "transparent", color: on ? "var(--mr-cream)" : "var(--text-on-dark-muted)", transition: "background var(--dur-fast) var(--ease-standard)" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: on ? "var(--accent-gold)" : "transparent" }} />
                 {p.label}
                 {p.id === "inq" && openInq > 0 && (
@@ -302,7 +312,7 @@ export default function App() {
             );
           })}
         </nav>
-        <div style={{ marginTop: "auto", padding: "18px 22px", borderTop: "1px solid var(--border-inverse)" }}>
+        <div style={{ flexShrink: 0, padding: "18px 22px", borderTop: "1px solid var(--border-inverse)" }}>
           <div style={{ fontSize: 12.5, color: "var(--mr-cream)", fontWeight: 500 }}>{me ? (me.master ? "Master (super admin)" : me.name) : "…"}</div>
           <div style={{ fontSize: 11, marginTop: 2 }}>{isSuper ? "Full access — every store" : `Scoped to ${scopeLabel} store`}</div>
           <a href="/" style={{ display: "inline-block", fontSize: 11.5, color: "var(--mr-gold-400)", marginTop: 12 }}>View storefront —</a>
