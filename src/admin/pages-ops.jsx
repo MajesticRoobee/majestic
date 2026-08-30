@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
-import { CAT_LABELS, fmtN, statusBadge } from "./App.jsx";
+import { fmtN, statusBadge } from "./App.jsx";
 import { NewProduct, EditProductPanel } from "./product-form.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
@@ -288,7 +288,7 @@ export function Inventory({ ctx }) {
                   <span style={{ width: 34, height: 34, borderRadius: "var(--radius-sm)", background: "var(--mr-lavender-200)", color: "var(--mr-purple-800)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, flexShrink: 0 }}>{initialsOf(p.name)}</span>
                   <span>
                     <span style={{ fontWeight: 500, color: "var(--text-strong)" }}>{p.name}</span><br />
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{CAT_LABELS[p.cat] || p.cat}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{ctx.catLabel(p.cat)}</span>
                   </span>
                 </div>
                 <div style={{ ...cell, color: "var(--text-body)", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
@@ -351,7 +351,7 @@ export function Catalogue({ ctx }) {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: "var(--font-display)", fontSize: 16.5, color: "var(--text-strong)" }}>{p.name}</div>
-                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>{CAT_LABELS[p.cat] || p.cat}</div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>{ctx.catLabel(p.cat)}</div>
                   </div>
                   <Switch checked={p.live} onChange={() => toggleLive(p)} />
                 </div>
@@ -522,7 +522,7 @@ export function CollectionsPage({ ctx }) {
                     <label key={p.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--border-hairline)", cursor: "pointer", background: on ? "var(--surface-sunken)" : "transparent" }}>
                       <input type="checkbox" checked={on} onChange={() => pick(p.id)} style={{ accentColor: "var(--mr-purple-800)", width: 14, height: 14 }} />
                       <span style={{ flex: 1, fontSize: 12.5, color: "var(--text-strong)" }}>{p.name}</span>
-                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{CAT_LABELS[p.cat] || p.cat}</span>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{ctx.catLabel(p.cat)}</span>
                     </label>
                   );
                 })}

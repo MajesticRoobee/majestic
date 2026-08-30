@@ -225,6 +225,22 @@ account.post("/wishlist", async (c) => {
   return c.json({ ok: true });
 });
 
+// A guest can save things before they have an account — the storefront keeps
+// that list in their browser. Signing in hands it over, so nothing a shopper
+// saved is lost the moment they finally register.
+account.post("/wishlist/merge", async (c) => {
+  const { productIds } = await c.req.json().catch(() => ({}));
+  if (!Array.isArray(productIds) || !productIds.length) return c.json({ ok: true, added: 0 });
+  const db = c.env.DB;
+  const known = new Set((await db.prepare("SELECT id FROM products").all()).results.map((p) => p.id));
+  const wanted = [...new Set(productIds.map(clean).filter((id) => known.has(id)))].slice(0, 200);
+  if (!wanted.length) return c.json({ ok: true, added: 0 });
+  await db.batch(wanted.map((id) =>
+    db.prepare("INSERT INTO wishlists (customer_id, product_id) VALUES (?, ?) ON CONFLICT DO NOTHING").bind(c.get("cid"), id)
+  ));
+  return c.json({ ok: true, added: wanted.length });
+});
+
 account.delete("/wishlist/:productId", async (c) => {
   await c.env.DB.prepare("DELETE FROM wishlists WHERE customer_id=? AND product_id=?").bind(c.get("cid"), c.req.param("productId")).run();
   return c.json({ ok: true });

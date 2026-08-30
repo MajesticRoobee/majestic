@@ -8,6 +8,7 @@ import {
 import { emitEvent } from "./events.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
+import { parseEmbed, embedUrlFor, dealIsLive } from "./merch.js";
 import { putMedia, migrateToR2 } from "./media.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -363,15 +364,17 @@ admin.post("/products", async (c) => {
   const productImage = (b.imageUrl || "").trim() || null;
 
   await db.prepare(
-    "INSERT INTO products (id, name, cat, gender, family, notes, descr, image_url, live, option_names, split_listing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO products (id, name, cat, brand, gender, family, notes, descr, image_url, live, option_names, split_listing, pin_new, pin_best) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
-    id, name, cat, b.gender || "Unisex", b.family || "",
+    id, name, cat, String(b.brand || "").trim(), b.gender || "Unisex", b.family || "",
     (b.notes || "").trim() || "—",
     (b.desc || "").trim() || "A new addition to the house — description coming soon.",
     productImage,
     b.live ? 1 : 0,
     JSON.stringify(optionNames),
-    b.splitListing ? 1 : 0
+    b.splitListing ? 1 : 0,
+    b.pinNew ? 1 : 0,
+    b.pinBest ? 1 : 0
   ).run();
 
   if (productImage) {
@@ -514,10 +517,11 @@ admin.delete("/images/:id", async (c) => {
 // description, image). Only the fields present in the body are changed.
 admin.patch("/products/:id", async (c) => {
   const b = await c.req.json();
-  const map = { live: "live", name: "name", cat: "cat", family: "family", gender: "gender", notes: "notes", desc: "descr", imageUrl: "image_url", splitListing: "split_listing" };
+  const map = { live: "live", name: "name", cat: "cat", brand: "brand", family: "family", gender: "gender", notes: "notes", desc: "descr", imageUrl: "image_url", splitListing: "split_listing", pinNew: "pin_new", pinBest: "pin_best" };
+  const flags = ["live", "splitListing", "pinNew", "pinBest"];
   const sets = [], vals = [];
   for (const [k, col] of Object.entries(map)) {
-    if (b[k] !== undefined) { sets.push(`${col}=?`); vals.push(k === "live" || k === "splitListing" ? (b[k] ? 1 : 0) : b[k]); }
+    if (b[k] !== undefined) { sets.push(`${col}=?`); vals.push(flags.includes(k) ? (b[k] ? 1 : 0) : b[k]); }
   }
   if (b.optionNames !== undefined) { sets.push("option_names=?"); vals.push(JSON.stringify(normaliseOptionNames(b.optionNames))); }
   if (!sets.length) return c.json({ ok: true });
@@ -756,6 +760,7 @@ const ORDERS_TOUCHING_STORE =
 
 const locationOut = (l) => ({
   id: l.id, city: l.city, store: l.store, address: l.address, eta: l.eta, phone: l.phone,
+  hours: l.hours || "", mapsUrl: l.maps_url || "",
   shipNGN: l.ship_ngn, shipUSD: l.ship_usd, sort: l.sort, active: !!l.active,
 });
 
@@ -782,6 +787,11 @@ admin.put("/settings", async (c) => {
     // house fills it in, and the transfer option says so rather than inventing
     // an account number.
     "bankDetails",
+    // Merchandising: how long a product reads as new, how far back the best
+    // seller count looks, and whether the storefront shows live purchases.
+    "newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs",
+    // Editorial
+    "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
   ];
   const patch = {};
   for (const k of allowed) if (settings && settings[k] !== undefined) patch[k] = settings[k];
@@ -790,7 +800,8 @@ admin.put("/settings", async (c) => {
     const known = (await allLocations(db)).map((l) => l.id);
     await db.batch(locations
       .filter((l) => known.includes(l.id))
-      .map((l) => db.prepare("UPDATE locations SET store=?, address=?, eta=?, phone=? WHERE id=?").bind(l.store, l.address, l.eta, l.phone, l.id)));
+      .map((l) => db.prepare("UPDATE locations SET store=?, address=?, eta=?, phone=?, hours=?, maps_url=? WHERE id=?")
+        .bind(l.store, l.address, l.eta, l.phone, String(l.hours || "").trim(), String(l.mapsUrl || "").trim(), l.id)));
   }
   return c.json({ ok: true, settings: next });
 });
@@ -823,11 +834,12 @@ admin.post("/locations", requireSuper, async (c) => {
     return c.json({ error: `There is already a store with the id "${id}".` }, 400);
   const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM locations").first();
   await db.prepare(
-    "INSERT INTO locations (id, city, store, address, ship_ngn, ship_usd, eta, phone, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
+    "INSERT INTO locations (id, city, store, address, ship_ngn, ship_usd, eta, phone, hours, maps_url, sort, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)"
   ).bind(
     id, city, store, String(b.address || "").trim(),
     Math.max(0, parseInt(b.shipNGN, 10) || 0), Math.max(0, parseInt(b.shipUSD, 10) || 0),
     String(b.eta || "1–2 days").trim(), String(b.phone || "").trim(),
+    String(b.hours || "").trim(), String(b.mapsUrl || "").trim(),
     Number.isFinite(parseInt(b.sort, 10)) ? parseInt(b.sort, 10) : last.s + 1
   ).run();
   // Every existing size gets a stock row at the new store, so it appears in
@@ -847,7 +859,7 @@ admin.patch("/locations/:id", requireSuper, async (c) => {
   const db = c.env.DB;
   const l = await db.prepare("SELECT id FROM locations WHERE id=?").bind(id).first();
   if (!l) return c.json({ error: "No such store." }, 404);
-  const map = { city: "city", store: "store", address: "address", eta: "eta", phone: "phone", sort: "sort", shipNGN: "ship_ngn", shipUSD: "ship_usd", active: "active" };
+  const map = { city: "city", store: "store", address: "address", eta: "eta", phone: "phone", hours: "hours", mapsUrl: "maps_url", sort: "sort", shipNGN: "ship_ngn", shipUSD: "ship_usd", active: "active" };
   const sets = [], vals = [];
   for (const [k, col] of Object.entries(map)) {
     if (b[k] === undefined) continue;
@@ -961,6 +973,329 @@ async function setCollectionProducts(db, id, productIds) {
   });
   await db.batch(stmts);
 }
+
+// ---- Categories (the house's own shelves) ----
+//
+// Categories used to be seeded and then frozen: a product could be filed under
+// one, but nobody could add, rename, describe or retire one without a
+// migration. They are content now, so the team owns them — including which of
+// the default sub-shelves (new arrivals, best sellers, gift sets) each one
+// offers shoppers.
+
+const DEFAULT_SUBCATS = ["new-arrivals", "best-sellers", "gift-sets"];
+const CAT_GROUPS = ["", "fragrance", "gift", "care"];
+
+const categoryOut = (x, counts) => ({
+  id: x.id, label: x.label, desc: x.descr || "", sort: x.sort, live: !!x.live,
+  grp: x.grp || "", imageUrl: x.image_url || null,
+  subcats: readSubcats(x.subcats),
+  products: counts[x.id] || 0,
+});
+
+function readSubcats(raw) {
+  let v;
+  try { v = JSON.parse(raw || "[]"); } catch { v = []; }
+  if (!Array.isArray(v)) v = [];
+  // Only the sub-shelves the storefront can actually render, in a fixed order
+  // so two categories never present the same three in a different sequence.
+  return DEFAULT_SUBCATS.filter((s) => v.includes(s));
+}
+
+async function categoryCounts(db) {
+  const rows = (await db.prepare("SELECT cat, COUNT(*) AS n FROM products GROUP BY cat").all()).results;
+  return Object.fromEntries(rows.map((r) => [r.cat, r.n]));
+}
+
+admin.get("/categories", async (c) => {
+  const db = c.env.DB;
+  const rows = (await db.prepare("SELECT * FROM categories ORDER BY sort, id").all()).results;
+  const counts = await categoryCounts(db);
+  return c.json({ categories: rows.map((x) => categoryOut(x, counts)), subcatOptions: DEFAULT_SUBCATS, groups: CAT_GROUPS });
+});
+
+admin.post("/categories", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const label = String(b.label || "").trim();
+  if (!label) return c.json({ error: "Give the category a name." }, 400);
+  const base = String(b.id || label).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (!base) return c.json({ error: "That name doesn't make a usable id." }, 400);
+  if (await db.prepare("SELECT id FROM categories WHERE id=?").bind(base).first())
+    return c.json({ error: `There is already a category with the id "${base}".` }, 400);
+  const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM categories").first();
+  const subcats = Array.isArray(b.subcats) ? DEFAULT_SUBCATS.filter((x) => b.subcats.includes(x)) : DEFAULT_SUBCATS;
+  await db.prepare("INSERT INTO categories (id, label, descr, sort, live, grp, image_url, subcats) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(base, label, String(b.desc || "").trim(), Number.isFinite(parseInt(b.sort, 10)) ? parseInt(b.sort, 10) : last.s + 1,
+      b.live === false ? 0 : 1, CAT_GROUPS.includes(b.grp) ? b.grp : "", String(b.imageUrl || "").trim() || null,
+      JSON.stringify(subcats)).run();
+  return c.json({ ok: true, id: base });
+});
+
+admin.patch("/categories/:id", async (c) => {
+  const b = await c.req.json();
+  const id = c.req.param("id");
+  const db = c.env.DB;
+  if (!(await db.prepare("SELECT id FROM categories WHERE id=?").bind(id).first())) return c.json({ error: "No such category." }, 404);
+  const sets = [], vals = [];
+  const push = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.label !== undefined) push("label", String(b.label).trim());
+  if (b.desc !== undefined) push("descr", String(b.desc).trim());
+  if (b.sort !== undefined) push("sort", parseInt(b.sort, 10) || 0);
+  if (b.live !== undefined) push("live", b.live ? 1 : 0);
+  if (b.grp !== undefined) push("grp", CAT_GROUPS.includes(b.grp) ? b.grp : "");
+  if (b.imageUrl !== undefined) push("image_url", String(b.imageUrl).trim() || null);
+  if (Array.isArray(b.subcats)) push("subcats", JSON.stringify(DEFAULT_SUBCATS.filter((x) => b.subcats.includes(x))));
+  // Hiding the last live category would empty the storefront's menu entirely.
+  if (b.live === false) {
+    const others = await db.prepare("SELECT COUNT(*) AS n FROM categories WHERE live=1 AND id<>?").bind(id).first();
+    if (!others.n) return c.json({ error: "This is the only live category — make another live before hiding this one." }, 400);
+  }
+  if (!sets.length) return c.json({ ok: true });
+  vals.push(id);
+  await db.prepare(`UPDATE categories SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+// A category with products in it is the shelf those products live on — deleting
+// it would break the foreign key that keeps them findable, so it is refused
+// with the count rather than cascading. Move the products first, or hide it.
+admin.delete("/categories/:id", async (c) => {
+  const id = c.req.param("id");
+  const db = c.env.DB;
+  const used = await db.prepare("SELECT COUNT(*) AS n FROM products WHERE cat=?").bind(id).first();
+  if (used.n) return c.json({ error: `${used.n} product${used.n === 1 ? " is" : "s are"} filed under this category — move them first, or hide it instead.` }, 400);
+  const others = await db.prepare("SELECT COUNT(*) AS n FROM categories WHERE id<>?").bind(id).first();
+  if (!others.n) return c.json({ error: "A shop needs at least one category." }, 400);
+  await db.prepare("DELETE FROM categories WHERE id=?").bind(id).run();
+  return c.json({ ok: true });
+});
+
+// ---- Deals (a markdown the house runs for a period) ----
+//
+// A promo code is typed; a deal is seen. This is what fills the Deals tab: a
+// title, a badge, the products, and a window it runs inside. Nothing has to be
+// switched off by hand when the window closes.
+
+admin.get("/deals", async (c) => {
+  const db = c.env.DB;
+  const rows = (await db.prepare("SELECT * FROM deals ORDER BY sort, created_at").all()).results;
+  const items = (await db.prepare("SELECT * FROM deal_products ORDER BY sort").all()).results;
+  return c.json({
+    deals: rows.map((d) => ({
+      id: d.id, title: d.title, desc: d.descr, badge: d.badge, status: d.status, sort: d.sort,
+      startsAt: d.starts_at || "", endsAt: d.ends_at || "",
+      live: dealIsLive(d, todayInWAT()),
+      productIds: items.filter((i) => i.deal_id === d.id).map((i) => i.product_id),
+    })),
+  });
+});
+
+admin.post("/deals", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const title = String(b.title || "").trim();
+  if (!title) return c.json({ error: "Give the deal a title." }, 400);
+  const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "deal";
+  const exists = await db.prepare("SELECT id FROM deals WHERE id=?").bind(base).first();
+  const id = exists ? `${base}-${Date.now().toString(36)}` : base;
+  const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM deals").first();
+  await db.prepare("INSERT INTO deals (id, title, descr, badge, starts_at, ends_at, status, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, title, String(b.desc || "").trim(), String(b.badge || "Hot deal").trim(),
+      isoDate(b.startsAt), isoDate(b.endsAt), b.status === "Ended" ? "Ended" : "Active", last.s + 1).run();
+  await setDealProducts(db, id, b.productIds);
+  return c.json({ ok: true, id });
+});
+
+admin.patch("/deals/:id", async (c) => {
+  const b = await c.req.json();
+  const id = c.req.param("id");
+  const db = c.env.DB;
+  if (!(await db.prepare("SELECT id FROM deals WHERE id=?").bind(id).first())) return c.json({ error: "No such deal." }, 404);
+  const sets = [], vals = [];
+  const push = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.title !== undefined) push("title", String(b.title).trim());
+  if (b.desc !== undefined) push("descr", String(b.desc).trim());
+  if (b.badge !== undefined) push("badge", String(b.badge).trim() || "Hot deal");
+  if (b.startsAt !== undefined) push("starts_at", isoDate(b.startsAt));
+  if (b.endsAt !== undefined) push("ends_at", isoDate(b.endsAt));
+  if (b.status !== undefined) push("status", b.status === "Ended" ? "Ended" : "Active");
+  if (b.sort !== undefined) push("sort", parseInt(b.sort, 10) || 0);
+  if (sets.length) {
+    vals.push(id);
+    await db.prepare(`UPDATE deals SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  }
+  if (Array.isArray(b.productIds)) await setDealProducts(db, id, b.productIds);
+  return c.json({ ok: true });
+});
+
+admin.delete("/deals/:id", async (c) => {
+  const id = c.req.param("id");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM deal_products WHERE deal_id=?").bind(id),
+    c.env.DB.prepare("DELETE FROM deals WHERE id=?").bind(id),
+  ]);
+  return c.json({ ok: true });
+});
+
+async function setDealProducts(db, id, productIds) {
+  if (!Array.isArray(productIds)) return;
+  const known = (await db.prepare("SELECT id FROM products").all()).results.map((p) => p.id);
+  const wanted = productIds.filter((p) => known.includes(p));
+  const stmts = [db.prepare("DELETE FROM deal_products WHERE deal_id=?").bind(id)];
+  wanted.forEach((pid, i) => stmts.push(db.prepare("INSERT INTO deal_products (deal_id, product_id, sort) VALUES (?, ?, ?)").bind(id, pid, i)));
+  await db.batch(stmts);
+}
+
+// ---- The blog ----
+//
+// The slug is the URL, so it is derived from the title once and then only ever
+// changed deliberately: renaming a post must not silently break a link someone
+// has shared.
+
+const blogOut = (r) => ({
+  id: r.id, slug: r.slug, title: r.title, excerpt: r.excerpt, body: r.body,
+  coverUrl: r.cover_url || "", author: r.author, tags: r.tags, status: r.status,
+  publishedAt: r.published_at || "", updatedAt: r.updated_at,
+});
+
+async function freeSlug(db, want, exceptId = -1) {
+  const base = String(want || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "post";
+  for (let n = 0; n < 50; n++) {
+    const candidate = n ? `${base}-${n + 1}` : base;
+    const taken = await db.prepare("SELECT id FROM blog_posts WHERE slug=? AND id IS NOT ?").bind(candidate, exceptId).first();
+    if (!taken) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+admin.get("/blog", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT * FROM blog_posts ORDER BY COALESCE(published_at, created_at) DESC").all()).results;
+  return c.json({ posts: rows.map(blogOut) });
+});
+
+admin.post("/blog", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const title = String(b.title || "").trim();
+  if (!title) return c.json({ error: "Give the story a title." }, 400);
+  const slug = await freeSlug(db, b.slug || title);
+  const status = b.status === "published" ? "published" : "draft";
+  const r = await db.prepare(
+    "INSERT INTO blog_posts (slug, title, excerpt, body, cover_url, author, tags, status, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    slug, title, String(b.excerpt || "").trim(), String(b.body || ""), String(b.coverUrl || "").trim() || null,
+    String(b.author || "").trim() || "Majestic Roobee", String(b.tags || "").trim(), status,
+    status === "published" ? (isoDate(b.publishedAt) || new Date().toISOString().slice(0, 19).replace("T", " ")) : null
+  ).run();
+  return c.json({ ok: true, id: r.meta.last_row_id, slug });
+});
+
+admin.patch("/blog/:id", async (c) => {
+  const b = await c.req.json();
+  const id = parseInt(c.req.param("id"), 10);
+  const db = c.env.DB;
+  const cur = await db.prepare("SELECT * FROM blog_posts WHERE id=?").bind(id).first();
+  if (!cur) return c.json({ error: "No such post." }, 404);
+  const sets = [], vals = [];
+  const push = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.title !== undefined) push("title", String(b.title).trim());
+  if (b.slug !== undefined && String(b.slug).trim() && String(b.slug).trim() !== cur.slug) push("slug", await freeSlug(db, b.slug, id));
+  if (b.excerpt !== undefined) push("excerpt", String(b.excerpt).trim());
+  if (b.body !== undefined) push("body", String(b.body));
+  if (b.coverUrl !== undefined) push("cover_url", String(b.coverUrl).trim() || null);
+  if (b.author !== undefined) push("author", String(b.author).trim() || "Majestic Roobee");
+  if (b.tags !== undefined) push("tags", String(b.tags).trim());
+  if (b.status !== undefined) {
+    const status = b.status === "published" ? "published" : "draft";
+    push("status", status);
+    // The publish date is stamped the first time it goes out and then left
+    // alone, so editing a live post doesn't reorder the blog.
+    if (status === "published" && !cur.published_at) push("published_at", new Date().toISOString().slice(0, 19).replace("T", " "));
+  }
+  if (b.publishedAt !== undefined && isoDate(b.publishedAt)) push("published_at", isoDate(b.publishedAt));
+  push("updated_at", new Date().toISOString().slice(0, 19).replace("T", " "));
+  vals.push(id);
+  await db.prepare(`UPDATE blog_posts SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/blog/:id", async (c) => {
+  await c.env.DB.prepare("DELETE FROM blog_posts WHERE id=?").bind(parseInt(c.req.param("id"), 10)).run();
+  return c.json({ ok: true });
+});
+
+// ---- Reviews & testimonials ----
+//
+// Most of the house's proof already lives on Instagram and TikTok, so the admin
+// pastes the link they copied and the server reduces it to the post's id. The
+// kind is inferred from the address rather than chosen from a menu — a pasted
+// Instagram link that has to be labelled "Instagram" is a step that exists only
+// to be got wrong.
+
+const testimonialOut = (t) => ({
+  id: t.id, kind: t.kind, url: t.url, ref: t.ref, embedUrl: embedUrlFor(t.kind, t.ref),
+  author: t.author, handle: t.handle, quote: t.quote, rating: t.rating, city: t.city,
+  productId: t.product_id || "", thumbUrl: t.thumb_url || "", sort: t.sort, live: !!t.live,
+});
+
+admin.get("/testimonials", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT * FROM testimonials ORDER BY sort, id").all()).results;
+  return c.json({ testimonials: rows.map(testimonialOut) });
+});
+
+admin.post("/testimonials", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const url = String(b.url || "").trim();
+  const parsed = parseEmbed(url);
+  const quote = String(b.quote || "").trim();
+  if (parsed.kind === "quote" && !quote)
+    return c.json({ error: url ? "That link isn't an Instagram, TikTok or YouTube post — paste the post's URL, or write the testimonial out as a quote." : "Paste a post link, or write the testimonial out as a quote." }, 400);
+  const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM testimonials").first();
+  const r = await db.prepare(
+    "INSERT INTO testimonials (kind, url, ref, author, handle, quote, rating, city, product_id, thumb_url, sort, live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    parsed.kind, url, parsed.ref, String(b.author || "").trim(), String(b.handle || "").trim(), quote,
+    Math.max(1, Math.min(5, parseInt(b.rating, 10) || 5)), String(b.city || "").trim(),
+    String(b.productId || "").trim() || null, String(b.thumbUrl || "").trim() || null,
+    last.s + 1, b.live === false ? 0 : 1
+  ).run();
+  return c.json({ ok: true, id: r.meta.last_row_id, kind: parsed.kind });
+});
+
+admin.patch("/testimonials/:id", async (c) => {
+  const b = await c.req.json();
+  const id = parseInt(c.req.param("id"), 10);
+  const db = c.env.DB;
+  if (!(await db.prepare("SELECT id FROM testimonials WHERE id=?").bind(id).first())) return c.json({ error: "No such testimonial." }, 404);
+  const sets = [], vals = [];
+  const push = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  // Re-parsing on every URL change keeps kind and ref in step with the link.
+  if (b.url !== undefined) {
+    const parsed = parseEmbed(b.url);
+    push("url", String(b.url).trim());
+    push("kind", parsed.kind);
+    push("ref", parsed.ref);
+  }
+  if (b.author !== undefined) push("author", String(b.author).trim());
+  if (b.handle !== undefined) push("handle", String(b.handle).trim());
+  if (b.quote !== undefined) push("quote", String(b.quote).trim());
+  if (b.rating !== undefined) push("rating", Math.max(1, Math.min(5, parseInt(b.rating, 10) || 5)));
+  if (b.city !== undefined) push("city", String(b.city).trim());
+  if (b.productId !== undefined) push("product_id", String(b.productId).trim() || null);
+  if (b.thumbUrl !== undefined) push("thumb_url", String(b.thumbUrl).trim() || null);
+  if (b.sort !== undefined) push("sort", parseInt(b.sort, 10) || 0);
+  if (b.live !== undefined) push("live", b.live ? 1 : 0);
+  if (!sets.length) return c.json({ ok: true });
+  vals.push(id);
+  await db.prepare(`UPDATE testimonials SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/testimonials/:id", async (c) => {
+  await c.env.DB.prepare("DELETE FROM testimonials WHERE id=?").bind(parseInt(c.req.param("id"), 10)).run();
+  return c.json({ ok: true });
+});
 
 // ---- Media (product imagery) ----
 // Upload the raw file as the request body with its content-type. Stored in D1

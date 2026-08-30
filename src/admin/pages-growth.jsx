@@ -417,6 +417,33 @@ export function SettingsPage({ ctx }) {
         </div>
         <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => { setForm({ ...form, promoPopup: e.target.checked }); setSaved(false); }} />
       </div>
+      <div style={section}>
+        {sectionHead("Shelves & social proof", "What the header's shelves read from, and whether shoppers see live purchases.")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="A product is “new” for (days)" value={form.newArrivalDays ?? ""} onChange={set("newArrivalDays")} placeholder="45"
+            hint="After this it drops off New arrivals — unless you pin it on the product." />
+          <Input label="Best sellers counted over (days)" value={form.bestSellerDays ?? ""} onChange={set("bestSellerDays")} placeholder="90"
+            hint="Only paid, uncancelled orders count." />
+        </div>
+        <Switch label="Show live purchases to shoppers" checked={form.purchasePopups ?? true} onChange={(e) => { setForm({ ...form, purchasePopups: e.target.checked }); setSaved(false); }} />
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          A small note in the corner — “Dorothy from Abuja purchased Osk 30ml”. Built from real paid orders; only a first name and city ever leave the server.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Look back over (days)" value={form.purchasePopupDays ?? ""} onChange={set("purchasePopupDays")} placeholder="30" />
+          <Input label="Seconds between notes" value={form.purchasePopupIntervalMs ? Math.round(form.purchasePopupIntervalMs / 1000) : ""}
+            onChange={(e) => { setForm({ ...form, purchasePopupIntervalMs: (parseInt(e.target.value, 10) || 0) * 1000 }); setSaved(false); }} placeholder="14" />
+        </div>
+      </div>
+      <div style={section}>
+        {sectionHead("Journal & reviews", "The headings above the blog and the testimonials wall.")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Journal heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="The journal" />
+          <Input label="Reviews heading" value={form.reviewsHeadline || ""} onChange={set("reviewsHeadline")} placeholder="Reviews & testimonials" />
+        </div>
+        <Textarea label="Journal intro" value={form.blogIntro || ""} onChange={set("blogIntro")} rows={2} />
+        <Textarea label="Reviews intro" value={form.reviewsIntro || ""} onChange={set("reviewsIntro")} rows={2} />
+      </div>
       <StoresSection ctx={ctx} />
       <div style={{ ...section, gap: 14 }}>
         {sectionHead("Contact details", "Shown on the Contact page and in the concierge.")}
@@ -482,7 +509,7 @@ function StoresSection({ ctx }) {
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const blank = { city: "", store: "", address: "", eta: "1–2 days", phone: "", shipNGN: "2500", shipUSD: "4" };
+  const blank = { city: "", store: "", address: "", eta: "1–2 days", phone: "", hours: "", mapsUrl: "", shipNGN: "2500", shipUSD: "4" };
 
   const startEdit = (l) => { setErr(""); setAdding(false); setEditId(l.id); setDraft({ ...l, shipNGN: String(l.shipNGN), shipUSD: String(l.shipUSD) }); };
   const startAdd = () => { setErr(""); setEditId(null); setAdding(true); setDraft({ ...blank }); };
@@ -536,6 +563,10 @@ function StoresSection({ ctx }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Input label="Delivery fee (₦)" value={draft ? draft.shipNGN : ""} onChange={set("shipNGN")} placeholder="2500" hint="Charged when this store ships to its own city." />
         <Input label="Delivery fee ($)" value={draft ? draft.shipUSD : ""} onChange={set("shipUSD")} placeholder="4" />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Input label="Opening hours" value={draft ? draft.hours || "" : ""} onChange={set("hours")} placeholder="Mon–Sat, 9am–7pm" hint="Shown on the Locations page." />
+        <Input label="Map link" value={draft ? draft.mapsUrl || "" : ""} onChange={set("mapsUrl")} placeholder="https://maps.app.goo.gl/…" hint="Becomes the “Get directions” link." />
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <Button variant="primary" size="sm" disabled={busy} onClick={save}>{busy ? "Saving…" : adding ? "Open this store" : "Save changes"}</Button>

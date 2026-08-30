@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../lib/api.js";
 import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
-import { HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage } from "./pages.jsx";
+import {
+  HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage,
+  WishlistPage, BrandsPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage,
+} from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
@@ -42,6 +45,11 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [fCat, setFCat] = useState(initialRoute.fCat || "all");
   const [fCol, setFCol] = useState(initialRoute.fCol || null);   // a collection, when one is chosen
+  // The header's merchandising shelves: "new-arrivals" | "best-sellers" |
+  // "deals" | "gift-sets". Which products are on each is the server's answer
+  // (worker/merch.js) — this only says which shelf is being looked at.
+  const [fSeg, setFSeg] = useState(initialRoute.fSeg || null);
+  const [fBrand, setFBrand] = useState(initialRoute.fBrand || "");
   const [fScope, setFScope] = useState("city");    // "city" = my store's shelf, "all" = every store
   const [fSort, setFSort] = useState("featured");
   const [plan, setPlan] = useState(null);          // server's fulfilment plan for this cart
@@ -68,6 +76,18 @@ export default function App() {
   // Present only when the shopper arrived from a password-reset email.
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get("reset") || "");
   const [custData, setCustData] = useState({ addresses: [], wishlist: [], orders: [] });
+  // A shopper can save things long before they make an account, so the wishlist
+  // starts in their browser and is handed to the server the moment they sign in.
+  const [guestWish, setGuestWish] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("mr-wishlist") || "[]"); } catch { return []; }
+  });
+  const [postSlug, setPostSlug] = useState(initialRoute.postSlug || null);
+  const [blog, setBlog] = useState({ posts: [], tags: [], loaded: false });
+  const [post, setPost] = useState(null);
+  const [blogTag, setBlogTag] = useState("");
+  // Real, paid purchases, shown to the next shopper. Fetched once — this is a
+  // note about what the house has been selling, not a live feed to poll.
+  const [proof, setProof] = useState({ enabled: false, purchases: [], intervalMs: 14000 });
   const w = useWindowWidth();
   const isMobile = w < 860;
 
@@ -127,12 +147,29 @@ export default function App() {
     try { localStorage.setItem("mr-cart", JSON.stringify(cart)); } catch {}
   }, [cart]);
 
+  useEffect(() => {
+    try { localStorage.setItem("mr-wishlist", JSON.stringify(guestWish)); } catch {}
+  }, [guestWish]);
+
+  // Purchase proof, once per visit.
+  useEffect(() => {
+    api.get("/api/social-proof").then(setProof).catch(() => {});
+  }, []);
+
   const nav = useCallback((p, extra = {}) => {
     setPage(p);
     setMnav(false);
     setCartOpen(false);
     if (extra.fCat !== undefined) { setFCat(extra.fCat); setFCol(null); }
     if (extra.fCol !== undefined) { setFCol(extra.fCol); setFCat("all"); }
+    // Leaving the shop grid by any route that doesn't name a shelf or a brand
+    // clears both, so "/shop" never quietly keeps yesterday's filter on it.
+    if (p === "shop") {
+      setFSeg(extra.fSeg ?? null);
+      setFBrand(extra.fBrand ?? "");
+      if (extra.fSeg !== undefined && extra.fCat === undefined) setFCat("all");
+    }
+    if (extra.postSlug !== undefined) setPostSlug(extra.postSlug);
     if (extra.productId !== undefined) {
       setProductId(extra.productId);
       setPrVariantId(extra.prVariantId ?? null);
@@ -152,6 +189,9 @@ export default function App() {
       if (r.page === "product") { setPrVariantId(null); setPrSku(r.prSku || null); }
       setFCat(r.fCat || "all");
       setFCol(r.fCol || null);
+      setFSeg(r.fSeg || null);
+      setFBrand(r.fBrand || "");
+      setPostSlug(r.postSlug || null);
       setMnav(false);
       setCartOpen(false);
       window.scrollTo(0, 0);
@@ -169,8 +209,22 @@ export default function App() {
   }, [custToken]);
   useEffect(() => { loadCust(); }, [loadCust]);
 
-  const custRegister = useCallback(async (payload) => { const r = await api.post("/api/account/register", payload); localStorage.setItem("mr-cust-token", r.token); setCustToken(r.token); setCust(r.customer); }, []);
-  const custLogin = useCallback(async (email, password) => { const r = await api.post("/api/account/login", { email, password }); localStorage.setItem("mr-cust-token", r.token); setCustToken(r.token); setCust(r.customer); }, []);
+  // Whatever was saved as a guest belongs to the account being opened. Read
+  // straight from storage rather than from state so this can be called from
+  // inside sign-in without dragging the list through its dependencies.
+  const mergeGuestWishlist = useCallback(async (token) => {
+    let ids = [];
+    try { ids = JSON.parse(localStorage.getItem("mr-wishlist") || "[]"); } catch {}
+    if (!Array.isArray(ids) || !ids.length) return;
+    try {
+      await api.post("/api/account/wishlist/merge", { productIds: ids }, token);
+      localStorage.setItem("mr-wishlist", "[]");
+      setGuestWish([]);
+    } catch { /* the guest list stays in the browser and merges next sign-in */ }
+  }, []);
+
+  const custRegister = useCallback(async (payload) => { const r = await api.post("/api/account/register", payload); localStorage.setItem("mr-cust-token", r.token); await mergeGuestWishlist(r.token); setCustToken(r.token); setCust(r.customer); }, [mergeGuestWishlist]);
+  const custLogin = useCallback(async (email, password) => { const r = await api.post("/api/account/login", { email, password }); localStorage.setItem("mr-cust-token", r.token); await mergeGuestWishlist(r.token); setCustToken(r.token); setCust(r.customer); }, [mergeGuestWishlist]);
   const custLogout = useCallback(() => { localStorage.removeItem("mr-cust-token"); setCustToken(""); setCust(null); setCustData({ addresses: [], wishlist: [], orders: [] }); nav("home"); }, [nav]);
   // The server answers the same way whether or not the address is known, so
   // this hands back its message rather than deciding one of its own.
@@ -191,13 +245,19 @@ export default function App() {
   const updateProfile = useCallback(async (p) => { await api.patch("/api/account/me", p, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
   const addAddress = useCallback(async (a) => { await api.post("/api/account/addresses", a, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
   const removeAddress = useCallback(async (id) => { await api.del(`/api/account/addresses/${id}`, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
+  // Saving something must never be the moment a shopper is asked to register —
+  // a guest's wishlist lives in their browser and follows them into an account
+  // when they eventually make one.
   const toggleWishlist = useCallback(async (productId) => {
     const tok = localStorage.getItem("mr-cust-token");
-    if (!tok) { nav("account"); return; }
+    if (!tok) {
+      setGuestWish((wl) => (wl.includes(productId) ? wl.filter((x) => x !== productId) : wl.concat(productId)));
+      return;
+    }
     const has = custData.wishlist.includes(productId);
     setCustData((d) => ({ ...d, wishlist: has ? d.wishlist.filter((x) => x !== productId) : d.wishlist.concat(productId) }));
     try { if (has) await api.del(`/api/account/wishlist/${productId}`, tok); else await api.post("/api/account/wishlist", { productId }, tok); } catch { loadCust(); }
-  }, [custData.wishlist, nav, loadCust]);
+  }, [custData.wishlist, loadCust]);
 
   // The waitlist is per variation — someone waiting on the 50ml shouldn't be
   // told it's back because the 30ml was restocked.
@@ -217,6 +277,16 @@ export default function App() {
   const products = useMemo(() => (D ? D.products : EMPTY_ARR), [D]);
   const categories = useMemo(() => (D ? D.categories : EMPTY_ARR), [D]);
   const collections = useMemo(() => (D ? (D.collections || EMPTY_ARR) : EMPTY_ARR), [D]);
+  // The header's shelves, the brands page, the reviews wall and the journal
+  // strip all come down with the catalogue — one request, not five.
+  const segments = useMemo(() => (D ? (D.segments || EMPTY_OBJ) : EMPTY_OBJ), [D]);
+  const deals = useMemo(() => (D ? (D.deals || EMPTY_ARR) : EMPTY_ARR), [D]);
+  const brands = useMemo(() => (D ? (D.brands || EMPTY_ARR) : EMPTY_ARR), [D]);
+  const testimonials = useMemo(() => (D ? (D.testimonials || EMPTY_ARR) : EMPTY_ARR), [D]);
+  const latestPosts = useMemo(() => (D ? (D.blog || EMPTY_ARR) : EMPTY_ARR), [D]);
+  // One list of saved product ids whoever is looking: the account's when signed
+  // in, the browser's when not.
+  const wishlist = useMemo(() => (cust ? custData.wishlist : guestWish), [cust, custData.wishlist, guestWish]);
   // Which payment methods the server will actually accept. Defaults to card
   // being available so the option doesn't flicker away on a slow bootstrap.
   const payMethods = useMemo(() => (D && D.pay ? D.pay : { paystack: true, transfer: true, whatsapp: true }), [D]);
@@ -305,7 +375,7 @@ export default function App() {
       catLabel: catLabel(p.cat),
       optionName: (p.optionNames && p.optionNames[0]) || "Size",
       href: "/product/" + p.id + (variants.length > 1 || e.split ? `?variant=${encodeURIComponent(def.sku || "")}` : ""),
-      wished: custData.wishlist.includes(p.id),
+      wished: wishlist.includes(p.id),
       toggleWish: () => toggleWishlist(p.id),
       defaultVariantId: def.id,
       // "From ₦25,000" only when the picker is genuinely showing a range.
@@ -330,7 +400,7 @@ export default function App() {
         };
       }),
     };
-  }, [variantAvail, defaultVariant, catLabel, fmt, nav, addToCart, custData.wishlist, toggleWishlist, joinWaitlist]);
+  }, [variantAvail, defaultVariant, catLabel, fmt, nav, addToCart, wishlist, toggleWishlist, joinWaitlist]);
 
   // Cart derivation (subtotal, shipping, discount, routing)
   const cc = useMemo(() => {
@@ -418,6 +488,24 @@ export default function App() {
     if (fallback) setCo((s) => ({ ...s, pay: fallback }));
   }, [payMethods, co.pay]);
 
+  // The journal is fetched when it is first opened, not with the catalogue —
+  // most visits never go there, and the home page already has its three cards.
+  useEffect(() => {
+    if (page !== "blog" || blog.loaded) return;
+    api.get("/api/blog").then((r) => setBlog({ posts: r.posts, tags: r.tags, loaded: true })).catch(() => setBlog((b) => ({ ...b, loaded: true })));
+  }, [page, blog.loaded]);
+
+  useEffect(() => {
+    if (page !== "post" || !postSlug) return;
+    if (post && post.post && post.post.slug === postSlug) return;
+    setPost(null);
+    let live = true;
+    api.get(`/api/blog/${encodeURIComponent(postSlug)}`)
+      .then((r) => { if (live) setPost(r); })
+      .catch((e) => { if (live) setPost({ error: e.message }); });
+    return () => { live = false; };
+  }, [page, postSlug, post]);
+
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
   useEffect(() => { if (D && consent === "granted") startAnalytics(D.settings); }, [D, consent]);
@@ -427,13 +515,18 @@ export default function App() {
     // The head describes the selected variation — its price, its photo, its own
     // canonical URL — so a shared link previews what the shopper actually saw.
     const variant = product && (product.variants.find((v) => v.id === prVariantId || (prSku && v.sku === prSku)) || defaultVariant(product.variants));
-    setHead(headFor({ page, product, variant, settings, categories }));
+    setHead(headFor({
+      page, product, variant, settings, categories,
+      segment: fSeg,
+      brand: fBrand ? (brands.find((b) => b.id === fBrand) || { name: fBrand }).name : "",
+      post: post && post.post ? post.post : null,
+    }));
     trackEvent("page_view");
     if (product && variant) trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
     if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
     if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, productId, prVariantId, prSku, D, consent]);
+  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fBrand, post]);
 
   // Prefill checkout for a signed-in customer, once per visit to the page.
   const prefilled = useRef(false);
@@ -617,8 +710,11 @@ export default function App() {
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
     fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
-    collections,
+    collections, segments, deals, brands, testimonials, latestPosts,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
+    fSeg, setFSeg, fBrand, setFBrand,
+    blog, blogTag, setBlogTag, post, postSlug,
+    proof,
     plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
@@ -631,6 +727,7 @@ export default function App() {
     grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
     denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
     cust, custData, custRegister, custLogin, custLogout, updateProfile, addAddress, removeAddress, toggleWishlist, joinWaitlist,
+    wishlist,
     resetToken, custForgotPassword, custResetPassword,
   };
 
@@ -645,6 +742,12 @@ export default function App() {
     page === "contact" ? <ContactPage ctx={ctx} /> :
     page === "privacy" ? <PrivacyPage ctx={ctx} /> :
     page === "account" ? <AccountPage ctx={ctx} /> :
+    page === "wishlist" ? <WishlistPage ctx={ctx} /> :
+    page === "brands" ? <BrandsPage ctx={ctx} /> :
+    page === "locations" ? <LocationsPage ctx={ctx} /> :
+    page === "reviews" ? <ReviewsPage ctx={ctx} /> :
+    page === "blog" ? <BlogPage ctx={ctx} /> :
+    page === "post" ? <BlogPostPage ctx={ctx} /> :
     <HomePage ctx={ctx} />;
 
   return <Chrome ctx={ctx}>{pageEl}</Chrome>;

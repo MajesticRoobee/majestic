@@ -1,117 +1,22 @@
 // Storefront pages — ported from "Majestic Roobee Storefront.dc.html".
 import React, { useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "../ds/components.jsx";
+import { ProductCard } from "./product-card.jsx";
+import { EmbedCard } from "./pages-content.jsx";
+
+export { ProductCard };
+export { WishlistPage, BrandsPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody } from "./pages-content.jsx";
+export { EmbedCard };
 
 const PAD = "clamp(16px, 4vw, 40px)";
 
-function AvailBadge({ p }) {
-  return (
-    <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: "var(--radius-pill)", background: p.badgeBg, color: p.badgeFg, boxShadow: p.outline ? "inset 0 0 0 1px var(--border-strong)" : "none" }}>
-      {p.avail}
-    </span>
-  );
-}
-
-function WishHeart({ wished, onClick, size = 32 }) {
-  return (
-    <button onClick={(e) => { e.stopPropagation(); onClick(); }} aria-label={wished ? "Remove from wishlist" : "Save to wishlist"} title={wished ? "Saved" : "Save to wishlist"}
-      style={{ position: "absolute", top: 10, right: 10, width: size, height: size, borderRadius: "50%", border: "none", cursor: "pointer", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "var(--shadow-sm)" }}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill={wished ? "var(--mr-orchid-500)" : "none"} stroke={wished ? "var(--mr-orchid-500)" : "var(--mr-purple-800)"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>
-    </button>
-  );
-}
-
-// The variation picker on a listing card. Chips rather than a dropdown so the
-// shopper sees every option without opening anything; below ~3 options a
-// <select> would hide exactly the choice we want them to make. Past four
-// options the chips wrap, which is why very long lists fall back to a select.
-function VariantChips({ variants, selectedId, onSelect, optionName }) {
-  const useSelect = variants.length > 4;
-  if (useSelect) {
-    return (
-      <select
-        aria-label={optionName}
-        value={selectedId}
-        onChange={(e) => onSelect(parseInt(e.target.value, 10))}
-        style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "8px 10px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer", width: "100%" }}>
-        {variants.map((v) => (
-          <option key={v.id} value={v.id}>{v.label} — {v.priceLabel}{v.soldOut ? " · sold out" : ""}</option>
-        ))}
-      </select>
-    );
-  }
-  return (
-    <div role="group" aria-label={optionName} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {variants.map((v) => {
-        const on = v.id === selectedId;
-        return (
-          <button
-            key={v.id}
-            onClick={(e) => { e.stopPropagation(); onSelect(v.id); }}
-            aria-pressed={on}
-            title={v.soldOut ? `${v.label} — out of stock` : `${v.label} — ${v.priceLabel}`}
-            style={{
-              cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500,
-              padding: "5px 11px", borderRadius: "var(--radius-pill)",
-              border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`,
-              background: on ? "var(--mr-purple-900)" : "var(--surface-card)",
-              color: on ? "var(--mr-cream)" : v.soldOut ? "var(--text-muted)" : "var(--mr-purple-800)",
-              textDecoration: v.soldOut ? "line-through" : "none",
-              transition: "all var(--dur-fast) var(--ease-standard)",
-            }}>
-            {v.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-export function ProductCard({ p, height = 230 }) {
-  const [selId, setSelId] = useState(p ? p.defaultVariantId : null);
-  // `card()` yields nothing for a product with no sellable variation.
-  if (!p) return null;
-  // The catalogue can reload under a mounted card (a placed order refreshes
-  // stock); fall back to the default rather than rendering nothing.
-  const v = p.variants.find((x) => x.id === selId) || p.variants.find((x) => x.id === p.defaultVariantId) || p.variants[0];
-  const multi = p.variants.length > 1;
-  return (
-    <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
-      <div style={{ position: "relative" }}>
-        <div onClick={v.open} style={{ cursor: "pointer" }}>
-          <ImageSlot src={v.imageUrl} name={p.name} sizes="(max-width: 640px) 92vw, (max-width: 1100px) 45vw, 300px" style={{ width: "100%", height }} />
-        </div>
-        {p.toggleWish && <WishHeart wished={p.wished} onClick={p.toggleWish} />}
-      </div>
-      <div style={{ padding: "16px 18px 18px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-        <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-          {p.catLabel}
-        </div>
-        <a href={p.href} onClick={(e) => { e.preventDefault(); v.open(); }} style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", lineHeight: 1.25 }}>
-          {/* A split card already carries the variation in its name. */}
-          {p.name} {!multi && !p.split && <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>{v.label}</span>}
-        </a>
-        {multi && (
-          <div style={{ marginTop: 4 }}>
-            <VariantChips variants={p.variants} selectedId={v.id} onSelect={setSelId} optionName={p.optionName} />
-          </div>
-        )}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: "auto", paddingTop: 8 }}>
-          <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span style={{ fontWeight: 600, fontSize: 15, color: "var(--mr-purple-900)" }}>{v.priceLabel}</span>
-            {v.compareAtLabel && <span style={{ fontSize: 12, color: "var(--text-muted)", textDecoration: "line-through" }}>{v.compareAtLabel}</span>}
-          </span>
-          <AvailBadge p={v} />
-        </div>
-        {/* Never disabled: a sold-out variation still offers "Notify me". */}
-        <Button variant="secondary" size="sm" block onClick={v.add}>{v.addLabel}</Button>
-      </div>
-    </div>
-  );
-}
-
 export function HomePage({ ctx }) {
-  const { settings, products, categories, cityName, L } = ctx;
+  const { settings, products, categories, cityName, L, testimonials, latestPosts } = ctx;
+  // Four pieces from whatever is marked down right now, and the deal they sit
+  // under when there is exactly one running — a strip that names its reason.
+  const dealIds = (ctx.segments.deals || []).slice(0, 4);
+  const dealPicks = dealIds.map((id) => ctx.listings.find((e) => e.product.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
+  const runningDeal = ctx.deals.length === 1 ? ctx.deals[0] : null;
   const dir = settings.heroDirection || "editorial split";
   const sellable = products.filter((p) => p.variants && p.variants.length);
   const inCity = sellable.filter((p) => ctx.availInfo(p).inCity).slice(0, 4).map(ctx.card).filter(Boolean);
@@ -230,23 +135,111 @@ export function HomePage({ ctx }) {
         </div>
       </section>
 
-      <section style={{ background: "var(--surface-inverse)", marginTop: "clamp(48px, 8vw, 88px)" }}>
-        <div style={{ maxWidth: 900, margin: "0 auto", padding: `clamp(48px, 7vw, 80px) ${PAD}`, textAlign: "center" }}>
-          <GildedRule width="200px" style={{ margin: "18px auto" }} />
-          <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(22px, 2.6vw, 30px)", fontWeight: 300, lineHeight: 1.5, color: "var(--mr-cream)", margin: "24px 0 18px" }}>
-            "The full-day assassination package gave me everything I needed in a perfume — countless hugs and everyday compliments."
-          </p>
-          <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--text-on-dark-muted)" }}>Sally Benson — verified queen</div>
-        </div>
-      </section>
+      {dealPicks.length > 0 && (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD} 0` }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
+            <div>
+              <Eyebrow>While it lasts</Eyebrow>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
+                {runningDeal ? runningDeal.title : "Hot deals"}
+              </h2>
+              {runningDeal && runningDeal.desc && <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "6px 0 0", maxWidth: "58ch" }}>{runningDeal.desc}</p>}
+            </div>
+            <a href="/deals" onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fSeg: "deals" }); }} style={{ fontSize: 13.5, fontWeight: 500 }}>See every deal —</a>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
+            {dealPicks.map((p) => <ProductCard key={p.key} p={p} />)}
+          </div>
+        </section>
+      )}
+
+      {/* Reviews & testimonials — the customers' own posts, embedded. */}
+      {testimonials.length > 0 ? (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
+            <div>
+              <Eyebrow>In their own words</Eyebrow>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
+                {settings.reviewsHeadline || "Reviews & testimonials"}
+              </h2>
+            </div>
+            <a href="/reviews" onClick={(e) => { e.preventDefault(); ctx.nav("reviews"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>See them all —</a>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 20, alignItems: "start" }}>
+            {testimonials.slice(0, 3).map((t) => <EmbedCard key={t.id} t={t} height={430} />)}
+          </div>
+        </section>
+      ) : (
+        <section style={{ background: "var(--surface-inverse)", marginTop: "clamp(48px, 8vw, 88px)" }}>
+          <div style={{ maxWidth: 900, margin: "0 auto", padding: `clamp(48px, 7vw, 80px) ${PAD}`, textAlign: "center" }}>
+            <GildedRule width="200px" style={{ margin: "18px auto" }} />
+            <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(22px, 2.6vw, 30px)", fontWeight: 300, lineHeight: 1.5, color: "var(--mr-cream)", margin: "24px 0 18px" }}>
+              "The full-day assassination package gave me everything I needed in a perfume — countless hugs and everyday compliments."
+            </p>
+            <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--text-on-dark-muted)" }}>Sally Benson — verified queen</div>
+          </div>
+        </section>
+      )}
+
+      {/* The journal — three most recent stories. */}
+      {latestPosts.length > 0 && (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
+            <div>
+              <Eyebrow>From the house</Eyebrow>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
+                {settings.blogHeadline || "The journal"}
+              </h2>
+            </div>
+            <a href="/blog" onClick={(e) => { e.preventDefault(); ctx.nav("blog"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read the journal —</a>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
+            {latestPosts.map((p) => (
+              <a key={p.slug} href={`/blog/${p.slug}`} onClick={(e) => { e.preventDefault(); ctx.nav("post", { postSlug: p.slug }); }} className="mr-lift"
+                style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
+                <ImageSlot src={p.coverUrl} name={p.title} sizes="(max-width: 640px) 92vw, 300px" style={{ width: "100%", height: 170 }} />
+                <div style={{ padding: "16px 18px 20px" }}>
+                  <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>{p.published || "Journal"}</div>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>
+                  {p.excerpt && <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.65, margin: "6px 0 0" }}>{p.excerpt}</p>}
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
     </main>
   );
 }
 
+// The shop grid, and every shelf the header leads to.
+//
+// "New arrivals", "Best sellers", "Deals" and "Gift sets" are this same grid
+// with one filter already applied — which products are on each shelf is the
+// server's answer (worker/merch.js), so the browser never has to decide what
+// counts as new or what has sold well. Category, sub-shelf, brand, collection
+// and search all compose, so "gift sets in body mists" is one address.
+const SEGMENT_COPY = {
+  "new-arrivals": { eyebrow: "Just landed", title: "New arrivals", sub: "The newest pieces to reach the house — freshest first." },
+  "best-sellers": { eyebrow: "Most followed", title: "Best sellers", sub: "What our customers keep coming back for, counted from real orders." },
+  deals: { eyebrow: "While it lasts", title: "Hot deals", sub: "Everything marked down right now. When a deal's window closes it leaves this page on its own." },
+  "gift-sets": { eyebrow: "Ready to give", title: "Gift sets", sub: "Fragrance, mist and custom-oil sets, boxed and ready." },
+};
+
 export function ShopPage({ ctx }) {
-  const { listings, categories, collections, cityName } = ctx;
+  const { listings, categories, collections, cityName, segments } = ctx;
   const searching = !!ctx.search.trim();
   const collection = collections.find((c) => c.id === ctx.fCol) || null;
+  const seg = ctx.fSeg && segments[ctx.fSeg] ? ctx.fSeg : null;
+  const segIds = seg ? segments[seg] : null;
+  const segRank = segIds ? new Map(segIds.map((id, i) => [id, i])) : null;
+  const segCopy = seg ? SEGMENT_COPY[seg] : null;
+  const brand = ctx.fBrand ? ctx.brands.find((b) => b.id === ctx.fBrand) : null;
+  const brandName = brand ? brand.name : ctx.fBrand;
+  const activeCat = categories.find((c) => c.id === ctx.fCat) || null;
+  // The deals running right now, so the Deals page names them rather than
+  // showing a wall of discounted products with no reason attached.
+  const runningDeals = seg === "deals" ? ctx.deals.filter((d) => d.productIds.length) : [];
   // The grid iterates listing entries, not products: one entry per card. A
   // product with a picker is one entry carrying all its variations; a
   // split-listed product contributes one entry per variation.
@@ -262,10 +255,13 @@ export function ShopPage({ ctx }) {
   let list = listings.filter((e) => {
     const p = e.product;
     if (ctx.fCat !== "all" && p.cat !== ctx.fCat) return false;
+    if (segIds && !segIds.includes(p.id)) return false;
+    if (brandName && (p.brand || "").toLowerCase() !== String(brandName).toLowerCase()) return false;
     if (collection && !collection.productIds.includes(p.id)) return false;
     if (ctx.search) {
-      // Sizes and SKUs are searchable too, now that they are real identities.
-      const hay = (p.name + " " + p.notes + " " + e.variants.map((v) => `${v.size} ${v.sku || ""}`).join(" ")).toLowerCase();
+      // Sizes, SKUs and the brand are searchable too, now that they are real
+      // identities on the product rather than words in its description.
+      const hay = (p.name + " " + p.brand + " " + p.notes + " " + e.variants.map((v) => `${v.size} ${v.sku || ""}`).join(" ")).toLowerCase();
       if (!hay.includes(ctx.search.toLowerCase())) return false;
     }
     if (!searching && ctx.fScope === "city" && !inStockHere(e)) return false;
@@ -277,8 +273,12 @@ export function ShopPage({ ctx }) {
   if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
   else if (ctx.fSort === "high") list = list.slice().sort((a, b) => priceOf(b) - priceOf(a));
   else if (ctx.fSort === "name") list = list.slice().sort((a, b) => a.product.name.localeCompare(b.product.name));
+  // On a shelf, "featured" means the order the shelf itself is in — newest
+  // first on new arrivals, best-selling first on best sellers — rather than
+  // city stock, which would shuffle the ranking the shelf exists to show.
+  else if (segRank) list = list.slice().sort((a, b) => segRank.get(a.product.id) - segRank.get(b.product.id));
   else list = list.slice().sort((a, b) => (inStockHere(b) ? 1 : 0) - (inStockHere(a) ? 1 : 0));
-  const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || ctx.fScope !== "city";
+  const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || !!seg || !!brand || ctx.fScope !== "city";
   const filterCats = [{ id: "all", label: "Everything" }].concat(categories);
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", outline: "none", cursor: "pointer" };
   const chip = (on, onClick, label, key) => (
@@ -286,9 +286,14 @@ export function ShopPage({ ctx }) {
       {label}
     </button>
   );
+  // Every sub-shelf a category offers. Which three (or fewer) it offers is the
+  // admin's choice, category by category.
+  const subLabels = { "new-arrivals": "New arrivals", "best-sellers": "Best sellers", "gift-sets": "Gift sets" };
+  const subShelves = activeCat ? (activeCat.subcats || []) : [];
+  const goto = (extra) => ctx.nav("shop", { fCat: ctx.fCat, fSeg: seg, ...extra });
   // Curated sets lead the page — but only when the shopper is browsing, not
-  // when they have already narrowed to a category, a set or a search.
-  const showStrips = !searching && !collection && ctx.fCat === "all" && collections.length > 0;
+  // when they have already narrowed to a category, a shelf, a set or a search.
+  const showStrips = !searching && !collection && !seg && !brand && ctx.fCat === "all" && collections.length > 0;
   return (
     <main style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
       {showStrips && collections.map((col) => {
@@ -318,25 +323,60 @@ export function ShopPage({ ctx }) {
         );
       })}
 
-      <Eyebrow>{collection ? "Collection" : "The collection"}</Eyebrow>
+      <Eyebrow>{segCopy ? segCopy.eyebrow : brand ? "By the label" : collection ? "Collection" : activeCat ? "The shelf" : "The collection"}</Eyebrow>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>
-        {collection ? collection.title : "All products"}
+        {segCopy
+          ? (activeCat ? `${segCopy.title} — ${activeCat.label}` : segCopy.title)
+          : brand ? brandName
+            : collection ? collection.title
+              : activeCat ? activeCat.label : "All products"}
       </h1>
-      <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px" }}>
-        {collection && collection.desc
-          ? collection.desc
-          : searching
-            ? `Searching every store — pieces held in ${cityName} come first.`
-            : ctx.fScope === "city"
-              ? `On the shelf at our ${cityName} store today.`
-              : `Everything the house carries — pieces held in ${cityName} come first.`}
+      <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px", maxWidth: "62ch", lineHeight: 1.7 }}>
+        {segCopy
+          ? segCopy.sub
+          : brand
+            ? `Every ${brandName} piece the house carries.`
+            : collection && collection.desc
+              ? collection.desc
+              : activeCat && activeCat.desc
+                ? activeCat.desc
+                : searching
+                  ? `Searching every store — pieces held in ${cityName} come first.`
+                  : ctx.fScope === "city"
+                    ? `On the shelf at our ${cityName} store today.`
+                    : `Everything the house carries — pieces held in ${cityName} come first.`}
       </p>
-      {collection && (
-        <button onClick={() => ctx.nav("shop", { fCol: null })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← Back to everything</button>
+
+      {runningDeals.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 14, marginBottom: 26 }}>
+          {runningDeals.map((d) => (
+            <div key={d.id} style={{ background: "var(--surface-card)", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", padding: "16px 18px" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: "var(--accent-gold)", color: "var(--mr-purple-950)" }}>{d.badge}</span>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)", marginTop: 10 }}>{d.title}</div>
+              {d.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>{d.desc}</div>}
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8 }}>
+                {d.productIds.length} {d.productIds.length === 1 ? "piece" : "pieces"}{d.endsAt ? ` · ends ${d.endsAt}` : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(collection || brand) && (
+        <button onClick={() => ctx.nav("shop", { fCat: "all" })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← Back to everything</button>
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        {filterCats.map((c) => chip(ctx.fCat === c.id, () => ctx.setFCat(c.id), c.label, c.id))}
+        {filterCats.map((c) => chip(ctx.fCat === c.id, () => goto({ fCat: c.id }), c.label, c.id))}
       </div>
+      {/* The sub-shelves this category offers — the same three shelves the
+          header carries, narrowed to what is in front of the shopper. */}
+      {subShelves.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontFamily: "var(--font-condensed)", letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>In {activeCat.label}:</span>
+          {chip(!seg, () => goto({ fSeg: null }), "All of it", "sub-all")}
+          {subShelves.map((sc) => chip(seg === sc, () => goto({ fSeg: seg === sc ? null : sc }), subLabels[sc] || sc, sc))}
+        </div>
+      )}
       {/* Shelf vs house. Hidden mid-search, where the scope is always the house. */}
       {!searching && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
@@ -351,7 +391,7 @@ export function ShopPage({ ctx }) {
       )}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 28 }}>
         <select value={ctx.fSort} onChange={(e) => ctx.setFSort(e.target.value)} style={selStyle}>
-          <option value="featured">Sort — {cityName} first</option>
+          <option value="featured">{seg ? `Sort — ${segCopy.title.toLowerCase()} first` : `Sort — ${cityName} first`}</option>
           <option value="low">Price · low to high</option>
           <option value="high">Price · high to low</option>
           <option value="name">Name A–Z</option>
@@ -361,13 +401,17 @@ export function ShopPage({ ctx }) {
           {list.reduce((n, e) => n + e.variants.length, 0)} sizes in total
         </span>
         {filtersDirty && (
-          <button onClick={() => { ctx.setFCat("all"); ctx.setFCol(null); ctx.setFScope("city"); ctx.setSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
+          <button onClick={() => { ctx.setFScope("city"); ctx.setSearch(""); ctx.nav("shop", { fCat: "all" }); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
         )}
       </div>
       {list.length === 0 ? (
         <div style={{ textAlign: "center", padding: "56px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
           <p style={{ fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--text-body)", margin: "0 0 14px" }}>
-            {searching ? `Nothing matches "${ctx.search}" in any of our stores.` : `Nothing on the ${cityName} shelf under this filter.`}
+            {searching
+              ? `Nothing matches "${ctx.search}" in any of our stores.`
+              : seg
+                ? `Nothing on this shelf${activeCat ? ` under ${activeCat.label}` : ""} in ${cityName} today.`
+                : `Nothing on the ${cityName} shelf under this filter.`}
           </p>
           {!searching && ctx.fScope === "city" && scopedOut > 0 && (
             <Button variant="secondary" onClick={() => ctx.setFScope("all")}>Look in every store</Button>
@@ -484,8 +528,8 @@ export function ProductPage({ ctx }) {
               {soldOut ? "Notify me when back" : "Add to cart — " + ctx.fmt(prV.ngn * ctx.prQty)}
             </Button>
             <button onClick={() => ctx.toggleWishlist(pr.id)} style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "12px 18px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, color: "var(--mr-purple-800)" }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill={ctx.custData.wishlist.includes(pr.id) ? "var(--mr-orchid-500)" : "none"} stroke={ctx.custData.wishlist.includes(pr.id) ? "var(--mr-orchid-500)" : "var(--mr-purple-800)"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>
-              {ctx.custData.wishlist.includes(pr.id) ? "Saved" : "Save"}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill={ctx.wishlist.includes(pr.id) ? "var(--mr-orchid-500)" : "none"} stroke={ctx.wishlist.includes(pr.id) ? "var(--mr-orchid-500)" : "var(--mr-purple-800)"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>
+              {ctx.wishlist.includes(pr.id) ? "Saved" : "Save"}
             </button>
           </div>
           <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "18px 20px", marginBottom: 18 }}>

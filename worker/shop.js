@@ -1,6 +1,7 @@
 // Public storefront API.
 import { Hono } from "hono";
-import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal } from "./util.js";
+import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT } from "./util.js";
+import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS } from "./merch.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -56,8 +57,16 @@ shop.get("/store", async (c) => {
   const settings = await getSettings(db);
   const locations = (await activeLocations(db)).map((l) => ({
     id: l.id, city: l.city, store: l.store, address: l.address, shipNGN: l.ship_ngn, shipUSD: l.ship_usd, eta: l.eta, phone: l.phone,
+    // What someone needs to actually walk in — shown on the Locations page.
+    hours: l.hours || "", mapsUrl: l.maps_url || "",
   }));
-  const categories = (await db.prepare("SELECT id, label FROM categories ORDER BY sort").all()).results;
+  const catRows = (await db.prepare("SELECT * FROM categories WHERE live=1 ORDER BY sort, id").all()).results;
+  // A category carries its own sub-shelves now, so the header's mega-menu is
+  // built from this table alone rather than from a list held in the client.
+  const categories = catRows.map((x) => ({
+    id: x.id, label: x.label, desc: x.descr || "", grp: x.grp || "", imageUrl: x.image_url || null,
+    subcats: parseSubcats(x.subcats),
+  }));
   const products = await loadProducts(db, { liveOnly: true });
   const colRows = (await db.prepare("SELECT * FROM collections WHERE live=1 ORDER BY sort, created_at").all()).results;
   const colItems = (await db.prepare("SELECT * FROM collection_products ORDER BY sort").all()).results;
@@ -76,7 +85,165 @@ shop.get("/store", async (c) => {
     transfer: true,
     whatsapp: !!settings.contactPhone,
   };
-  return c.json({ settings, locations, categories, collections, products, popup, pay });
+
+  // ---- The merchandising shelves the header links to ----
+  const today = todayInWAT();
+  const dealRows = (await db.prepare("SELECT * FROM deals ORDER BY sort, created_at").all()).results.filter((d) => dealIsLive(d, today));
+  const dealItems = (await db.prepare("SELECT * FROM deal_products ORDER BY sort").all()).results;
+  const liveIds = new Set(products.map((p) => p.id));
+  const deals = dealRows.map((d) => ({
+    id: d.id, title: d.title, desc: d.descr, badge: d.badge, endsAt: d.ends_at || "",
+    productIds: dealItems.filter((i) => i.deal_id === d.id).map((i) => i.product_id).filter((id) => liveIds.has(id)),
+  }));
+  const segments = computeSegments({
+    products,
+    sales: await bestSellerUnits(db, settings),
+    categories,
+    dealProductIds: deals.flatMap((d) => d.productIds),
+    today,
+    newArrivalDays: settings.newArrivalDays || NEW_ARRIVAL_DAYS,
+  });
+  const brands = brandsOf(products);
+  const testimonials = publicTestimonials(
+    (await db.prepare("SELECT * FROM testimonials WHERE live=1 ORDER BY sort, id").all()).results
+  );
+  // Three most recent posts, for the strip on the home page. The blog page
+  // fetches its own, paged list.
+  const blog = (await db.prepare(
+    "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
+  ).all()).results.map(blogCard);
+
+  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, segments, brands, testimonials, blog });
+});
+
+function parseSubcats(raw) {
+  try {
+    const v = JSON.parse(raw || "[]");
+    return Array.isArray(v) ? v.filter((s) => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+// Units sold per product over the best-seller window. Only orders that were
+// actually paid for count — a cancelled order or an abandoned card attempt is
+// not a sale, and must not be able to push a product onto the shelf.
+async function bestSellerUnits(db, settings) {
+  const days = Math.max(7, Math.min(365, parseInt(settings.bestSellerDays, 10) || 90));
+  const since = daysBefore(days);
+  const rows = (await db.prepare(
+    `SELECT i.product_id AS pid, SUM(i.qty) AS units
+       FROM order_items i JOIN orders o ON o.no = i.order_no
+      WHERE o.status <> 'Cancelled'
+        AND (o.pay_status = 'paid' OR o.pay <> 'Paystack')
+        AND date(o.placed_at) >= ?
+      GROUP BY i.product_id`
+  ).bind(since).all()).results;
+  return rows.map((r) => ({ productId: r.pid, units: r.units }));
+}
+
+// Brands are the labels on the bottles the house actually carries — derived
+// from the catalogue rather than kept in a second list that could drift out of
+// step with it.
+function brandsOf(products) {
+  const by = new Map();
+  for (const p of products) {
+    const name = (p.brand || "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const hit = by.get(key) || { id: key.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), name, count: 0, imageUrl: null };
+    hit.count += 1;
+    hit.imageUrl = hit.imageUrl || p.imageUrl || null;
+    by.set(key, hit);
+  }
+  return [...by.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// The embed URL is built server-side from the stored post id, so the browser
+// never has to parse a pasted link and a malformed one simply has no frame.
+function publicTestimonials(rows) {
+  return rows.map((t) => ({
+    id: t.id, kind: t.kind, embedUrl: embedUrlFor(t.kind, t.ref), url: t.url,
+    author: t.author, handle: t.handle, quote: t.quote, rating: t.rating, city: t.city,
+    productId: t.product_id || null, thumbUrl: t.thumb_url || null,
+  }));
+}
+
+function blogCard(r) {
+  return {
+    slug: r.slug, title: r.title, excerpt: r.excerpt, coverUrl: r.cover_url || null,
+    author: r.author, tags: (r.tags || "").split(",").map((s) => s.trim()).filter(Boolean),
+    publishedAt: r.published_at || "",
+    published: r.published_at ? displayDate(new Date(String(r.published_at).replace(" ", "T") + "Z")) : "",
+  };
+}
+
+// ---- The blog -------------------------------------------------------------
+
+shop.get("/blog", async (c) => {
+  const db = c.env.DB;
+  const tag = String(c.req.query("tag") || "").trim().toLowerCase();
+  const limit = Math.max(1, Math.min(50, parseInt(c.req.query("limit"), 10) || 24));
+  const rows = (await db.prepare(
+    "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT ?"
+  ).bind(limit).all()).results.map(blogCard);
+  const tags = [...new Set(rows.flatMap((r) => r.tags))].sort();
+  return c.json({ posts: tag ? rows.filter((r) => r.tags.some((t) => t.toLowerCase() === tag)) : rows, tags });
+});
+
+shop.get("/blog/:slug", async (c) => {
+  const db = c.env.DB;
+  const row = await db.prepare("SELECT * FROM blog_posts WHERE slug=? AND status='published'").bind(c.req.param("slug")).first();
+  if (!row) return c.json({ error: "That story isn't here." }, 404);
+  const more = (await db.prepare(
+    "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' AND slug<>? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
+  ).bind(row.slug).all()).results.map(blogCard);
+  return c.json({ post: { ...blogCard(row), body: row.body }, more });
+});
+
+// ---- Purchase proof -------------------------------------------------------
+//
+// What the little "someone just bought this" note is built from: real, paid
+// orders, reduced to a first name, a city and what was bought. No surname, no
+// contact detail and no order number ever leaves this endpoint — it is a public
+// route, so what it returns is what anyone can read.
+shop.get("/social-proof", async (c) => {
+  const db = c.env.DB;
+  const settings = await getSettings(db);
+  if (settings.purchasePopups === false) return c.json({ enabled: false, purchases: [] });
+  const days = Math.max(1, Math.min(90, parseInt(settings.purchasePopupDays, 10) || 30));
+  const rows = (await db.prepare(
+    `SELECT o.customer, o.city, o.placed_at, i.name AS item, i.size
+       FROM orders o JOIN order_items i ON i.order_no = o.no
+      WHERE o.status <> 'Cancelled'
+        AND (o.pay_status = 'paid' OR o.pay <> 'Paystack')
+        AND date(o.placed_at) >= ?
+      ORDER BY o.placed_at DESC
+      LIMIT 40`
+  ).bind(daysBefore(days)).all()).results;
+  const seen = new Set();
+  const purchases = [];
+  for (const r of rows) {
+    const name = firstName(r.customer);
+    if (!name) continue;
+    // One line per order per product — the same buyer's second bottle of the
+    // same thing is not a second event worth showing.
+    const key = `${name}|${r.item}|${r.size}|${String(r.placed_at).slice(0, 10)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    purchases.push({
+      name,
+      city: (r.city || "").charAt(0).toUpperCase() + (r.city || "").slice(1),
+      item: r.size ? `${r.item} ${r.size}` : r.item,
+      when: displayDate(new Date(String(r.placed_at).replace(" ", "T") + "Z")),
+    });
+    if (purchases.length >= 12) break;
+  }
+  return c.json({
+    enabled: true,
+    intervalMs: Math.max(4000, Math.min(120000, parseInt(settings.purchasePopupIntervalMs, 10) || 14000)),
+    purchases,
+  });
 });
 
 shop.post("/leads", async (c) => {

@@ -68,7 +68,7 @@ export function setGscVerification(token) {
 const origin = () => window.location.origin;
 
 // Build the head payload for a given page from live data.
-export function headFor({ page, product, variant, settings, categories = [] }) {
+export function headFor({ page, product, variant, settings, categories = [], segment = null, brand = "", post = null }) {
   const siteName = settings.siteName || "Majestic Roobee";
   const baseDesc = settings.metaDescription
     || "Seductive extrait perfumes, body mists and organic feminine care — blended in Nigeria, worn everywhere. Stores in Abuja, Lagos & Ibadan.";
@@ -135,6 +135,48 @@ export function headFor({ page, product, variant, settings, categories = [] }) {
     };
   }
 
+  // A merchandising shelf is the shop page with one filter on it, and each has
+  // its own URL — so each needs its own title rather than inheriting "Shop all".
+  const SEGMENT_HEADS = {
+    "new-arrivals": { title: `New arrivals — ${siteName}`, path: "/new-arrivals", desc: `The newest extraits, mists and sets to reach the house. ${baseDesc}` },
+    "best-sellers": { title: `Best sellers — ${siteName}`, path: "/best-sellers", desc: `The pieces our customers come back for. ${baseDesc}` },
+    deals: { title: `Deals & offers — ${siteName}`, path: "/deals", desc: `Everything marked down at Majestic Roobee right now. ${baseDesc}` },
+    "gift-sets": { title: `Gift sets — ${siteName}`, path: "/gift-sets", desc: `Fragrance, mist and custom-oil sets, ready to give. ${baseDesc}` },
+  };
+  if (page === "shop" && segment && SEGMENT_HEADS[segment]) {
+    const m = SEGMENT_HEADS[segment];
+    return { title: m.title, description: m.desc, canonical: origin() + m.path, image: ogImage, noindex: false, jsonLd: null };
+  }
+  if (page === "shop" && brand) {
+    return {
+      title: `${brand} — ${siteName}`,
+      description: `Every ${brand} piece the house carries. ${baseDesc}`,
+      canonical: `${origin()}/brand/${encodeURIComponent(brand.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, ""))}`,
+      image: ogImage, noindex: false, jsonLd: null,
+    };
+  }
+  if (page === "post" && post) {
+    return {
+      title: `${post.title} — ${siteName}`,
+      description: post.excerpt || baseDesc,
+      canonical: `${origin()}/blog/${post.slug}`,
+      image: post.coverUrl || ogImage,
+      type: "article",
+      noindex: false,
+      jsonLd: {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        headline: post.title,
+        description: post.excerpt,
+        ...(post.coverUrl ? { image: post.coverUrl } : {}),
+        ...(post.publishedAt ? { datePublished: post.publishedAt } : {}),
+        author: { "@type": "Organization", name: post.author || siteName },
+        publisher: org,
+        mainEntityOfPage: `${origin()}/blog/${post.slug}`,
+      },
+    };
+  }
+
   const pageMeta = {
     home: { title: `${siteName} — Leave a trail, not just an impression`, path: "/", desc: baseDesc,
       jsonLd: { "@context": "https://schema.org", "@graph": [
@@ -146,6 +188,12 @@ export function headFor({ page, product, variant, settings, categories = [] }) {
     track: { title: `Track your order — ${siteName}`, path: "/track", desc: "Follow your Majestic Roobee order with your order number and contact." },
     contact: { title: `Contact & support — ${siteName}`, path: "/contact", desc: "Speak with the house — live chat, WhatsApp, phone and our three stores." },
     privacy: { title: `Privacy & cookies — ${siteName}`, path: "/privacy", desc: "How Majestic Roobee collects, uses and protects your information." },
+    wishlist: { title: `Your wishlist — ${siteName}`, path: "/wishlist", desc: "The pieces you've saved to come back to.", noindex: true },
+    brands: { title: `Brands we carry — ${siteName}`, path: "/brands", desc: `Every house and label on our shelves. ${baseDesc}` },
+    locations: { title: `Our stores — ${siteName}`, path: "/locations", desc: "Where to find Majestic Roobee — addresses, opening hours and phone numbers for every store." },
+    reviews: { title: `Reviews & testimonials — ${siteName}`, path: "/reviews", desc: "What customers say about Majestic Roobee, in their own posts and their own words." },
+    blog: { title: `Journal — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
+    post: { title: `Journal — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
     checkout: { title: `Checkout — ${siteName}`, path: "/checkout", desc: "", noindex: true },
     confirm: { title: `Order confirmed — ${siteName}`, path: "/confirm", desc: "", noindex: true },
   }[page] || { title: siteName, path: "/", desc: baseDesc };
