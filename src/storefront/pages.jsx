@@ -172,7 +172,7 @@ export function HomePage({ ctx }) {
           {/* The rail has its own gutter, so it pulls back level with the grids
               above and below it. */}
           <div style={{ margin: "0 -10px" }}>
-            <TestimonialCarousel items={testimonials.slice(0, 9)} height={430} />
+            <TestimonialCarousel items={testimonials.slice(0, 9)} />
           </div>
         </section>
       )}
