@@ -1,7 +1,19 @@
 // Path-based routing for the storefront so every page (and every product) has a
 // real, crawlable URL. The Worker serves the SPA shell for all these paths.
 
-const STATIC = ["home", "shop", "about", "track", "contact", "checkout", "confirm", "privacy", "account"];
+const STATIC = ["home", "shop", "about", "track", "contact", "checkout", "confirm", "privacy", "account", "wishlist", "brands", "locations", "reviews"];
+
+// The header's merchandising tabs are the shop grid with one filter already
+// applied, so they share its implementation — but each gets its own short URL,
+// because "/deals" is what a shopper expects to be able to link to and what the
+// house wants to put on a flyer. `segment` round-trips through both directions.
+const SEGMENT_PATHS = {
+  "new-arrivals": "/new-arrivals",
+  "best-sellers": "/best-sellers",
+  deals: "/deals",
+  "gift-sets": "/gift-sets",
+};
+const PATH_SEGMENTS = Object.fromEntries(Object.entries(SEGMENT_PATHS).map(([seg, path]) => [path.slice(1), seg]));
 
 export function pathToRoute(pathname = window.location.pathname, search = window.location.search) {
   const parts = pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
@@ -13,10 +25,26 @@ export function pathToRoute(pathname = window.location.pathname, search = window
     const sku = params.get("variant");
     return { page: "product", productId: decodeURIComponent(parts[1]), ...(sku ? { prSku: sku } : {}) };
   }
+  if (parts[0] === "blog") {
+    return parts[1] ? { page: "post", postSlug: decodeURIComponent(parts[1]) } : { page: "blog" };
+  }
+  if (parts[0] === "brand" && parts[1]) return { page: "shop", fBrand: decodeURIComponent(parts[1]), fCat: "all" };
+  if (PATH_SEGMENTS[parts[0]]) {
+    const fCat = params.get("category");
+    return { page: "shop", fSeg: PATH_SEGMENTS[parts[0]], ...(fCat ? { fCat } : {}) };
+  }
   if (parts[0] === "shop") {
     const fCat = params.get("category");
     const fCol = params.get("collection");
-    return { page: "shop", ...(fCat ? { fCat } : {}), ...(fCol ? { fCol } : {}) };
+    const fSeg = params.get("segment");
+    const fBrand = params.get("brand");
+    return {
+      page: "shop",
+      ...(fCat ? { fCat } : {}),
+      ...(fCol ? { fCol } : {}),
+      ...(fSeg && SEGMENT_PATHS[fSeg] ? { fSeg } : {}),
+      ...(fBrand ? { fBrand } : {}),
+    };
   }
   if (STATIC.includes(parts[0])) return { page: parts[0] };
   return { page: "home" };
@@ -28,8 +56,21 @@ export function routeToPath(page, extra = {}) {
     const base = `/product/${encodeURIComponent(extra.productId)}`;
     return extra.prSku ? `${base}?variant=${encodeURIComponent(extra.prSku)}` : base;
   }
-  if (page === "shop" && extra.fCol) return `/shop?collection=${encodeURIComponent(extra.fCol)}`;
-  if (page === "shop" && extra.fCat && extra.fCat !== "all") return `/shop?category=${encodeURIComponent(extra.fCat)}`;
-  if (page === "shop") return "/shop";
+  if (page === "post" && extra.postSlug) return `/blog/${encodeURIComponent(extra.postSlug)}`;
+  if (page === "post") return "/blog";
+  if (page === "shop") {
+    // A segment owns the path; a category alongside it rides as a query, so
+    // "new arrivals in body mists" is still one linkable address.
+    if (extra.fSeg && SEGMENT_PATHS[extra.fSeg]) {
+      const base = SEGMENT_PATHS[extra.fSeg];
+      return extra.fCat && extra.fCat !== "all" ? `${base}?category=${encodeURIComponent(extra.fCat)}` : base;
+    }
+    if (extra.fBrand) return `/brand/${encodeURIComponent(extra.fBrand)}`;
+    if (extra.fCol) return `/shop?collection=${encodeURIComponent(extra.fCol)}`;
+    if (extra.fCat && extra.fCat !== "all") return `/shop?category=${encodeURIComponent(extra.fCat)}`;
+    return "/shop";
+  }
   return `/${page}`;
 }
+
+export { SEGMENT_PATHS };

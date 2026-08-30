@@ -6,7 +6,6 @@ import React, { useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { resizeToWidths } from "../lib/images.js";
-import { CAT_LABELS } from "./App.jsx";
 
 const GENDERS = ["Unisex", "Female", "Male"];
 // Opening stock is one field per store the house has open — no fixed three.
@@ -124,7 +123,7 @@ function VariantRows({ ctx, variants, setVariants, stores, showStock = true, opt
 }
 
 export function NewProduct({ ctx }) {
-  const [f, setF] = useState({ name: "", cat: "extrait", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true, optionName: "Size", splitListing: false });
+  const [f, setF] = useState({ name: "", cat: "extrait", brand: "", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true, optionName: "Size", splitListing: false, pinNew: false, pinBest: false });
   const [variants, setVariants] = useState([blankVariant()]);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
@@ -135,7 +134,7 @@ export function NewProduct({ ctx }) {
     try {
       const r = await api.post("/api/admin/products", { ...f, optionNames: [f.optionName], variants }, ctx.token);
       setDone({ name: r.name, live: r.live });
-      setF({ name: "", cat: f.cat, gender: f.gender, notes: "", desc: "", imageUrl: "", live: true, optionName: f.optionName, splitListing: f.splitListing });
+      setF({ name: "", cat: f.cat, brand: f.brand, gender: f.gender, notes: "", desc: "", imageUrl: "", live: true, optionName: f.optionName, splitListing: f.splitListing, pinNew: false, pinBest: false });
       setVariants([blankVariant()]);
       ctx.loadProducts();
       ctx.flash(r.live ? `${r.name} is live` : `${r.name} saved as draft`);
@@ -156,11 +155,13 @@ export function NewProduct({ ctx }) {
       <Input label="Product name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Velvet Reign" />
       <ImagePicker ctx={ctx} value={f.imageUrl} onChange={(url) => setF({ ...f, imageUrl: url })} />
       <Select label="Category" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>
-        {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        {ctx.catOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
       </Select>
       <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
         {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </Select>
+      <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee"
+        hint="The label on the bottle. Shoppers browse by it on the Brands page — leave blank for the house's own blends." />
       <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
         placeholder="Size" hint="Shown above the picker on the product page — usually Size, sometimes Scent or Shade." />
       <VariantRows ctx={ctx} variants={variants} setVariants={setVariants} stores={ctx.openStores} optionName={f.optionName || "Size"} />
@@ -169,6 +170,11 @@ export function NewProduct({ ctx }) {
       <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
       <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
         Off (normal): one card in the shop with a picker on it. On: every variation gets its own card — for gift sets and distinct scents, where a picker would hide the choice.
+      </div>
+      <Switch label="Pin to New arrivals" checked={f.pinNew} onChange={(e) => setF({ ...f, pinNew: e.target.checked })} />
+      <Switch label="Pin to Best sellers" checked={f.pinBest} onChange={(e) => setF({ ...f, pinBest: e.target.checked })} />
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
+        Both shelves fill themselves — newest first, and best-selling by real orders. A pin puts this piece on one anyway, which is how a launch with no sales yet gets seen.
       </div>
       <Switch label="Live on the storefront now" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
       <Button variant="primary" block disabled={busy} onClick={submit}>{busy ? "Saving…" : "Add to catalogue"}</Button>
@@ -179,9 +185,10 @@ export function NewProduct({ ctx }) {
 
 export function EditProductPanel({ ctx, product, onClose }) {
   const [f, setF] = useState({
-    name: product.name, cat: product.cat, gender: product.gender,
+    name: product.name, cat: product.cat, brand: product.brand || "", gender: product.gender,
     notes: product.notes, desc: product.desc, imageUrl: product.imageUrl || "",
     splitListing: !!product.splitListing,
+    pinNew: !!product.pinNew, pinBest: !!product.pinBest,
     optionName: (product.optionNames && product.optionNames[0]) || "Size",
   });
   // Every editable field of every variation, keyed by its id.
@@ -243,13 +250,16 @@ export function EditProductPanel({ ctx, product, onClose }) {
       <ImagePicker ctx={ctx} value={f.imageUrl} onChange={(url) => setF({ ...f, imageUrl: url })} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Select label="Category" value={f.cat} onChange={(e) => setF({ ...f, cat: e.target.value })}>
-          {Object.entries(CAT_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          {ctx.catOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
         </Select>
         {/* The imported catalogue lands as Unisex — this is where it gets set properly. */}
         <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
           {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
         </Select>
       </div>
+
+      <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee"
+        hint="Shoppers browse by this on the Brands page. Blank means the house's own." />
 
       <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
         placeholder="Size" hint="Shown above the picker on the product page." />
@@ -308,6 +318,15 @@ export function EditProductPanel({ ctx, product, onClose }) {
         <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
         <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
           Off: one card in the shop with a picker. On: {product.variants.length} separate cards.
+        </div>
+      </div>
+
+      <div>
+        <Switch label="Pin to New arrivals" checked={f.pinNew} onChange={(e) => setF({ ...f, pinNew: e.target.checked })} />
+        <div style={{ height: 8 }} />
+        <Switch label="Pin to Best sellers" checked={f.pinBest} onChange={(e) => setF({ ...f, pinBest: e.target.checked })} />
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+          Both shelves fill themselves from the catalogue's age and the order book. A pin overrides that for this piece.
         </div>
       </div>
 

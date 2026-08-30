@@ -2,12 +2,15 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue, CollectionsPage } from "./pages-ops.jsx";
+import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage } from "./pages-content.jsx";
 import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
 import { GoLivePage } from "./golive.jsx";
 
-// Mirrors the `categories` table (migration 0008) in shelf order.
+// The categories the shop was seeded with, kept only as a label of last resort:
+// categories are editable content now (Admin → Categories), so every screen
+// reads the live list and falls back to this when it hasn't loaded yet.
 export const CAT_LABELS = {
   extrait: "Extrait Perfumes",
   designer: "Designer Oils",
@@ -38,6 +41,10 @@ const PAGES = [
   { id: "inv", label: "Inventory", title: "Inventory" },
   { id: "cat", label: "Products", title: "Product catalogue" },
   { id: "collections", label: "Collections", title: "Collections & sets" },
+  { id: "categories", label: "Categories", title: "Categories & sub-shelves" },
+  { id: "deals", label: "Deals", title: "Deals & hot offers" },
+  { id: "blog", label: "Blog", title: "The journal" },
+  { id: "reviews", label: "Reviews", title: "Reviews & testimonials" },
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
   { id: "notif", label: "Notifications", title: "Notifications & pop-ups" },
   { id: "inq", label: "Customer Service", title: "Customer service" },
@@ -139,6 +146,10 @@ export default function App() {
   const [showArchived, setShowArchived] = useState(false);
   const [locations, setLocations] = useState([]);
   const [collections, setCollections] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [deals, setDeals] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [testimonials, setTestimonials] = useState([]);
   const [settingsData, setSettingsData] = useState(null);
   const [toast, setToast] = useState("");
   const [me, setMe] = useState(null);
@@ -191,6 +202,22 @@ export default function App() {
     if (!token) return;
     api.get("/api/admin/collections", token).then((r) => setCollections(r.collections)).catch(authFail);
   }, [token, authFail]);
+  const loadCategories = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/categories", token).then((r) => setCategories(r.categories)).catch(authFail);
+  }, [token, authFail]);
+  const loadDeals = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/deals", token).then((r) => setDeals(r.deals)).catch(authFail);
+  }, [token, authFail]);
+  const loadPosts = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/blog", token).then((r) => setPosts(r.posts)).catch(authFail);
+  }, [token, authFail]);
+  const loadTestimonials = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/testimonials", token).then((r) => setTestimonials(r.testimonials)).catch(authFail);
+  }, [token, authFail]);
   const loadSettings = useCallback(() => {
     if (!token) return;
     api.get("/api/admin/settings", token).then(setSettingsData).catch(authFail);
@@ -206,6 +233,10 @@ export default function App() {
     loadSettings();
     loadLocations();
     loadCollections();
+    loadCategories();
+    loadDeals();
+    loadPosts();
+    loadTestimonials();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -232,7 +263,13 @@ export default function App() {
     token, page, setPage, scope, setScope, scopeLabel, TH, me, loadMe, isSuper,
     overview, products, promos, campaigns, inquiries, settingsData,
     locations, openStores, collections, inqCounts, showArchived, setShowArchived,
+    categories, deals, posts, testimonials,
+    // Category labels come from the live table; CAT_LABELS is only the fallback
+    // for the moment before it has loaded.
+    catLabel: (id) => (categories.find((c) => c.id === id) || {}).label || CAT_LABELS[id] || id,
+    catOptions: categories.length ? categories.map((c) => ({ id: c.id, label: c.label })) : Object.entries(CAT_LABELS).map(([id, label]) => ({ id, label })),
     loadOverview, loadProducts, loadPromos, loadCampaigns, loadInquiries, loadSettings, loadLocations, loadCollections,
+    loadCategories, loadDeals, loadPosts, loadTestimonials,
     setProducts, setInquiries, authFail, flash,
   };
 
@@ -293,6 +330,10 @@ export default function App() {
         {activePage === "inv" && <Inventory ctx={ctx} />}
         {activePage === "cat" && <Catalogue ctx={ctx} />}
         {activePage === "collections" && <CollectionsPage ctx={ctx} />}
+        {activePage === "categories" && <CategoriesPage ctx={ctx} />}
+        {activePage === "deals" && <DealsPage ctx={ctx} />}
+        {activePage === "blog" && <BlogPage ctx={ctx} />}
+        {activePage === "reviews" && <TestimonialsPage ctx={ctx} />}
         {activePage === "sales" && <Sales ctx={ctx} />}
         {activePage === "notif" && <Notifications ctx={ctx} />}
         {activePage === "inq" && <Inquiries ctx={ctx} />}

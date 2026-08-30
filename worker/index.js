@@ -64,7 +64,11 @@ app.get("/robots.txt", (c) => {
 
 app.get("/sitemap.xml", async (c) => {
   const origin = new URL(c.req.url).origin;
-  const staticUrls = ["/", "/shop", "/about", "/track", "/contact"];
+  // Every shelf the header links to is a real, indexable page of its own.
+  const staticUrls = [
+    "/", "/shop", "/new-arrivals", "/best-sellers", "/deals", "/gift-sets",
+    "/brands", "/locations", "/reviews", "/blog", "/about", "/track", "/contact",
+  ];
   let productUrls = [];
   try {
     // One entry per variation on products that have a choice, since each
@@ -78,7 +82,12 @@ app.get("/sitemap.xml", async (c) => {
     productUrls = rows.map((r) => (r.n > 1 && r.sku ? `/product/${r.pid}?variant=${encodeURIComponent(r.sku)}` : `/product/${r.pid}`));
     productUrls = [...new Set(productUrls)];
   } catch {}
-  const urls = staticUrls.concat(productUrls);
+  let postUrls = [];
+  try {
+    const rows = (await c.env.DB.prepare("SELECT slug FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC").all()).results;
+    postUrls = rows.map((r) => `/blog/${r.slug}`);
+  } catch {}
+  const urls = staticUrls.concat(productUrls, postUrls);
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +

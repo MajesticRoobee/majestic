@@ -39,6 +39,37 @@ idempotent · all four pages render with no CSP violations.
 
 ---
 
+## Sprint 2 — Storefront merchandising, editorial & proof (30 Aug 2026) — ✅ shipped
+
+The house asked for the header a fragrance shopper expects — categories with
+sub-shelves under them, new arrivals, hot deals, best sellers, brands and stores
+— plus a wishlist, a blog the team writes themselves, embedded customer posts,
+and a note when someone buys.
+
+| # | Item | Status | What actually shipped |
+|---|------|--------|----------------------|
+| 1 | Wishlist | ✅ | A heart in the header with a count, a `/wishlist` page, and hearts on every card and product page. Saving no longer demands an account: a guest's list lives in their browser and is handed to the server on the next sign-in or registration (`POST /api/account/wishlist/merge`), so nothing saved is lost at the moment someone finally registers. Signed in, it is the same list on every device. |
+| 2 | The blog | ✅ | `blog_posts` in D1, full CRUD in **Admin → Blog** (draft/publish, slug, excerpt, cover, tags, author), `/blog` and `/blog/<slug>` on the storefront, the three most recent on the home page, every published post in the sitemap, and `BlogPosting` JSON-LD per post. Written as plain text — blank lines between paragraphs, `## ` for a heading, `> ` for a pull quote, a bare URL on its own line for an image — so nothing user-written is ever handed to `dangerouslySetInnerHTML`. The publish date is stamped once, so editing a live post doesn't reorder the journal. |
+| 3 | Deals & Best sellers tabs | ✅ | Both are the shop grid with one filter on it, at their own URLs (`/deals`, `/best-sellers`, and `/new-arrivals`, `/gift-sets` alongside them). A **deal** is a new object — title, badge, products, and a window it runs inside — so it leaves the storefront by itself when the end date passes, with nothing to switch off; any product marked down below its own compare-at price shows there too. **Best sellers** is counted from paid, uncancelled orders over a configurable window, not curated. Both accept a pin on the product for a launch with no sales yet. |
+| 4 | Editable categories with sub-shelves | ✅ | Categories were seeded and then frozen — no way to add, rename, describe, reorder or retire one. **Admin → Categories** now owns them, and each carries the sub-shelves it offers shoppers (New arrivals, Best sellers, Gift sets), which appear as filter chips on that category and in the header's mega-menu. A category with products in it is refused deletion with the count rather than cascading. Every admin screen reads the live list; the hardcoded `CAT_LABELS` is only a fallback for the moment before it loads. |
+| 5 | The header system | ✅ | Two rows: search, currency, city, wishlist, account and cart above; **All categories** (a mega-menu built from the category table) plus Home · New arrivals · Deals · Best sellers · Brands · Locations · Journal · Reviews below. The phone gets the same routes in the drawer, with the categories under them. |
+| 6 | Locations next to Brands | ✅ | `/locations` — every store with its address, opening hours, phone, delivery ETA and a map link, and a button to shop that city's shelf. Hours and the map link are new columns on `locations`, edited in **Settings → Stores**. `/brands` lists every label the house carries, derived from a new `brand` field on the product rather than a second list that could drift. |
+| 7 | Live purchase pop-ups | ✅ | "Dorothy from Abuja purchased Osk 30ml" in the corner, rotating through the last dozen real purchases. Two rules make it safe to publish: only ever a **first name** and a city, and only **paid, uncancelled** orders — an abandoned card attempt is not a purchase. Off-switch, look-back window and interval all in Settings; dismissing it puts it away for the visit. |
+| 8 | Reviews & testimonials, as embeds | ✅ | `/reviews` plus three on the home page. The admin pastes the link they copied — Instagram post or reel, TikTok, YouTube, or a direct video file — and the server reduces it to the post's id, so a link with tracking on the end still renders. Each is that platform's **own** `/embed` URL in an iframe: no third-party script runs on the store, so nothing here can slow it down or watch the shopper. A link we don't recognise becomes a written quote card rather than a broken frame. CSP extended for exactly those four origins. |
+| — | Tests | ✅ | `scripts/merch.test.mjs` — 30 assertions over the shelf arithmetic (ageing out, pins, counting, padding, gift grouping), deal windows including the day-after boundary, embed parsing for each platform and its fallback, the first-name rule, and every new URL round-tripping through the router. Gating the deploy with the other three suites. |
+
+**Verified end to end** against a local Worker on a freshly migrated database:
+every new page renders in a real browser with no JS errors · a guest's saved
+piece survives registration and lands in the account · the mega-menu, category
+chips and sub-shelf chips all navigate to real URLs that the back button
+restores · a deal appears on `/deals` named and badged · a placed order becomes
+a purchase note within seconds, as a first name only · an Instagram embed frames
+without a CSP violation · categories can be added, hidden, reordered and are
+refused deletion while products sit in them · the new settings round-trip and
+reach the storefront.
+
+---
+
 ## Next up — the audit's "this month"
 
 | Item | Status | Notes |
@@ -55,7 +86,7 @@ idempotent · all four pages render with no CSP violations.
 | Item | Status | Notes |
 |---|---|---|
 | Gift cards | ⬜ | Explicitly requested, wholly absent. Issue, redeem as a tender type, balance ledger, partial redemption, expiry. |
-| Customer reviews + moderation | ⬜ | Zero code today. Unblocks review markup, star ratings in search results and Shopping seller ratings. Recommended in-house — see the audit. |
+| Customer reviews + moderation | 🔄 | Sprint 2 shipped the *testimonial wall* — curated embeds of customers' own Instagram/TikTok posts, plus written quotes. What is still absent is shopper-submitted reviews with moderation, which is what unblocks review markup and star ratings in search results. |
 | Fragrance finder quiz | ⬜ | Highest-impact discovery feature; also feeds personalisation later. |
 | Gift finder | ⬜ | Recipient / occasion / budget. Cheap on the existing filters. |
 | Sample & discovery sets | ⬜ | Collections are live; sample-size SKUs and build-your-own are not. |
@@ -98,6 +129,11 @@ These cannot be done from the code, and several unblock work that is already bui
 
 ## Change log
 
+- **30 Aug 2026** — Sprint 2: the merchandising header (categories with
+  sub-shelves, new arrivals, deals, best sellers, brands, locations), a guest-first
+  wishlist, the blog with its admin, embedded reviews & testimonials, and live
+  purchase notes built from real paid orders. Categories stopped being seed data
+  and became content the team owns.
 - **17 Aug 2026** — Tracker created. Audited the platform against the client's
   requirements, corrected four drifted rows in the build map, then shipped
   Sprint 1: login throttling, enforced promo dates with a dismissible

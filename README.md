@@ -2,8 +2,8 @@
 
 Full-stack ecommerce platform for Majestic Roobee (extrait perfumes, body mists & feminine care — Abuja · Lagos · Ibadan), built from the Claude Design handoff bundles:
 
-- **Storefront** (`/`) — home, shop with filters/search, product detail with per-store availability, cart, guest checkout (Paystack / bank transfer / WhatsApp), order confirmation, guest order tracking, about, contact + live-chat concierge, lead-capture popup, NGN/USD currency toggle, city-based store routing.
-- **Admin** (`/admin/`) — passphrase login, dashboard (revenue KPIs, 14-day chart, revenue by location, top products, recent orders with status updates, completed vs abandoned checkouts), inventory per store with steppers & restock, product catalogue with draft/live toggle and "add product", sales & promo codes, notifications/campaign composer with live previews (popup, banner, email, push), customer-service inbox with threads & canned replies, and store/content settings that drive the storefront.
+- **Storefront** (`/`) — home, shop with filters/search, the merchandising shelves (new arrivals, deals, best sellers, gift sets), categories with sub-shelves, brands, stores, a wishlist, the journal (blog), reviews & testimonials, product detail with per-store availability, cart, guest checkout (Paystack / bank transfer / WhatsApp), order confirmation, guest order tracking, about, contact + live-chat concierge, lead-capture popup, live purchase notes, NGN/USD currency toggle, city-based store routing.
+- **Admin** (`/admin/`) — passphrase login, dashboard (revenue KPIs, 14-day chart, revenue by location, top products, recent orders with status updates, completed vs abandoned checkouts), inventory per store with steppers & restock, product catalogue with draft/live toggle and "add product", collections, categories & sub-shelves, deals, the blog, reviews & testimonials, sales & promo codes, notifications/campaign composer with live previews (popup, banner, email, push), customer-service inbox with threads & canned replies, and store/content settings that drive the storefront.
 
 ## Stack
 
@@ -109,6 +109,66 @@ is `4084 0840 8408 4081`, any future expiry, any CVV, OTP `123456`.
 - **Payment states** — orders are created `pending` and only marked `paid` after server-side Paystack verification (redirect verify + signed webhook) or manual confirmation.
 - **Tracking** — guests track with order number + the phone/email used at checkout; timelines update as the admin moves order status.
 - **Admin ↔ storefront sync** — settings, store details, promos, stock, drafts, and banner campaigns all live in D1, so admin edits are immediately visible to shoppers.
+
+## The storefront's shelves
+
+The header carries the shelves a fragrance shopper expects — **All categories**,
+New arrivals, Deals, Best sellers, Brands, Locations, Journal, Reviews — and each
+is a real, linkable, indexable URL rather than a filter the browser holds:
+`/new-arrivals`, `/deals`, `/best-sellers`, `/gift-sets`, `/brand/<name>`,
+`/shop?category=<id>`, and any of those combined (`/deals?category=mist`).
+
+Three of the four shelves are **computed, not curated** (`worker/merch.js`), so
+nobody has to keep a list up to date:
+
+| Shelf | What it reads | Admin's hand on it |
+| --- | --- | --- |
+| New arrivals | Products listed inside the last *n* days (Settings, default 45), newest first | "Pin to New arrivals" on the product |
+| Best sellers | Units sold on **paid, uncancelled** orders over the last *n* days (Settings, default 90) | "Pin to Best sellers" on the product |
+| Gift sets | Every category grouped as **Gift & sets** in Admin → Categories | The grouping itself |
+| Deals | A deal that is inside its window, plus anything priced below its own compare-at price | Admin → Deals |
+
+A shelf that would otherwise come back nearly empty is topped up in the shop's
+own catalogue order — an empty tab reads as a broken store. The two shelves
+where emptiness is honest (no sets, nothing marked down) stay empty.
+
+**Categories are content**, not seed data: Admin → Categories adds, renames,
+describes, groups, reorders and hides them, and each one chooses which of the
+three sub-shelves it offers shoppers. The header's mega-menu is built from that
+table, so a new category appears in it without a deploy. A category with
+products filed under it is refused deletion (with the count) rather than
+cascading — move them, or hide it.
+
+**Deals vs promo codes** — a promo code is something the shopper *types*; a deal
+is something they *see*. A deal names its products, carries a badge and runs
+between two dates, so it leaves the storefront by itself when the window closes.
+
+## Wishlist, journal, reviews and purchase notes
+
+- **Wishlist** — guest-first. Saving something never demands an account: the
+  list lives in the shopper's browser and is handed to the server the moment
+  they sign in or register (`POST /api/account/wishlist/merge`), so nothing is
+  lost at the point of registration. Signed in, it is the same list everywhere.
+- **The journal** (`/blog`) — written in Admin → Blog as plain text: a blank
+  line between paragraphs, `## ` for a heading, `> ` for a pull quote, and a
+  bare image URL on its own line for a picture. Drafts are invisible until
+  published; the publish date is stamped once, so editing a live post doesn't
+  reorder the journal. Posts carry `BlogPosting` markup and appear in the
+  sitemap.
+- **Reviews & testimonials** (`/reviews`) — the customer's own post. Paste an
+  Instagram post or reel, a TikTok, a YouTube video or a direct video file and
+  the server reduces it to the post's id, so a copied link with tracking on it
+  still renders and the platform never has to be picked from a menu. Each is
+  framed through that platform's **own** `/embed` URL: no third-party script
+  runs on the store. A link we don't recognise becomes a written quote card
+  rather than a broken frame. (`public/_headers` names exactly those four frame
+  origins in the CSP.)
+- **Live purchase notes** — "Dorothy from Abuja purchased Osk 30ml", from real
+  orders. Two rules make that safe on a public endpoint: only ever a **first
+  name** and a city, and only orders that were actually **paid for** — an
+  abandoned card attempt is not a purchase. The window, the interval and the
+  off-switch are in Settings; a shopper who dismisses it doesn't see it again
+  that visit.
 
 ## Connecting the ERP
 
