@@ -25,7 +25,6 @@ const targets = [
   { path: "/deals", needsRoot: true },
   { path: "/best-sellers", needsRoot: true },
   { path: "/gift-sets", needsRoot: true },
-  { path: "/brands", needsRoot: true },
   { path: "/locations", needsRoot: true },
   { path: "/wishlist", needsRoot: true },
   { path: "/reviews", needsRoot: true },

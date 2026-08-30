@@ -129,7 +129,9 @@ check("...and is read back off the URL",
   pathToRoute("/deals", "?category=mist"), { page: "shop", fSeg: "deals", fCat: "mist" });
 check("a brand has its own address",
   [routeToPath("shop", { fBrand: "ysl" }), pathToRoute("/brand/ysl", "")], ["/brand/ysl", { page: "shop", fBrand: "ysl", fCat: "all" }]);
-check("a journal entry has its own address",
+check("the retired brands index lands on the full grid",
+  pathToRoute("/brands", ""), { page: "shop", fCat: "all" });
+check("a blog entry has its own address",
   [routeToPath("post", { postSlug: "how-to-layer" }), pathToRoute("/blog/how-to-layer", "")], ["/blog/how-to-layer", { page: "post", postSlug: "how-to-layer" }]);
 
 console.log(failures ? `\n${failures} check(s) failed\n` : "\nAll merchandising checks passed\n");

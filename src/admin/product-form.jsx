@@ -161,7 +161,7 @@ export function NewProduct({ ctx }) {
         {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </Select>
       <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee"
-        hint="The label on the bottle. Shoppers browse by it on the Brands page — leave blank for the house's own blends." />
+        hint="The label on the bottle. Shoppers can filter the shop by it — leave blank for the house's own blends." />
       <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
         placeholder="Size" hint="Shown above the picker on the product page — usually Size, sometimes Scent or Shade." />
       <VariantRows ctx={ctx} variants={variants} setVariants={setVariants} stores={ctx.openStores} optionName={f.optionName || "Size"} />
@@ -259,7 +259,7 @@ export function EditProductPanel({ ctx, product, onClose }) {
       </div>
 
       <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee"
-        hint="Shoppers browse by this on the Brands page. Blank means the house's own." />
+        hint="Shoppers can filter the shop by this. Blank means the house's own." />
 
       <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
         placeholder="Size" hint="Shown above the picker on the product page." />

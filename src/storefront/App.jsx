@@ -4,7 +4,7 @@ import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import {
   HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage,
-  WishlistPage, BrandsPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage,
+  WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage,
 } from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
@@ -277,7 +277,7 @@ export default function App() {
   const products = useMemo(() => (D ? D.products : EMPTY_ARR), [D]);
   const categories = useMemo(() => (D ? D.categories : EMPTY_ARR), [D]);
   const collections = useMemo(() => (D ? (D.collections || EMPTY_ARR) : EMPTY_ARR), [D]);
-  // The header's shelves, the brands page, the reviews wall and the journal
+  // The header's shelves, the reviews wall and the blog
   // strip all come down with the catalogue — one request, not five.
   const segments = useMemo(() => (D ? (D.segments || EMPTY_OBJ) : EMPTY_OBJ), [D]);
   const deals = useMemo(() => (D ? (D.deals || EMPTY_ARR) : EMPTY_ARR), [D]);
@@ -488,7 +488,7 @@ export default function App() {
     if (fallback) setCo((s) => ({ ...s, pay: fallback }));
   }, [payMethods, co.pay]);
 
-  // The journal is fetched when it is first opened, not with the catalogue —
+  // The blog is fetched when it is first opened, not with the catalogue —
   // most visits never go there, and the home page already has its three cards.
   useEffect(() => {
     if (page !== "blog" || blog.loaded) return;
@@ -743,7 +743,6 @@ export default function App() {
     page === "privacy" ? <PrivacyPage ctx={ctx} /> :
     page === "account" ? <AccountPage ctx={ctx} /> :
     page === "wishlist" ? <WishlistPage ctx={ctx} /> :
-    page === "brands" ? <BrandsPage ctx={ctx} /> :
     page === "locations" ? <LocationsPage ctx={ctx} /> :
     page === "reviews" ? <ReviewsPage ctx={ctx} /> :
     page === "blog" ? <BlogPage ctx={ctx} /> :

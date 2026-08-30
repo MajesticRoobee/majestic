@@ -436,12 +436,12 @@ export function SettingsPage({ ctx }) {
         </div>
       </div>
       <div style={section}>
-        {sectionHead("Journal & reviews", "The headings above the blog and the testimonials wall.")}
+        {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Journal heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="The journal" />
+          <Input label="Blog heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="The blog" />
           <Input label="Reviews heading" value={form.reviewsHeadline || ""} onChange={set("reviewsHeadline")} placeholder="Reviews & testimonials" />
         </div>
-        <Textarea label="Journal intro" value={form.blogIntro || ""} onChange={set("blogIntro")} rows={2} />
+        <Textarea label="Blog intro" value={form.blogIntro || ""} onChange={set("blogIntro")} rows={2} />
         <Textarea label="Reviews intro" value={form.reviewsIntro || ""} onChange={set("reviewsIntro")} rows={2} />
       </div>
       <StoresSection ctx={ctx} />

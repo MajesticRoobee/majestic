@@ -114,10 +114,8 @@ const NAV_TABS = [
   { label: "New arrivals", page: "shop", extra: { fSeg: "new-arrivals" } },
   { label: "Deals", page: "shop", extra: { fSeg: "deals" }, hot: true },
   { label: "Best sellers", page: "shop", extra: { fSeg: "best-sellers" } },
-  { label: "Brands", page: "brands" },
   { label: "Locations", page: "locations" },
-  { label: "Journal", page: "blog" },
-  { label: "Reviews", page: "reviews" },
+  { label: "Blog", page: "blog" },
 ];
 
 const SUB_LABELS = { "new-arrivals": "New arrivals", "best-sellers": "Best sellers", "gift-sets": "Gift sets" };
@@ -152,7 +150,7 @@ function CategoryMenu({ ctx, open, setOpen }) {
               </div>
             ))}
             <div style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--border-hairline)", paddingTop: 14, display: "flex", gap: 16, flexWrap: "wrap" }}>
-              <button onClick={() => go({ fCat: "all" })} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)" }}>Everything the house carries —</button>
+              <button onClick={() => go({ fCat: "all" })} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)" }}>All products —</button>
               <button onClick={() => go({ fSeg: "gift-sets" })} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)" }}>Gift sets —</button>
             </div>
           </div>
@@ -200,6 +198,9 @@ function Header({ ctx }) {
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--mr-mute)" strokeWidth="1.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></svg>
               <input value={ctx.search} onChange={(e) => ctx.setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ctx.nav("shop")} placeholder="Search the entire store" style={{ border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-strong)", width: "100%" }} />
             </div>
+            {/* Everything after this spacer — currency, city, wishlist, account,
+                cart — sits hard against the right edge of the header. */}
+            <div style={{ flex: 1 }} />
             <button onClick={ctx.toggleCurrency} title="Switch currency" style={{ background: "none", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", padding: "7px 13px", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, color: "var(--mr-purple-800)", cursor: "pointer" }}>
               {ctx.currency === "NGN" ? "₦ NGN" : "$ USD"}
             </button>
@@ -368,14 +369,13 @@ function Footer({ ctx }) {
             {link("Hot deals", "shop", { fSeg: "deals" })}
             {link("Best sellers", "shop", { fSeg: "best-sellers" })}
             {link("Gift sets", "shop", { fSeg: "gift-sets" })}
-            {link("Brands", "brands")}
           </div>
         </div>
         <div>
           <div style={colTitle}>The house</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
             {link("Our story", "about")}
-            {link("The journal", "blog")}
+            {link("The blog", "blog")}
             {link("Reviews & testimonials", "reviews")}
             {link("Track an order", "track")}
             {link("Your wishlist", "wishlist")}

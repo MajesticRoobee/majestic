@@ -1,7 +1,7 @@
 // Path-based routing for the storefront so every page (and every product) has a
 // real, crawlable URL. The Worker serves the SPA shell for all these paths.
 
-const STATIC = ["home", "shop", "about", "track", "contact", "checkout", "confirm", "privacy", "account", "wishlist", "brands", "locations", "reviews"];
+const STATIC = ["home", "shop", "about", "track", "contact", "checkout", "confirm", "privacy", "account", "wishlist", "locations", "reviews"];
 
 // The header's merchandising tabs are the shop grid with one filter already
 // applied, so they share its implementation — but each gets its own short URL,
@@ -28,6 +28,10 @@ export function pathToRoute(pathname = window.location.pathname, search = window
   if (parts[0] === "blog") {
     return parts[1] ? { page: "post", postSlug: decodeURIComponent(parts[1]) } : { page: "blog" };
   }
+  // The brands index is retired. A link to it that is still out there — a
+  // flyer, a bookmark, a search result — lands on the full grid rather than
+  // being dropped on the home page.
+  if (parts[0] === "brands") return { page: "shop", fCat: "all" };
   if (parts[0] === "brand" && parts[1]) return { page: "shop", fBrand: decodeURIComponent(parts[1]), fCat: "all" };
   if (PATH_SEGMENTS[parts[0]]) {
     const fCat = params.get("category");

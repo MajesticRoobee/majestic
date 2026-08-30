@@ -1,5 +1,5 @@
 // Admin — the content the storefront's new header leads to: categories and
-// their sub-shelves, deals, the journal, and the reviews wall.
+// their sub-shelves, deals, the blog, and the reviews wall.
 import React, { useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
@@ -327,7 +327,7 @@ export function DealsPage({ ctx }) {
   );
 }
 
-// ---- The journal ----------------------------------------------------------
+// ---- The blog -------------------------------------------------------------
 
 export function BlogPage({ ctx }) {
   const [editing, setEditing] = useState(null);
@@ -376,7 +376,7 @@ export function BlogPage({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 20, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Intro title="The journal">
+        <Intro title="The blog">
           Stories on the storefront at <strong>/blog</strong>, with the three most recent on the home page. Write in plain text: leave a
           blank line between paragraphs, start a line with <code>## </code> for a heading or <code>&gt; </code> for a pull quote, and put a
           bare image URL on its own line to drop a picture in. A draft is invisible until you publish it.
