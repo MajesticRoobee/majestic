@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "../ds/components.jsx";
 import { ProductCard } from "./product-card.jsx";
+import { routeToPath } from "./router.js";
 import { EmbedCard } from "./pages-content.jsx";
 
 export { ProductCard };
@@ -445,6 +446,9 @@ export function ProductPage({ ctx }) {
   const { cityName, L } = ctx;
   const soldOut = prA.soldOut;
   const optionName = (pr.optionNames && pr.optionNames[0]) || "Size";
+  // The brands page keys on a slug of the name, so the link from here has to
+  // slug it the same way the server does.
+  const brandSlug = (pr.brand || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
   // The gallery for this variation: its own shots first, then the shots shared
   // across the product, so switching size changes the picture where there is a
@@ -496,6 +500,13 @@ export function ProductPage({ ctx }) {
         <div>
           <Eyebrow>{ctx.catLabel(pr.cat)}</Eyebrow>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 42px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>{pr.name}</h1>
+          {/* The label on the bottle, and the way to everything else wearing it. */}
+          {pr.brand && (
+            <a href={routeToPath("shop", { fBrand: brandSlug })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fBrand: brandSlug }); }}
+              style={{ display: "inline-block", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)", marginBottom: 10 }}>
+              {pr.brand} —
+            </a>
+          )}
           <div style={{ fontFamily: "var(--font-serif)", fontSize: 18, fontStyle: "italic", color: "var(--text-muted)", marginBottom: 14 }}>{pr.notes}</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
             <span style={{ fontSize: 24, fontWeight: 600, color: "var(--mr-purple-900)" }}>{ctx.fmt(prV.ngn)}</span>

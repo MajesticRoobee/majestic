@@ -10,14 +10,32 @@ const base = process.env.SITE_URL || "https://majestic-roobee.victorugwu4real.wo
 // start testing a 404 instead of a real product page.
 const store = await fetch(base + "/api/store").then((r) => r.json()).catch(() => ({}));
 const sample = (store.products || [])[0];
+// Same reasoning as the product page below: pull a published post from whatever
+// is actually live rather than naming a slug that could be renamed or deleted.
+const post = (await fetch(base + "/api/blog").then((r) => r.json()).catch(() => ({})).then((d) => (d.posts || [])[0])) || null;
 
+// Every page the header links to. Each of these is a distinct route through the
+// SPA, and a white screen on any of them is a white screen a shopper reaches
+// from the top of the site — so the gate has to open all of them, not just the
+// three the store started with.
 const targets = [
   { path: "/", needsRoot: true },
   { path: "/shop", needsRoot: true },
+  { path: "/new-arrivals", needsRoot: true },
+  { path: "/deals", needsRoot: true },
+  { path: "/best-sellers", needsRoot: true },
+  { path: "/gift-sets", needsRoot: true },
+  { path: "/brands", needsRoot: true },
+  { path: "/locations", needsRoot: true },
+  { path: "/wishlist", needsRoot: true },
+  { path: "/reviews", needsRoot: true },
+  { path: "/blog", needsRoot: true },
+  ...(post ? [{ path: "/blog/" + post.slug, needsRoot: true }] : []),
   ...(sample ? [{ path: "/product/" + sample.id, needsRoot: true }] : []),
   { path: "/admin/", needsRoot: true },
 ];
 if (!sample) console.log("• catalogue is empty — skipping the product-page check");
+if (!post) console.log("• no published posts yet — skipping the blog-post check");
 
 // CHROME_PATH lets this run against a preinstalled browser (handy locally);
 // CI leaves it unset so Playwright resolves its own download.

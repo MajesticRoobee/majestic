@@ -2,7 +2,7 @@
 // and, once signed in, a dashboard: orders, addresses, wishlist, profile.
 import React, { useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input } from "../ds/components.jsx";
-import { ProductCard } from "./pages.jsx";
+import { ProductCard } from "./product-card.jsx";
 
 const PAD = "clamp(16px, 4vw, 40px)";
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 24 };
@@ -117,7 +117,7 @@ function Dashboard({ ctx }) {
   const [addr, setAddr] = useState({ label: "Home", address: "", city: ctx.city });
   // Filtered after `card`, not before: a saved product whose last variation was
   // withdrawn yields no card, and must drop out rather than render an empty one.
-  const wishlistCards = custData.wishlist.map((id) => ctx.products.find((p) => p.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
+  const wishlistCards = ctx.wishlist.map((id) => ctx.products.find((p) => p.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
   const saveProfile = async () => { await ctx.updateProfile(profile); setSavedMsg("Saved."); setTimeout(() => setSavedMsg(""), 2000); };
   const statusTone = (s) => ({ "In transit": "neutral", "Ready for pickup": "gold", Delivered: "success", Collected: "success" }[s] || "neutral");
   return (
@@ -192,7 +192,14 @@ function Dashboard({ ctx }) {
       </div>
 
       <section style={{ marginTop: 32 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 14 }}>Your wishlist</div>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Your wishlist</div>
+          {wishlistCards.length > 3 && (
+            <button onClick={() => ctx.nav("wishlist")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)", padding: 0 }}>
+              See all {wishlistCards.length} —
+            </button>
+          )}
+        </div>
         {wishlistCards.length === 0 ? (
           <p style={{ fontSize: 13.5, color: "var(--text-muted)" }}>Nothing saved yet — tap the ♡ on any fragrance to keep it here.</p>
         ) : (
