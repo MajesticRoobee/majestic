@@ -67,7 +67,7 @@ app.get("/sitemap.xml", async (c) => {
   // Every shelf the header links to is a real, indexable page of its own.
   const staticUrls = [
     "/", "/shop", "/new-arrivals", "/best-sellers", "/deals", "/gift-sets",
-    "/brands", "/locations", "/reviews", "/blog", "/about", "/track", "/contact",
+    "/locations", "/reviews", "/blog", "/about", "/track", "/contact",
   ];
   let productUrls = [];
   try {

@@ -6,7 +6,7 @@ import { routeToPath } from "./router.js";
 import { EmbedCard, TestimonialCarousel } from "./pages-content.jsx";
 
 export { ProductCard };
-export { WishlistPage, BrandsPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody } from "./pages-content.jsx";
+export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody } from "./pages-content.jsx";
 export { EmbedCard, TestimonialCarousel };
 
 const PAD = "clamp(16px, 4vw, 40px)";
@@ -443,7 +443,7 @@ export function ProductPage({ ctx }) {
   const { cityName, L } = ctx;
   const soldOut = prA.soldOut;
   const optionName = (pr.optionNames && pr.optionNames[0]) || "Size";
-  // The brands page keys on a slug of the name, so the link from here has to
+  // The brand grid keys on a slug of the name, so the link from here has to
   // slug it the same way the server does.
   const brandSlug = (pr.brand || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 

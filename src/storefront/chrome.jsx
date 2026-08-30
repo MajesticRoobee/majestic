@@ -369,7 +369,6 @@ function Footer({ ctx }) {
             {link("Hot deals", "shop", { fSeg: "deals" })}
             {link("Best sellers", "shop", { fSeg: "best-sellers" })}
             {link("Gift sets", "shop", { fSeg: "gift-sets" })}
-            {link("Brands", "brands")}
           </div>
         </div>
         <div>

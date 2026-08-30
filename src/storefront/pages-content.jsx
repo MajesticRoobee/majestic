@@ -1,5 +1,5 @@
-// The pages the header's second row leads to: a wishlist, the brands we carry,
-// our stores, the reviews wall, and the blog.
+// The pages the header's second row leads to: a wishlist, our stores, the
+// reviews wall, and the blog.
 import React, { useEffect, useRef, useState } from "react";
 import { Eyebrow, GildedRule, Button, ImageSlot } from "../ds/components.jsx";
 import { useWindowWidth } from "../lib/hooks.js";
@@ -66,39 +66,6 @@ export function WishlistPage({ ctx }) {
             </p>
           )}
         </>
-      )}
-    </main>
-  );
-}
-
-// ---- Brands ---------------------------------------------------------------
-
-export function BrandsPage({ ctx }) {
-  const brands = ctx.brands;
-  return (
-    <main style={shellStyle}>
-      <PageHead
-        eyebrow="By the label"
-        title="Brands we carry"
-        sub="Every house on our shelves, and how many pieces of each we hold. Our own blends sit under Majestic Roobee."
-      />
-      {!brands.length ? (
-        <Empty title="Our brands are being catalogued.">
-          <Button variant="primary" onClick={() => ctx.nav("shop")}>Shop everything meanwhile</Button>
-        </Empty>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(200px, 100%), 1fr))", gap: 16 }}>
-          {brands.map((b) => (
-            <a key={b.id} href={routeToPath("shop", { fBrand: b.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fBrand: b.id }); }} className="mr-lift"
-              style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "block" }}>
-              <ImageSlot src={b.imageUrl} name={b.name} sizes="200px" style={{ width: "100%", height: 130 }} />
-              <div style={{ padding: "14px 16px 16px" }}>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)" }}>{b.name}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{b.count} {b.count === 1 ? "piece" : "pieces"}</div>
-              </div>
-            </a>
-          ))}
-        </div>
       )}
     </main>
   );

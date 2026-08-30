@@ -91,7 +91,7 @@ _foundations → features that ride them → polish._
 | Discovery / sample sets | 🟡 | **Collections/sets are live** — curated groupings built in the admin, shown above the catalogue. Sample-size products still to come |
 | Merchandising shelves | ✅ | **Live** — New arrivals, Best sellers, Deals and Gift sets, each at its own URL and each computed rather than curated (`worker/merch.js`): listing age, paid-order counts, a deal's date window, and the categories grouped as gift. A pin on the product overrides either of the first two |
 | Editable categories + sub-shelves | ✅ | **Live** — Admin → Categories owns the shelf list (add, rename, describe, group, reorder, hide) and chooses which of the three sub-shelves each category offers. The storefront's mega-menu is built from the table |
-| Brands | ✅ | **Live** — a `brand` on the product, a `/brands` page, and `/brand/<name>` filtering the grid |
+| Brands | ✅ | **Live** — a `brand` on the product and `/brand/<name>` filtering the grid. The `/brands` index page was retired; the URL now lands on the full grid |
 | Editorial / blog | ✅ | **Live** — `blog_posts` with a full admin (draft → publish), `/blog` + `/blog/<slug>`, three on the home page, in the sitemap, `BlogPosting` JSON-LD |
 | Reviews & testimonials wall | 🟡 | **Curated embeds are live** — the customer's own Instagram / TikTok / YouTube post framed by that platform's `/embed` URL, or a written quote. Shopper-**submitted** reviews with moderation (and therefore review markup / star ratings) are still to come |
 | Social proof on-site | ✅ | **Live** — a rotating note of real, paid purchases; first name and city only, window and interval configurable, off-switch in Settings |
