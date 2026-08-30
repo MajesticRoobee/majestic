@@ -192,8 +192,8 @@ export function headFor({ page, product, variant, settings, categories = [], seg
     brands: { title: `Brands we carry — ${siteName}`, path: "/brands", desc: `Every house and label on our shelves. ${baseDesc}` },
     locations: { title: `Our stores — ${siteName}`, path: "/locations", desc: "Where to find Majestic Roobee — addresses, opening hours and phone numbers for every store." },
     reviews: { title: `Reviews & testimonials — ${siteName}`, path: "/reviews", desc: "What customers say about Majestic Roobee, in their own posts and their own words." },
-    blog: { title: `Journal — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
-    post: { title: `Journal — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
+    blog: { title: `Blog — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
+    post: { title: `Blog — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
     checkout: { title: `Checkout — ${siteName}`, path: "/checkout", desc: "", noindex: true },
     confirm: { title: `Order confirmed — ${siteName}`, path: "/confirm", desc: "", noindex: true },
   }[page] || { title: siteName, path: "/", desc: baseDesc };

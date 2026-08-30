@@ -1,7 +1,8 @@
 // The pages the header's second row leads to: a wishlist, the brands we carry,
-// our stores, the reviews wall, and the journal.
-import React, { useState } from "react";
+// our stores, the reviews wall, and the blog.
+import React, { useEffect, useRef, useState } from "react";
 import { Eyebrow, GildedRule, Button, ImageSlot } from "../ds/components.jsx";
+import { useWindowWidth } from "../lib/hooks.js";
 import { ProductCard } from "./product-card.jsx";
 import { routeToPath } from "./router.js";
 
@@ -206,6 +207,67 @@ export function EmbedCard({ t, height = 480 }) {
   );
 }
 
+// The home page's reviews rail: the same cards as the wall at /reviews, moving
+// one card at a time on a timer so a shopper who stays on the page sees more of
+// them than fit across it. Everything shown here is what the admin has marked
+// live under Reviews — nothing is written into the page.
+export function TestimonialCarousel({ items, height = 400, intervalMs = 6000 }) {
+  const w = useWindowWidth();
+  const perView = Math.min(items.length, w < 700 ? 1 : w < 1060 ? 2 : 3);
+  const last = Math.max(0, items.length - perView);
+  const [i, setI] = useState(0);
+  // Paused while the shopper is reading a card (hover or keyboard focus) and
+  // for anyone who has asked the system for less motion.
+  const [paused, setPaused] = useState(false);
+  const reduced = useRef(false);
+  useEffect(() => {
+    try { reduced.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { reduced.current = false; }
+  }, []);
+  // A narrower window can leave the rail scrolled past its own end.
+  useEffect(() => { setI((n) => Math.min(n, last)); }, [last]);
+  useEffect(() => {
+    if (paused || reduced.current || last === 0) return undefined;
+    const t = setInterval(() => setI((n) => (n >= last ? 0 : n + 1)), Math.max(3000, intervalMs));
+    return () => clearInterval(t);
+  }, [paused, last, intervalMs]);
+
+  if (!items.length) return null;
+  const step = (d) => setI((n) => (n + d < 0 ? last : n + d > last ? 0 : n + d));
+  const arrow = (label, d, glyph) => (
+    <button onClick={() => step(d)} aria-label={label} title={label}
+      style={{ width: 34, height: 34, borderRadius: "50%", border: "1px solid var(--border-hairline)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", fontSize: 14, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>{glyph}</button>
+  );
+  return (
+    <div
+      onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}
+      role="group" aria-roledescription="carousel" aria-label="Reviews and testimonials"
+    >
+      <div style={{ overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "stretch", transform: `translateX(-${(i * 100) / perView}%)`, transition: "transform var(--dur-slow) var(--ease-glide)" }}>
+          {items.map((t, n) => (
+            <div key={t.id} aria-hidden={n < i || n >= i + perView} style={{ flex: `0 0 ${100 / perView}%`, maxWidth: `${100 / perView}%`, padding: "0 10px", boxSizing: "border-box", display: "flex" }}>
+              <div style={{ width: "100%" }}><EmbedCard t={t} height={height} /></div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {last > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginTop: 18 }}>
+          {arrow("Previous review", -1, "\u2039")}
+          <div style={{ display: "flex", gap: 7 }}>
+            {Array.from({ length: last + 1 }, (_, n) => (
+              <button key={n} onClick={() => setI(n)} aria-label={`Go to review ${n + 1}`} aria-current={n === i}
+                style={{ width: n === i ? 20 : 8, height: 8, padding: 0, borderRadius: 4, border: "none", cursor: "pointer", background: n === i ? "var(--mr-purple-900)" : "var(--border-hairline)", transition: "width var(--dur-base) var(--ease-glide)" }} />
+            ))}
+          </div>
+          {arrow("Next review", 1, "\u203a")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ReviewsPage({ ctx }) {
   const { testimonials, settings } = ctx;
   const [kind, setKind] = useState("all");
@@ -244,7 +306,7 @@ export function ReviewsPage({ ctx }) {
   );
 }
 
-// ---- The journal ----------------------------------------------------------
+// ---- The blog -------------------------------------------------------------
 
 // Posts are written as plain text: blank lines separate paragraphs, a line
 // starting "## " is a heading, and a line that is only a URL is an image. That
@@ -281,7 +343,7 @@ function PostCard({ p, onOpen, height = 190 }) {
       <ImageSlot src={p.coverUrl} name={p.title} sizes="(max-width: 640px) 92vw, 340px" style={{ width: "100%", height }} />
       <div style={{ padding: "16px 18px 20px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
         <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-          {p.published || "Journal"}{p.tags && p.tags.length ? ` · ${p.tags[0]}` : ""}
+          {p.published || "Blog"}{p.tags && p.tags.length ? ` · ${p.tags[0]}` : ""}
         </div>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--text-strong)", lineHeight: 1.3 }}>{p.title}</div>
         {p.excerpt && <p style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.65, margin: 0 }}>{p.excerpt}</p>}
@@ -302,7 +364,7 @@ export function BlogPage({ ctx }) {
     <main style={shellStyle}>
       <PageHead
         eyebrow="From the house"
-        title={settings.blogHeadline || "The journal"}
+        title={settings.blogHeadline || "The blog"}
         sub={settings.blogIntro || "How to wear it, how to layer it, how to make it last — and what we're blending next."}
       />
       {blog.tags.length > 0 && (
@@ -312,7 +374,7 @@ export function BlogPage({ ctx }) {
         </div>
       )}
       {!blog.loaded ? (
-        <p style={{ fontSize: 13.5, color: "var(--text-muted)" }}>Opening the journal…</p>
+        <p style={{ fontSize: 13.5, color: "var(--text-muted)" }}>Opening the blog…</p>
       ) : !posts.length ? (
         <Empty title={tag ? `Nothing filed under “${tag}” yet.` : "The first story is being written."}>
           <Button variant="primary" onClick={() => (tag ? ctx.setBlogTag("") : ctx.nav("shop"))}>{tag ? "Show everything" : "Browse the collection"}</Button>
@@ -333,7 +395,7 @@ export function BlogPostPage({ ctx }) {
     return (
       <main style={shellStyle}>
         <Empty title="That story isn't here.">
-          <Button variant="primary" onClick={() => ctx.nav("blog")}>Back to the journal</Button>
+          <Button variant="primary" onClick={() => ctx.nav("blog")}>Back to the blog</Button>
         </Empty>
       </main>
     );
@@ -341,8 +403,8 @@ export function BlogPostPage({ ctx }) {
   const p = wrapper.post;
   return (
     <main style={{ maxWidth: 820, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
-      <button onClick={() => ctx.nav("blog")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← The journal</button>
-      <Eyebrow>{p.published || "Journal"}</Eyebrow>
+      <button onClick={() => ctx.nav("blog")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← The blog</button>
+      <Eyebrow>{p.published || "Blog"}</Eyebrow>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4.4vw, 46px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", lineHeight: 1.15, margin: "14px 0 10px" }}>{p.title}</h1>
       <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 22 }}>
         {p.author}{p.tags.length ? ` · ${p.tags.join(" · ")}` : ""}

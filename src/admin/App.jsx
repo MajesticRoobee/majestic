@@ -43,7 +43,7 @@ const PAGES = [
   { id: "collections", label: "Collections", title: "Collections & sets" },
   { id: "categories", label: "Categories", title: "Categories & sub-shelves" },
   { id: "deals", label: "Deals", title: "Deals & hot offers" },
-  { id: "blog", label: "Blog", title: "The journal" },
+  { id: "blog", label: "Blog", title: "The blog" },
   { id: "reviews", label: "Reviews", title: "Reviews & testimonials" },
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
   { id: "notif", label: "Notifications", title: "Notifications & pop-ups" },

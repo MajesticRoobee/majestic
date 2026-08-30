@@ -3,11 +3,11 @@ import React, { useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "../ds/components.jsx";
 import { ProductCard } from "./product-card.jsx";
 import { routeToPath } from "./router.js";
-import { EmbedCard } from "./pages-content.jsx";
+import { EmbedCard, TestimonialCarousel } from "./pages-content.jsx";
 
 export { ProductCard };
 export { WishlistPage, BrandsPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody } from "./pages-content.jsx";
-export { EmbedCard };
+export { EmbedCard, TestimonialCarousel };
 
 const PAD = "clamp(16px, 4vw, 40px)";
 
@@ -154,8 +154,10 @@ export function HomePage({ ctx }) {
         </section>
       )}
 
-      {/* Reviews & testimonials — the customers' own posts, embedded. */}
-      {testimonials.length > 0 ? (
+      {/* Reviews & testimonials — the customers' own posts, on a rail that moves
+          on its own. The house adds and removes them under Reviews in the admin;
+          nothing on this section is written into the page. */}
+      {testimonials.length > 0 && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
@@ -166,33 +168,25 @@ export function HomePage({ ctx }) {
             </div>
             <a href="/reviews" onClick={(e) => { e.preventDefault(); ctx.nav("reviews"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>See them all —</a>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 20, alignItems: "start" }}>
-            {testimonials.slice(0, 3).map((t) => <EmbedCard key={t.id} t={t} height={430} />)}
-          </div>
-        </section>
-      ) : (
-        <section style={{ background: "var(--surface-inverse)", marginTop: "clamp(48px, 8vw, 88px)" }}>
-          <div style={{ maxWidth: 900, margin: "0 auto", padding: `clamp(48px, 7vw, 80px) ${PAD}`, textAlign: "center" }}>
-            <GildedRule width="200px" style={{ margin: "18px auto" }} />
-            <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(22px, 2.6vw, 30px)", fontWeight: 300, lineHeight: 1.5, color: "var(--mr-cream)", margin: "24px 0 18px" }}>
-              "The full-day assassination package gave me everything I needed in a perfume — countless hugs and everyday compliments."
-            </p>
-            <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--text-on-dark-muted)" }}>Sally Benson — verified queen</div>
+          {/* The rail has its own gutter, so it pulls back level with the grids
+              above and below it. */}
+          <div style={{ margin: "0 -10px" }}>
+            <TestimonialCarousel items={testimonials.slice(0, 9)} height={430} />
           </div>
         </section>
       )}
 
-      {/* The journal — three most recent stories. */}
+      {/* The blog — three most recent stories. */}
       {latestPosts.length > 0 && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
               <Eyebrow>From the house</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {settings.blogHeadline || "The journal"}
+                {settings.blogHeadline || "The blog"}
               </h2>
             </div>
-            <a href="/blog" onClick={(e) => { e.preventDefault(); ctx.nav("blog"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read the journal —</a>
+            <a href="/blog" onClick={(e) => { e.preventDefault(); ctx.nav("blog"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read the blog —</a>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
             {latestPosts.map((p) => (
@@ -200,7 +194,7 @@ export function HomePage({ ctx }) {
                 style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
                 <ImageSlot src={p.coverUrl} name={p.title} sizes="(max-width: 640px) 92vw, 300px" style={{ width: "100%", height: 170 }} />
                 <div style={{ padding: "16px 18px 20px" }}>
-                  <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>{p.published || "Journal"}</div>
+                  <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>{p.published || "Blog"}</div>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>
                   {p.excerpt && <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.65, margin: "6px 0 0" }}>{p.excerpt}</p>}
                 </div>
@@ -222,8 +216,8 @@ export function HomePage({ ctx }) {
 // and search all compose, so "gift sets in body mists" is one address.
 const SEGMENT_COPY = {
   "new-arrivals": { eyebrow: "Just landed", title: "New arrivals", sub: "The newest pieces to reach the house — freshest first." },
-  "best-sellers": { eyebrow: "Most followed", title: "Best sellers", sub: "What our customers keep coming back for, counted from real orders." },
-  deals: { eyebrow: "While it lasts", title: "Hot deals", sub: "Everything marked down right now. When a deal's window closes it leaves this page on its own." },
+  "best-sellers": { eyebrow: "Most followed", title: "Best sellers" },
+  deals: { eyebrow: "While it lasts", title: "Hot deals" },
   "gift-sets": { eyebrow: "Ready to give", title: "Gift sets", sub: "Fragrance, mist and custom-oil sets, boxed and ready." },
 };
 
@@ -241,6 +235,21 @@ export function ShopPage({ ctx }) {
   // The deals running right now, so the Deals page names them rather than
   // showing a wall of discounted products with no reason attached.
   const runningDeals = seg === "deals" ? ctx.deals.filter((d) => d.productIds.length) : [];
+  // The line under the title. Deals and best sellers deliberately carry none —
+  // the shelf speaks for itself — so the title stands alone there.
+  const subLine = segCopy
+    ? segCopy.sub || ""
+    : brand
+      ? `Every ${brandName} piece the house carries.`
+      : collection && collection.desc
+        ? collection.desc
+        : activeCat && activeCat.desc
+          ? activeCat.desc
+          : searching
+            ? `Searching every store — pieces held in ${cityName} come first.`
+            : ctx.fScope === "city"
+              ? `On the shelf at our ${cityName} store today.`
+              : `Everything the house carries — pieces held in ${cityName} come first.`;
   // The grid iterates listing entries, not products: one entry per card. A
   // product with a picker is one entry carrying all its variations; a
   // split-listed product contributes one entry per variation.
@@ -325,28 +334,16 @@ export function ShopPage({ ctx }) {
       })}
 
       <Eyebrow>{segCopy ? segCopy.eyebrow : brand ? "By the label" : collection ? "Collection" : activeCat ? "The shelf" : "The collection"}</Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: `12px 0 ${subLine ? 6 : 24}px` }}>
         {segCopy
           ? (activeCat ? `${segCopy.title} — ${activeCat.label}` : segCopy.title)
           : brand ? brandName
             : collection ? collection.title
               : activeCat ? activeCat.label : "All products"}
       </h1>
-      <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px", maxWidth: "62ch", lineHeight: 1.7 }}>
-        {segCopy
-          ? segCopy.sub
-          : brand
-            ? `Every ${brandName} piece the house carries.`
-            : collection && collection.desc
-              ? collection.desc
-              : activeCat && activeCat.desc
-                ? activeCat.desc
-                : searching
-                  ? `Searching every store — pieces held in ${cityName} come first.`
-                  : ctx.fScope === "city"
-                    ? `On the shelf at our ${cityName} store today.`
-                    : `Everything the house carries — pieces held in ${cityName} come first.`}
-      </p>
+      {subLine && (
+        <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px", maxWidth: "62ch", lineHeight: 1.7 }}>{subLine}</p>
+      )}
 
       {runningDeals.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 14, marginBottom: 26 }}>
