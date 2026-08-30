@@ -123,9 +123,50 @@ export function LocationsPage({ ctx }) {
 // platform's own embed inside an iframe — no third-party script runs on the
 // page, so nothing here can slow the store down or watch the shopper. A stored
 // video file plays inline; anything else is a plain quote card.
-export function EmbedCard({ t, height = 480 }) {
+// A platform's embed is a fixed shape, and it is the platform that decides it:
+// Instagram letterboxes any post into a 4:5 media box and adds its own header
+// and "View more on Instagram" bar, TikTok is taller again, YouTube is 16:9.
+// An iframe cannot tell its parent how tall it wants to be across origins, so
+// the card measures its own width and gives the frame the height that shape
+// actually needs — the alternative is the black bars and cropping you get from
+// guessing one fixed height for every platform.
+const FRAME_HEIGHT = {
+  instagram: (w) => Math.round(w * 1.25) + 104,
+  tiktok: (w) => Math.round(w * 1.78) + 118,
+  youtube: (w) => Math.round(w * 0.5625),
+  video: (w) => Math.round(w * 1.25),
+};
+
+// The width an embed is designed around. Instagram's own embed is 326–658px
+// and sits at the narrow end of that in practice; a card much wider letterboxes
+// rather than filling, which is why the rail and the wall cap their columns
+// rather than stretching a card across the page.
+export const EMBED_MAX_WIDTH = 360;
+
+function useMeasuredWidth(fallback = 326) {
+  const ref = useRef(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    setW(el.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver((entries) => setW(entries[0].contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w || fallback];
+}
+
+// `frameHeight` lets a caller impose one shape on a row of cards — the rail
+// does, so a TikTok next to a YouTube next to an Instagram post still reads as
+// one even row rather than three ragged ones. Left off, each card takes the
+// shape its own platform wants.
+export function EmbedCard({ t, frameHeight }) {
+  const [ref, width] = useMeasuredWidth();
+  const height = frameHeight || (FRAME_HEIGHT[t.kind] || FRAME_HEIGHT.instagram)(width);
   const frameStyle = { width: "100%", height, border: "none", display: "block", background: "var(--surface-sunken)" };
-  const shell = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" };
+  const shell = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column", flexGrow: 1 };
   const byline = (
     (t.author || t.handle || t.city) && (
       <div style={{ padding: "12px 16px 14px", borderTop: t.kind === "quote" && !t.thumbUrl ? "none" : "1px solid var(--border-hairline)" }}>
@@ -141,7 +182,7 @@ export function EmbedCard({ t, height = 480 }) {
   );
   if (t.kind === "video" && t.embedUrl) {
     return (
-      <div style={shell}>
+      <div ref={ref} style={shell}>
         <video src={t.embedUrl} controls playsInline poster={t.thumbUrl || undefined} style={{ ...frameStyle, objectFit: "cover" }} />
         {byline}
       </div>
@@ -149,7 +190,7 @@ export function EmbedCard({ t, height = 480 }) {
   }
   if (t.embedUrl) {
     return (
-      <div style={shell}>
+      <div ref={ref} style={shell}>
         <iframe
           src={t.embedUrl}
           title={t.author ? `${t.author} on ${t.kind}` : `A customer post on ${t.kind}`}
@@ -165,8 +206,8 @@ export function EmbedCard({ t, height = 480 }) {
   }
   // A written review, with the photo the house was sent when there is one.
   return (
-    <div style={{ ...shell, justifyContent: "space-between", gap: 0 }}>
-      {t.thumbUrl && <ImageSlot src={t.thumbUrl} name={t.author || "A customer's photo"} sizes="(max-width: 640px) 92vw, 380px" style={{ width: "100%", height: 220 }} />}
+    <div ref={ref} style={{ ...shell, justifyContent: "space-between", gap: 0, minHeight: frameHeight || undefined }}>
+      {t.thumbUrl && <ImageSlot src={t.thumbUrl} name={t.author || "A customer's photo"} sizes="(max-width: 640px) 92vw, 400px" style={{ width: "100%", height: Math.round(width * 1.25) }} />}
       <div style={{ padding: "26px 24px 16px" }}>
         <div aria-label={`${t.rating} out of 5`} style={{ color: "var(--accent-gold-ink)", fontSize: 14, letterSpacing: 2 }}>{"★".repeat(Math.max(1, Math.min(5, t.rating || 5)))}</div>
         <p style={{ fontFamily: "var(--font-serif)", fontSize: 18, lineHeight: 1.6, color: "var(--text-body)", margin: "14px 0 0" }}>“{t.quote}”</p>
@@ -180,10 +221,18 @@ export function EmbedCard({ t, height = 480 }) {
 // one card at a time on a timer so a shopper who stays on the page sees more of
 // them than fit across it. Everything shown here is what the admin has marked
 // live under Reviews — nothing is written into the page.
-export function TestimonialCarousel({ items, height = 400, intervalMs = 6000 }) {
+export function TestimonialCarousel({ items, intervalMs = 6000 }) {
   const w = useWindowWidth();
-  const perView = Math.min(items.length, w < 700 ? 1 : w < 1060 ? 2 : 3);
+  // Columns come from the window, never from how many reviews there happen to
+  // be: with one review and a column each, that review used to be stretched
+  // across the whole page and the embed inside it letterboxed to fit.
+  const perView = w < 700 ? 1 : w < 1060 ? 2 : 3;
   const last = Math.max(0, items.length - perView);
+  // One shape for the whole row — the Instagram post's, which is what the house
+  // mostly posts — so the rail's height is steady and a single tall TikTok
+  // doesn't set it for everyone.
+  const [railRef, railWidth] = useMeasuredWidth(1000);
+  const frameHeight = FRAME_HEIGHT.instagram(Math.min(EMBED_MAX_WIDTH, railWidth / perView - 20));
   const [i, setI] = useState(0);
   // Paused while the shopper is reading a card (hover or keyboard focus) and
   // for anyone who has asked the system for less motion.
@@ -212,11 +261,11 @@ export function TestimonialCarousel({ items, height = 400, intervalMs = 6000 }) 
       onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}
       role="group" aria-roledescription="carousel" aria-label="Reviews and testimonials"
     >
-      <div style={{ overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "stretch", transform: `translateX(-${(i * 100) / perView}%)`, transition: "transform var(--dur-slow) var(--ease-glide)" }}>
+      <div ref={railRef} style={{ overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "stretch", justifyContent: items.length <= perView ? "center" : "flex-start", transform: `translateX(-${(i * 100) / perView}%)`, transition: "transform var(--dur-slow) var(--ease-glide)" }}>
           {items.map((t, n) => (
-            <div key={t.id} aria-hidden={n < i || n >= i + perView} style={{ flex: `0 0 ${100 / perView}%`, maxWidth: `${100 / perView}%`, padding: "0 10px", boxSizing: "border-box", display: "flex" }}>
-              <div style={{ width: "100%" }}><EmbedCard t={t} height={height} /></div>
+            <div key={t.id} aria-hidden={n < i || n >= i + perView} style={{ flex: `0 0 ${100 / perView}%`, maxWidth: `${100 / perView}%`, padding: "0 10px", boxSizing: "border-box", display: "flex", justifyContent: "center" }}>
+              <div style={{ width: "100%", maxWidth: EMBED_MAX_WIDTH, display: "flex" }}><EmbedCard t={t} frameHeight={frameHeight} /></div>
             </div>
           ))}
         </div>
@@ -240,6 +289,12 @@ export function TestimonialCarousel({ items, height = 400, intervalMs = 6000 }) 
 export function ReviewsPage({ ctx }) {
   const { testimonials, settings } = ctx;
   const [kind, setKind] = useState("all");
+  // How many columns of embed-width fit. Worked out here rather than left to
+  // `column-width`, which treats its value as a minimum and then stretches the
+  // columns to fill the page — a 360px post in a 590px column is the stretching
+  // this is meant to stop.
+  const winW = useWindowWidth();
+  const wallColumns = Math.max(1, Math.min(3, Math.floor((Math.min(winW, 1280) - 32) / (EMBED_MAX_WIDTH + 20))));
   const kinds = [...new Set(testimonials.map((t) => t.kind))];
   const list = kind === "all" ? testimonials : testimonials.filter((t) => t.kind === kind);
   const label = { instagram: "Instagram", tiktok: "TikTok", youtube: "Video", video: "Video", quote: "Written" };
@@ -267,8 +322,16 @@ export function ReviewsPage({ ctx }) {
           {settings.igUrl && <a href={settings.igUrl} target="_blank" rel="noopener noreferrer"><Button variant="primary">Visit us on Instagram</Button></a>}
         </Empty>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))", gap: 20, alignItems: "start" }}>
-          {list.map((t) => <EmbedCard key={t.id} t={t} />)}
+        /* Columns rather than a grid: an Instagram post, a TikTok and a written
+           review are three different heights, and a grid row is as tall as its
+           tallest card — which leaves holes. Columns let each card sit directly
+           under the one above it. */
+        <div style={{ columnCount: wallColumns, columnGap: 20, maxWidth: wallColumns * EMBED_MAX_WIDTH + (wallColumns - 1) * 20, margin: "0 auto" }}>
+          {list.map((t) => (
+            <div key={t.id} style={{ breakInside: "avoid", WebkitColumnBreakInside: "avoid", marginBottom: 20 }}>
+              <EmbedCard t={t} />
+            </div>
+          ))}
         </div>
       )}
     </main>
