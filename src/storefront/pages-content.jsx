@@ -128,7 +128,7 @@ export function EmbedCard({ t, height = 480 }) {
   const shell = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" };
   const byline = (
     (t.author || t.handle || t.city) && (
-      <div style={{ padding: "12px 16px 14px", borderTop: t.kind === "quote" ? "none" : "1px solid var(--border-hairline)" }}>
+      <div style={{ padding: "12px 16px 14px", borderTop: t.kind === "quote" && !t.thumbUrl ? "none" : "1px solid var(--border-hairline)" }}>
         {t.author && <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>{t.author}</div>}
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
           {[t.handle, t.city].filter(Boolean).join(" · ")}
@@ -163,9 +163,11 @@ export function EmbedCard({ t, height = 480 }) {
       </div>
     );
   }
+  // A written review, with the photo the house was sent when there is one.
   return (
-    <div style={{ ...shell, padding: "26px 24px", justifyContent: "space-between", gap: 16 }}>
-      <div>
+    <div style={{ ...shell, justifyContent: "space-between", gap: 0 }}>
+      {t.thumbUrl && <ImageSlot src={t.thumbUrl} name={t.author || "A customer's photo"} sizes="(max-width: 640px) 92vw, 380px" style={{ width: "100%", height: 220 }} />}
+      <div style={{ padding: "26px 24px 16px" }}>
         <div aria-label={`${t.rating} out of 5`} style={{ color: "var(--accent-gold-ink)", fontSize: 14, letterSpacing: 2 }}>{"★".repeat(Math.max(1, Math.min(5, t.rating || 5)))}</div>
         <p style={{ fontFamily: "var(--font-serif)", fontSize: 18, lineHeight: 1.6, color: "var(--text-body)", margin: "14px 0 0" }}>“{t.quote}”</p>
       </div>
@@ -249,7 +251,7 @@ export function ReviewsPage({ ctx }) {
       <PageHead
         eyebrow="In their own words"
         title={settings.reviewsHeadline || "Reviews & testimonials"}
-        sub={settings.reviewsIntro || "Posts our customers made themselves, embedded exactly as they published them — nothing here is written by us."}
+        sub={settings.reviewsIntro || "What customers tell us, in their words — and the posts they made themselves, embedded exactly as they published them."}
       />
       {kinds.length > 1 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
@@ -287,8 +289,11 @@ export function PostBody({ body }) {
         if (b.startsWith("## ")) {
           return <h2 key={i} style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.4vw, 28px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{b.slice(3).trim()}</h2>;
         }
-        if (/^https?:\/\/\S+$/.test(b)) {
-          return <img key={i} src={b} alt="" loading="lazy" style={{ width: "100%", borderRadius: "var(--radius-lg)", display: "block" }} />;
+        // A line that is only an address is a picture: an uploaded one (which
+        // is served from /images and so has narrower copies to offer) or a
+        // pasted external one.
+        if (/^(https?:\/\/|\/images\/)\S+$/.test(b)) {
+          return <ImageSlot key={i} src={b} shape="rounded" radius={14} sizes="(max-width: 760px) 92vw, 720px" style={{ width: "100%" }} />;
         }
         if (b.startsWith("> ")) {
           return (

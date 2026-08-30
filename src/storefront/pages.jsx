@@ -55,12 +55,13 @@ export function HomePage({ ctx }) {
           </div>
           <div style={{ position: "relative", minHeight: 380 }}>
             <div style={{ position: "absolute", inset: "24px -8px -8px 24px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
-            <ImageSlot shape="rounded" radius={16} name="Majestic Roobee" label="Warm editorial hero — bottle on silk" style={{ width: "100%", height: 460 }} />
+            <ImageSlot src={settings.heroImage} eager shape="rounded" radius={16} name="Majestic Roobee" sizes="(max-width: 860px) 92vw, 600px"
+              label="Warm editorial hero — bottle on silk" style={{ width: "100%", height: 460 }} />
           </div>
         </section>
       )}
       {dir === "royal statement" && (
-        <section style={{ background: "var(--royal-wash)", textAlign: "center", padding: `clamp(64px, 10vw, 130px) ${PAD}` }}>
+        <section style={{ background: settings.heroImage ? `linear-gradient(rgba(36,20,48,0.72), rgba(36,20,48,0.72)), url("${settings.heroImage}") center/cover` : "var(--royal-wash)", textAlign: "center", padding: `clamp(64px, 10vw, 130px) ${PAD}` }}>
           <Eyebrow tone="light">The house of Majestic Roobee</Eyebrow>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(40px, 6.4vw, 84px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: "22px auto 0", maxWidth: "18ch" }}>Leave a trail, not just an impression.</h1>
           <GildedRule width="220px" style={{ margin: "18px auto" }} />

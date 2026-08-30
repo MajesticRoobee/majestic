@@ -1,8 +1,9 @@
 // Admin — the content the storefront's new header leads to: categories and
 // their sub-shelves, deals, the blog, and the reviews wall.
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
+import { ImagePicker } from "./product-form.jsx";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const linkBtn = { background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-700)", padding: 0 };
@@ -32,7 +33,7 @@ function Panel({ title, onClose, children }) {
 
 // Products are picked the same way everywhere here: search, tick, and the chips
 // above show what is already in.
-function ProductPicker({ ctx, ids, toggle }) {
+function ProductMultiPicker({ ctx, ids, toggle }) {
   const [q, setQ] = useState("");
   const matches = ctx.products.filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase()));
   const chosen = ids.map((id) => ctx.products.find((p) => p.id === id)).filter(Boolean);
@@ -315,7 +316,7 @@ export function DealsPage({ ctx }) {
               <Input label="Starts" type="date" value={f.startsAt} onChange={(e) => setF({ ...f, startsAt: e.target.value })} hint="Blank = right away." />
               <Input label="Ends" type="date" value={f.endsAt} onChange={(e) => setF({ ...f, endsAt: e.target.value })} hint="Inclusive. Blank = until you end it." />
             </div>
-            <ProductPicker ctx={ctx} ids={f.productIds} toggle={toggle} />
+            <ProductMultiPicker ctx={ctx} ids={f.productIds} toggle={toggle} />
             <Button variant="primary" block disabled={busy || !f.title.trim()} onClick={save}>
               {busy ? "Saving…" : editing === "new" ? "Create deal" : "Save changes"}
             </Button>
@@ -378,8 +379,9 @@ export function BlogPage({ ctx }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Intro title="The blog">
           Stories on the storefront at <strong>/blog</strong>, with the three most recent on the home page. Write in plain text: leave a
-          blank line between paragraphs, start a line with <code>## </code> for a heading or <code>&gt; </code> for a pull quote, and put a
-          bare image URL on its own line to drop a picture in. A draft is invisible until you publish it.
+          blank line between paragraphs, start a line with <code>## </code> for a heading or <code>&gt; </code> for a pull quote, and put an
+          image on its own line to drop a picture in — upload it with the picker in the editor, or paste an address. Pictures are
+          optional, cover included. A draft is invisible until you publish it.
         </Intro>
         {!ctx.posts.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
@@ -427,8 +429,14 @@ export function BlogPage({ ctx }) {
             )}
             <Textarea label="Excerpt" value={f.excerpt} onChange={(e) => setF({ ...f, excerpt: e.target.value })} rows={2}
               hint="The line under the title on the cards and in search results." />
-            <Input label="Cover image URL" value={f.coverUrl} onChange={(e) => setF({ ...f, coverUrl: e.target.value })} placeholder="/images/…"
-              hint="Upload it under Products → the image picker, then paste the address here." />
+            <ImagePicker ctx={ctx} label="Cover image (optional)" value={f.coverUrl} onChange={(url) => setF({ ...f, coverUrl: url })}
+              hint="Optional — a story without one still publishes. Wide images look best on the cards." />
+            {/* A picture inside the story is just its address on a line of its
+                own, so uploading one appends that line rather than holding the
+                file anywhere in this form. */}
+            <ImagePicker ctx={ctx} label="Add a picture to the story" value="" clearAfterPick
+              onChange={(url) => setF((cur) => ({ ...cur, body: `${cur.body.replace(/\s+$/, "")}\n\n${url}\n` }))}
+              hint="Added at the end of the text below — move the line to where you want the picture to sit." />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Author" value={f.author} onChange={(e) => setF({ ...f, author: e.target.value })} />
               <Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} placeholder="layering, care" hint="Comma-separated." />
@@ -449,7 +457,55 @@ export function BlogPage({ ctx }) {
 
 // ---- Reviews & testimonials ----------------------------------------------
 
-const KIND_LABELS = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube", video: "Video file", quote: "Written quote" };
+const KIND_LABELS = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube", video: "Video file", quote: "Written review" };
+
+// Tying a review to a product used to mean finding it in a list of every piece
+// the house carries. Type instead: name, brand or SKU-ish id, and pick.
+function ProductPicker({ products, value, onChange, label = "About which product (optional)" }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const chosen = products.find((p) => p.id === value) || null;
+  const matches = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const list = needle
+      ? products.filter((p) => `${p.name} ${p.brand || ""} ${p.id}`.toLowerCase().includes(needle))
+      : products;
+    return list.slice(0, 8);
+  }, [q, products]);
+
+  if (chosen) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>{label}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-sunken)" }}>
+          <span style={{ flex: 1, fontSize: 13.5, color: "var(--text-strong)" }}>{chosen.name}</span>
+          <button onClick={() => { onChange(""); setQ(""); setOpen(true); }} style={linkBtn}>Change</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative" }}>
+      <Input label={label} value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
+        placeholder="Search the catalogue — name, brand or code" hint="Leave it empty if the review isn't about one piece." />
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div style={{ position: "absolute", top: 68, left: 0, right: 0, zIndex: 41, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", maxHeight: 260, overflowY: "auto", padding: 6 }}>
+            {!matches.length && <div style={{ padding: "10px 12px", fontSize: 12.5, color: "var(--text-muted)" }}>Nothing matches “{q.trim()}”.</div>}
+            {matches.map((p) => (
+              <button key={p.id} onClick={() => { onChange(p.id); setOpen(false); }}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-strong)", padding: "9px 12px", borderRadius: "var(--radius-sm)" }}>
+                {p.name}
+                {p.brand ? <span style={{ color: "var(--text-muted)", fontSize: 12 }}> · {p.brand}</span> : null}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export function TestimonialsPage({ ctx }) {
   const [editing, setEditing] = useState(null);
@@ -457,19 +513,28 @@ export function TestimonialsPage({ ctx }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
+  // A review is either a customer's own post, embedded, or one written out —
+  // told to us in a shop, over WhatsApp, in an email. Neither needs the other.
+  const [mode, setMode] = useState("written");
+
   const blank = { url: "", author: "", handle: "", quote: "", rating: 5, city: "", productId: "", thumbUrl: "", live: true };
   const open = (t) => {
     setErr("");
     setEditing(t ? t.id : "new");
+    setMode(t && t.url ? "embed" : "written");
     setF(t ? { url: t.url, author: t.author, handle: t.handle, quote: t.quote, rating: t.rating, city: t.city, productId: t.productId, thumbUrl: t.thumbUrl, live: t.live } : { ...blank });
   };
   const close = () => { setEditing(null); setF(null); setErr(""); };
 
   const save = async () => {
+    // Switching a review to written drops the link, which is what makes the
+    // server file it as a quote rather than a broken embed.
+    const body = mode === "written" ? { ...f, url: "" } : f;
+    if (mode === "written" && !body.quote.trim()) return setErr("Write out what the customer said.");
     setBusy(true); setErr("");
     try {
-      if (editing === "new") await api.post("/api/admin/testimonials", f, ctx.token);
-      else await api.patch(`/api/admin/testimonials/${editing}`, f, ctx.token);
+      if (editing === "new") await api.post("/api/admin/testimonials", body, ctx.token);
+      else await api.patch(`/api/admin/testimonials/${editing}`, body, ctx.token);
       ctx.loadTestimonials();
       ctx.flash(editing === "new" ? "Testimonial added" : "Testimonial updated");
       close();
@@ -506,14 +571,14 @@ export function TestimonialsPage({ ctx }) {
     <main style={pageStyle}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Intro title="Reviews & testimonials">
-          The wall at <strong>/reviews</strong>, and the three shown on the home page. Paste the link to an Instagram post or reel, a
-          TikTok or a YouTube video and it is embedded exactly as your customer published it — we work out which platform it is from the
-          address, so a copied link with tracking on the end is fine. No link? Write the testimonial out as a quote instead.
+          The wall at <strong>/reviews</strong>, and the rail on the home page. Write a review out as your customer told it to you — with
+          a photo if you have one — or paste the link to their own Instagram post or reel, TikTok or YouTube video and it embeds exactly
+          as they published it. We work out which platform from the address, so a copied link with tracking on the end is fine.
         </Intro>
         {!ctx.testimonials.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>The wall is empty</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Add the first post beside this — paste a link and it embeds itself.</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Add the first one beside this — write it out, or paste a link and it embeds itself.</div>
           </div>
         )}
         {ctx.testimonials.map((t, i, all) => (
@@ -542,14 +607,24 @@ export function TestimonialsPage({ ctx }) {
       <Panel title={editing && editing !== "new" ? "Edit testimonial" : "New testimonial"} onClose={editing ? close : null}>
         {!editing ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Embed a customer's own post, or write out what they told you.</div>
-            <Button variant="primary" block onClick={() => open(null)}>Add a testimonial</Button>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Write out what a customer told you, or embed their own post.</div>
+            <Button variant="primary" block onClick={() => open(null)}>Add a review</Button>
           </>
         ) : (
           <>
-            <Input label="Post link" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })}
-              placeholder="https://www.instagram.com/p/…"
-              hint="Instagram post or reel, TikTok video, YouTube video, or a direct .mp4 link." />
+            <div style={{ display: "flex", gap: 8 }}>
+              {[["written", "Written review"], ["embed", "Customer's post"]].map(([id, label]) => (
+                <button key={id} onClick={() => setMode(id)}
+                  style={{ flex: 1, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "9px 12px", borderRadius: "var(--radius-pill)", border: `1px solid ${mode === id ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: mode === id ? "var(--mr-purple-900)" : "var(--surface-card)", color: mode === id ? "var(--mr-cream)" : "var(--mr-purple-800)" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {mode === "embed" && (
+              <Input label="Post link" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })}
+                placeholder="https://www.instagram.com/p/…"
+                hint="Instagram post or reel, TikTok video, YouTube video, or a direct .mp4 link." />
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Customer" value={f.author} onChange={(e) => setF({ ...f, author: e.target.value })} placeholder="Dorothy" />
               <Input label="Handle" value={f.handle} onChange={(e) => setF({ ...f, handle: e.target.value })} placeholder="@northern_hibiscuss" />
@@ -560,12 +635,13 @@ export function TestimonialsPage({ ctx }) {
                 {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{"★".repeat(n)}</option>)}
               </Select>
             </div>
-            <Textarea label="Quote" value={f.quote} onChange={(e) => setF({ ...f, quote: e.target.value })} rows={3}
-              hint="Required when there is no post link — otherwise it is shown under the embed." />
-            <Select label="About which product (optional)" value={f.productId} onChange={(e) => setF({ ...f, productId: e.target.value })}>
-              <option value="">Not tied to one</option>
-              {ctx.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
+            <Textarea label={mode === "written" ? "What they said" : "Quote"} value={f.quote} onChange={(e) => setF({ ...f, quote: e.target.value })} rows={3}
+              hint={mode === "written" ? "The review itself — this is what the card shows." : "Optional here; shown under the embed."} />
+            {mode === "written" && (
+              <ImagePicker ctx={ctx} label="Photo (optional)" value={f.thumbUrl || ""} onChange={(url) => setF({ ...f, thumbUrl: url })}
+                hint="A screenshot of the message, or a photo they sent. The review stands on its own without one." />
+            )}
+            <ProductPicker products={ctx.products} value={f.productId} onChange={(id) => setF({ ...f, productId: id })} />
             <Switch label="Live on the storefront" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
             <Button variant="primary" block disabled={busy} onClick={save}>
               {busy ? "Saving…" : editing === "new" ? "Add testimonial" : "Save changes"}

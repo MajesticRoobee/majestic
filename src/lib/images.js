@@ -56,6 +56,36 @@ export async function resizeToWidths(file, widths = WIDTHS) {
 }
 
 /**
+ * Upload one image from the admin: the original first, then the narrower copies
+ * the storefront serves to phones. Resolves to the served URL.
+ *
+ * The original is the only part that has to succeed — if this browser can't
+ * re-encode (an exotic format, a very old browser), the photo is still stored
+ * and every width simply resolves back to it. `onSoftError` is told when that
+ * happens so the caller can say so without failing the upload.
+ */
+export async function uploadImage(file, token, onSoftError) {
+  const post = (body, headers) => fetch("/api/admin/media", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, ...headers },
+    body,
+  });
+  const res = await post(file, { "content-type": file.type });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(d.error || `Upload failed (${res.status})`);
+  try {
+    const sizes = await resizeToWidths(file);
+    await Promise.all(sizes.map((s) =>
+      post(s.blob, { "content-type": s.mime, "x-parent": d.id, "x-width": String(s.width) })
+    ));
+  } catch {
+    // Derivatives are an optimisation, not the upload.
+    if (onSoftError) onSoftError("Photo saved, but the phone-sized copies couldn't be made — it will still display.");
+  }
+  return d.url;
+}
+
+/**
  * The srcset for an image served by this Worker. Returns "" for anything else
  * — a pasted external URL has no derivatives to offer and must be left alone.
  */
