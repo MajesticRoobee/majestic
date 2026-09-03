@@ -5,7 +5,7 @@
 // why they live here as pure functions the tests can exercise without a
 // database. shop.js supplies the rows; everything below is arithmetic.
 
-import { todayInWAT } from "./util.js";
+import { todayInWAT, watToMs, endOfDayWAT } from "./util.js";
 
 export const SEGMENTS = ["new-arrivals", "best-sellers", "gift-sets", "deals"];
 
@@ -115,6 +115,144 @@ export function computeSegments({
     "gift-sets": giftSets,
     deals,
   };
+}
+
+// ---- The daily deal -------------------------------------------------------
+//
+// One piece, one price, one clock. Where a deal (above) is a shelf that runs
+// for days, a daily deal is a single variation spotlit on the home page with a
+// countdown beside it — so it is scheduled to the minute, and only ever one of
+// them is on at a time.
+//
+// The price it names is the price everywhere. `applyDailyDealPricing` overlays
+// it on the catalogue before the storefront reads a single row, which is what
+// keeps the countdown card, the shop grid, the cart and the charge from telling
+// a shopper three different numbers.
+
+/**
+ * The scheduled deal running at `now`, or null.
+ *
+ * Two of them can overlap — the house queues a week ahead and edits as it goes
+ * — so the one ending soonest wins, and between two ending together the one
+ * that started later does. That makes "start another one now" mean what it
+ * looks like it means, without anyone having to end the first.
+ */
+export function pickDailyDeal(rows = [], now = Date.now()) {
+  const live = (rows || [])
+    .filter((r) => r && r.status !== "Paused")
+    .map((r) => ({ row: r, from: watToMs(r.starts_at), to: watToMs(r.ends_at) }))
+    .filter((w) => !Number.isNaN(w.from) && !Number.isNaN(w.to) && w.from <= now && now < w.to)
+    .sort((a, b) => a.to - b.to || b.from - a.from);
+  return live.length ? live[0].row : null;
+}
+
+/**
+ * The deepest markdown on the floor — what the card falls back to when nothing
+ * is scheduled, so a house that never opens the panel still has a live offer
+ * where the design puts one. It runs to midnight and re-picks tomorrow.
+ */
+export function deepestMarkdown(products = []) {
+  let best = null;
+  for (const p of products) {
+    for (const v of p.variants || []) {
+      if (!v.compareAtNgn || v.compareAtNgn <= v.ngn) continue;
+      const off = 1 - v.ngn / v.compareAtNgn;
+      if (!best || off > best.off) best = { product: p, variant: v, off };
+    }
+  }
+  return best;
+}
+
+/**
+ * The daily deal the storefront should show, resolved against the catalogue.
+ *
+ * Returns null when there is nothing to show — no schedule and no markdown, or
+ * a scheduled deal whose product has since been unpublished. A card that would
+ * be blank is better absent than empty.
+ */
+export function resolveDailyDeal({
+  products = [],
+  row = null,
+  auto = true,
+  headline = "Daily Deal",
+  now = Date.now(),
+} = {}) {
+  let product = null;
+  let variant = null;
+  let price = 0;
+  let compareAt = 0;
+  let endsAt = 0;
+  let scheduled = false;
+  let head = headline;
+
+  if (row) {
+    const p = products.find((x) => x.id === row.product_id) || null;
+    const vs = p ? (p.variants || []).filter((v) => v.active !== false) : [];
+    // A named variation that has since been deactivated falls back to whatever
+    // the product still sells rather than taking the whole card down.
+    const v = (row.variant_id ? vs.find((x) => x.id === row.variant_id) : null) || vs[0] || null;
+    if (p && v) {
+      product = p;
+      variant = v;
+      price = row.price_ngn || v.ngn;
+      compareAt = row.compare_at_ngn || v.compareAtNgn || 0;
+      endsAt = watToMs(row.ends_at);
+      scheduled = true;
+      head = String(row.headline || "").trim() || headline;
+    }
+  }
+
+  if (!variant && auto) {
+    const pick = deepestMarkdown(products);
+    if (pick) {
+      product = pick.product;
+      variant = pick.variant;
+      price = variant.ngn;
+      compareAt = variant.compareAtNgn || 0;
+      endsAt = endOfDayWAT(now);
+    }
+  }
+
+  if (!product || !variant || !endsAt || Number.isNaN(endsAt) || endsAt <= now) return null;
+  // A was-price at or below the asking price is not a saving; showing it struck
+  // through would be a lie, so it is dropped rather than displayed.
+  if (compareAt && compareAt <= price) compareAt = 0;
+
+  return {
+    id: scheduled ? row.id : null,
+    scheduled,
+    headline: head,
+    productId: product.id,
+    productName: product.name,
+    variantId: variant.id,
+    sku: variant.sku || "",
+    size: variant.size || "",
+    imageUrl: variant.imageUrl || product.imageUrl || null,
+    priceNgn: price,
+    compareAtNgn: compareAt || null,
+    off: compareAt ? Math.round((1 - price / compareAt) * 100) : 0,
+    endsAtMs: endsAt,
+  };
+}
+
+/**
+ * The catalogue with the daily deal's price on it.
+ *
+ * Everything the storefront quotes — grid, product page, cart, order total,
+ * Paystack amount — reads the variation's `ngn`, so overlaying it here once is
+ * what makes the offer real rather than a number painted on a card.
+ */
+export function applyDailyDealPricing(products = [], deal = null) {
+  if (!deal || !deal.variantId) return products;
+  return products.map((p) => {
+    if (p.id !== deal.productId) return p;
+    return {
+      ...p,
+      variants: (p.variants || []).map((v) => (
+        v.id !== deal.variantId ? v : { ...v, ngn: deal.priceNgn, compareAtNgn: deal.compareAtNgn || v.compareAtNgn || null }
+      )),
+    };
+  });
 }
 
 // ---- Embeds ---------------------------------------------------------------

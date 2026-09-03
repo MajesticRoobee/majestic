@@ -1,7 +1,7 @@
 // Public storefront API.
 import { Hono } from "hono";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT } from "./util.js";
-import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS } from "./merch.js";
+import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -51,6 +51,30 @@ function computeDiscount(promo, items) {
   return 0; // "ship" handled on the shipping line
 }
 
+// The catalogue as the storefront sees it — which is the catalogue with today's
+// daily deal already priced in.
+//
+// Every public path that quotes money goes through here rather than through
+// loadProducts, because the offer has to be the same number on the countdown
+// card, in the grid, in the cart and on the Paystack charge. The admin keeps
+// reading the raw table: what it edits is the usual price, not today's.
+async function storeCatalogue(db, { liveOnly = true, settings = null, now = Date.now() } = {}) {
+  const cfg = settings || (await getSettings(db));
+  const products = await loadProducts(db, { liveOnly });
+  if (cfg.dailyDealOn === false) return { products, dailyDeal: null };
+  const rows = (await db.prepare("SELECT * FROM daily_deals ORDER BY starts_at").all()).results;
+  const dailyDeal = resolveDailyDeal({
+    // Resolved against what is published, even when the caller asked for the
+    // whole table: an unpublished piece must not become today's offer.
+    products: products.filter((p) => p.live !== false),
+    row: pickDailyDeal(rows, now),
+    auto: cfg.dailyDealAuto !== false,
+    headline: cfg.dailyDealHeadline || "Daily Deal",
+    now,
+  });
+  return { products: applyDailyDealPricing(products, dailyDeal), dailyDeal };
+}
+
 // Bootstrap payload: settings + catalogue + stores.
 shop.get("/store", async (c) => {
   const db = c.env.DB;
@@ -67,7 +91,7 @@ shop.get("/store", async (c) => {
     id: x.id, label: x.label, desc: x.descr || "", grp: x.grp || "", imageUrl: x.image_url || null,
     subcats: parseSubcats(x.subcats),
   }));
-  const products = await loadProducts(db, { liveOnly: true });
+  const { products, dailyDeal } = await storeCatalogue(db, { settings });
   const colRows = (await db.prepare("SELECT * FROM collections WHERE live=1 ORDER BY sort, created_at").all()).results;
   const colItems = (await db.prepare("SELECT * FROM collection_products ORDER BY sort").all()).results;
   const collections = colRows.map((x) => ({
@@ -113,7 +137,7 @@ shop.get("/store", async (c) => {
     "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).all()).results.map(blogCard);
 
-  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, segments, brands, testimonials, blog });
+  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog });
 });
 
 function parseSubcats(raw) {
@@ -263,7 +287,9 @@ shop.post("/promos/validate", async (c) => {
   // Tell the shopper *why*: "that code has expired" sends them looking for a
   // current one, where a bare "invalid" reads as the checkout being broken.
   if (!promoIsActive(promo)) return c.json({ valid: false, reason: promoRefusal(promo) });
-  const products = await loadProducts(db);
+  // Deal pricing first: a percentage code discounts what the shopper is
+  // actually being charged today, not yesterday's shelf price.
+  const { products } = await storeCatalogue(db, { liveOnly: false });
   const lines = (items || []).map((it) => {
     const hit = findVariant(products, it);
     return hit ? { cat: hit.product.cat, lineTotal: hit.variant.ngn * (it.qty || 1) } : null;
@@ -338,7 +364,7 @@ async function nextOrderNo(db) {
 
 // Resolve cart items against the live catalogue. Returns { lines } or { error }.
 async function resolveLines(db, items) {
-  const products = await loadProducts(db, { liveOnly: true });
+  const { products } = await storeCatalogue(db);
   const lines = [];
   for (const it of items) {
     const hit = findVariant(products, it);

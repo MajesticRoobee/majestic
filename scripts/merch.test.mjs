@@ -7,8 +7,10 @@
 //   · "new arrivals" must age out on its own, and a pin must override that
 //   · "best sellers" must be counted, not guessed, and must never be empty
 //   · a deal must stop on the day after it ends, without anyone switching it off
+//   · a daily deal must price the catalogue, not just the card it appears on
 //   · a pasted post link must reduce to an embed, however it was copied
-import { computeSegments, dealIsLive, daysBefore, parseEmbed, embedUrlFor, firstName } from "../worker/merch.js";
+import { computeSegments, dealIsLive, daysBefore, parseEmbed, embedUrlFor, firstName, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "../worker/merch.js";
+import { watToMs } from "../worker/util.js";
 import { pathToRoute, routeToPath } from "../src/storefront/router.js";
 
 let failures = 0;
@@ -133,6 +135,66 @@ check("the retired brands index lands on the full grid",
   pathToRoute("/brands", ""), { page: "shop", fCat: "all" });
 check("a blog entry has its own address",
   [routeToPath("post", { postSlug: "how-to-layer" }), pathToRoute("/blog/how-to-layer", "")], ["/blog/how-to-layer", { page: "post", postSlug: "how-to-layer" }]);
+
+// ---- 6. The daily deal ---------------------------------------------------
+//
+// Two things make this feature honest rather than decorative, and both are
+// asserted here: the window has to be read in the house's own clock (a deal set
+// to end at midnight WAT must not end at 1am), and the price on the card has to
+// be the price on the catalogue — otherwise the countdown promises a saving the
+// checkout never gives.
+console.log("\nDaily deals");
+
+const NOW = watToMs("2026-09-04T12:00");    // midday in Abuja
+const dd = (extra = {}) => ({
+  id: 1, product_id: "flames", variant_id: 11, headline: "Daily Deal",
+  price_ngn: null, compare_at_ngn: null,
+  starts_at: "2026-09-04T09:00", ends_at: "2026-09-04T18:00", status: "Scheduled", ...extra,
+});
+const shop = [
+  { id: "flames", name: "Flames", live: true, imageUrl: null, variants: [{ id: 11, sku: "FL-30", size: "30ml", ngn: 30000, compareAtNgn: null, active: true, imageUrl: null }] },
+  { id: "pulze", name: "Pulze", live: true, imageUrl: null, variants: [{ id: 21, sku: "PZ-30", size: "30ml", ngn: 24000, compareAtNgn: 30000, active: true, imageUrl: null }] },
+];
+
+check("a deal is running inside its window", !!pickDailyDeal([dd()], NOW), true);
+check("...and not before it starts", pickDailyDeal([dd({ starts_at: "2026-09-04T14:00" })], NOW), null);
+check("...nor after it ends", pickDailyDeal([dd({ ends_at: "2026-09-04T11:00" })], NOW), null);
+check("...nor while it is paused", pickDailyDeal([dd({ status: "Paused" })], NOW), null);
+check("the window is read in WAT, not UTC — midnight here is not midnight there",
+  !!pickDailyDeal([dd({ starts_at: "2026-09-04T00:00", ends_at: "2026-09-05T00:00" })], watToMs("2026-09-04T23:30")), true);
+check("...and that same deal is over a minute after midnight",
+  pickDailyDeal([dd({ starts_at: "2026-09-04T00:00", ends_at: "2026-09-05T00:00" })], watToMs("2026-09-05T00:01")), null);
+check("of two overlapping deals, the one ending soonest is the one on show",
+  (pickDailyDeal([dd({ id: 1, ends_at: "2026-09-04T23:00" }), dd({ id: 2, ends_at: "2026-09-04T15:00" })], NOW) || {}).id, 2);
+
+const scheduled = resolveDailyDeal({ products: shop, row: dd({ price_ngn: 21000, compare_at_ngn: 30000 }), now: NOW });
+check("a scheduled deal names its piece, its price and its saving",
+  [scheduled.productId, scheduled.priceNgn, scheduled.compareAtNgn, scheduled.off], ["flames", 21000, 30000, 30]);
+check("...and counts down to the end of its own window",
+  scheduled.endsAtMs, watToMs("2026-09-04T18:00"));
+
+check("the price on the card is the price on the catalogue",
+  applyDailyDealPricing(shop, scheduled).find((p) => p.id === "flames").variants[0],
+  { id: 11, sku: "FL-30", size: "30ml", ngn: 21000, compareAtNgn: 30000, active: true, imageUrl: null });
+check("...and no other piece is touched",
+  applyDailyDealPricing(shop, scheduled).find((p) => p.id === "pulze").variants[0].ngn, 24000);
+
+check("a was-price that isn't above the asking price shows no saving",
+  resolveDailyDeal({ products: shop, row: dd({ price_ngn: 30000, compare_at_ngn: 30000 }), now: NOW }).compareAtNgn, null);
+check("a deal on a piece that has left the catalogue doesn't take the card down with it",
+  resolveDailyDeal({ products: shop, row: dd({ product_id: "gone" }), auto: true, now: NOW }).productId, "pulze");
+check("...and with the fallback off, there is simply no card",
+  resolveDailyDeal({ products: shop, row: dd({ product_id: "gone" }), auto: false, now: NOW }), null);
+
+const auto = resolveDailyDeal({ products: shop, row: null, auto: true, now: NOW });
+check("with nothing scheduled, the deepest markdown stands in, until midnight",
+  [auto.productId, auto.off, auto.scheduled, auto.endsAtMs], ["pulze", 20, false, watToMs("2026-09-05T00:00")]);
+check("a floor with no markdowns and no schedule shows no card",
+  resolveDailyDeal({ products: [shop[0]], row: null, auto: true, now: NOW }), null);
+
+check("the deal's piece is on the Deals shelf, because its price is now below its was-price",
+  computeSegments({ products: applyDailyDealPricing(shop, scheduled), categories, today: "2026-09-04" }).deals,
+  ["flames", "pulze"]);
 
 console.log(failures ? `\n${failures} check(s) failed\n` : "\nAll merchandising checks passed\n");
 process.exit(failures ? 1 : 0);

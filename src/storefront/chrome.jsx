@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Eyebrow, Button, ImageSlot } from "../ds/components.jsx";
 import { routeToPath } from "./router.js";
+import { useWindowWidth } from "../lib/hooks.js";
 
 // Profile menu — sign in / create account when logged out, the customer's name
 // and account actions when logged in, and always the gateway to the staff portal.
@@ -16,14 +17,22 @@ function ProfileMenu({ ctx }) {
   );
   return (
     <div style={{ position: "relative" }}>
-      <button onClick={() => setOpen((o) => !o)} title={cust ? cust.name : "Sign in"} aria-label="Account" style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", alignItems: "center", gap: 8 }}>
+      {/* The labelled form on desktop, matching the wishlist and cart beside it;
+          a bare avatar on a phone, where there is no room for two lines. */}
+      <button onClick={() => setOpen((o) => !o)} title={cust ? cust.name : "Sign in"} aria-label="Account"
+        style={{ background: "none", border: "none", cursor: "pointer", padding: ctx.isMobile ? 6 : 0, display: "flex", alignItems: "center", gap: ctx.isMobile ? 8 : 9 }}>
         {cust ? (
-          <>
-            <span style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--mr-purple-900)", color: "var(--mr-cream)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13 }}>{initial}</span>
-            {!ctx.isMobile && <span style={{ fontSize: 13, fontWeight: 500, color: "var(--mr-purple-900)" }}>{firstName}</span>}
-          </>
+          <span style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--mr-purple-900)", color: "var(--mr-cream)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 13, flex: "none" }}>{initial}</span>
         ) : (
-          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-900)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+          <span style={{ display: "flex", color: "var(--mr-purple-800)" }}>
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>
+          </span>
+        )}
+        {!ctx.isMobile && (
+          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, textAlign: "left" }}>
+            <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{cust ? `Hello, ${firstName}` : "Hello, sign in"}</span>
+            <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--mr-purple-900)", whiteSpace: "nowrap" }}>Your account</span>
+          </span>
         )}
       </button>
       {open && (
@@ -61,7 +70,10 @@ function CitySelect({ ctx, style }) {
       title="Your city"
       style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "7px 8px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", outline: "none", ...style }}
     >
-      {ctx.locations.map((l) => <option key={l.id} value={l.id}>{l.city}</option>)}
+      {/* The list a browser paints for a <select> keeps its own white ground, so
+          the options are given an ink colour rather than inheriting the cream
+          this control wears on the purple band. */}
+      {ctx.locations.map((l) => <option key={l.id} value={l.id} style={{ color: "var(--mr-ink)" }}>{l.city}</option>)}
     </select>
   );
 }
@@ -105,148 +117,263 @@ function CityGate({ ctx }) {
   );
 }
 
-// The second row of the header: the shelves a fragrance shopper expects to find
-// by name. Categories hang off "All categories" as a mega-menu built from the
-// category table, so adding one in the admin puts it in the menu — with its own
-// sub-shelves under it — without a deploy.
+// The header, in two tiers, as the redesign draws it.
+//
+// Tier one is the cream bar: the wordmark, and on the right the three things a
+// shopper reaches for — saved pieces, their account, their cart — each with its
+// own label rather than a bare icon, so nothing has to be guessed at.
+//
+// Tier two is the purple band: a fixed 250px "All categories" panel opening a
+// rail of the house's categories, the shelves by name, and then search,
+// currency and city. The homepage's hero grid leaves a 250px column empty on
+// the left precisely so the rail can stand open over it.
+//
+// The band is a fixed 1280px wide at most, of which the rail takes 250 and the
+// search box up to 320 — so it seats five tabs and no more. Everything else the
+// old header carried moves into the rail's own footer, which has no such
+// ceiling. `from` drops the last tab, and then the search box, on the narrow
+// desktops where even five will not fit: the band shortens rather than clipping
+// a word in half.
 const NAV_TABS = [
   { label: "Home", page: "home" },
   { label: "New arrivals", page: "shop", extra: { fSeg: "new-arrivals" } },
   { label: "Deals", page: "shop", extra: { fSeg: "deals" }, hot: true },
   { label: "Best sellers", page: "shop", extra: { fSeg: "best-sellers" } },
-  { label: "Locations", page: "locations" },
-  { label: "Blog", page: "blog" },
+  { label: "Our house", page: "about", from: 1000 },
+];
+
+// Below this the search box leaves the band and takes its old place in the top
+// bar, where there is room to spare.
+const BAND_SEARCH_FROM = 1150;
+
+// Under the categories in the rail: the whole catalogue, and the pages the band
+// has no room to name.
+const RAIL_FOOTER = [
+  { label: "All products —", extra: { fCat: "all", fSeg: null, fBrand: "", fCol: null } },
+  { label: "Our stores —", page: "locations" },
+  { label: "The blog —", page: "blog" },
+  { label: "Our house —", page: "about" },
 ];
 
 const SUB_LABELS = { "new-arrivals": "New arrivals", "best-sellers": "Best sellers", "gift-sets": "Gift sets" };
 
-function CategoryMenu({ ctx, open, setOpen }) {
-  const go = (extra) => { setOpen(false); ctx.nav("shop", extra); };
+// Which nav tab is lit. A shelf lights when it is the shelf being looked at,
+// not merely when the shop page is open.
+function navActive(ctx, tab) {
+  if (tab.extra && tab.extra.fSeg) return ctx.page === "shop" && ctx.fSeg === tab.extra.fSeg;
+  if (tab.page === "shop") return ctx.page === "shop" && !ctx.fSeg;
+  return ctx.page === tab.page;
+}
+
+const RAIL_W = 250;
+const RAIL_ROW_H = 56;
+
+// The categories rail and its flyout.
+//
+// A category's sub-shelves are the ones the admin ticked on it (Categories →
+// sub-shelves), so what hangs off "Body Mists" here is whatever the house said
+// hangs off it — no list is kept in the browser.
+function CategoryRail({ ctx, open, setOpen }) {
+  const [flyId, setFlyId] = useState(null);
+  const [scroll, setScroll] = useState(0);
+  const cats = ctx.categories;
+  const go = (extra) => { setOpen(false); setFlyId(null); ctx.nav("shop", extra); };
+  const flyIdx = cats.findIndex((c) => c.id === flyId);
+  const fly = flyIdx >= 0 ? cats[flyIdx] : null;
+  const inCat = (id) => ctx.products.filter((p) => p.cat === id).length;
+  const inShelf = (catId, seg) => {
+    const ids = (ctx.segments && ctx.segments[seg]) || [];
+    return ctx.products.filter((p) => p.cat === catId && ids.includes(p.id)).length;
+  };
+  const row = {
+    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+    height: RAIL_ROW_H, padding: "0 20px", borderBottom: "1px solid var(--border-hairline)",
+    fontFamily: "var(--font-sans)", fontSize: 13.5, cursor: "pointer", background: "transparent",
+    border: "none", borderBottomStyle: "solid", width: "100%", textAlign: "left",
+  };
   return (
-    <div style={{ position: "relative" }}>
-      <button
+    <>
+      <div
+        onMouseEnter={() => setOpen(true)}
         onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        style={{ display: "flex", alignItems: "center", gap: 10, background: "var(--mr-purple-950)", border: "none", cursor: "pointer", color: "var(--mr-cream)", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", padding: "13px 18px", height: "100%" }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></svg>
-        All categories
-      </button>
+        style={{ width: RAIL_W, flex: "none", background: "var(--mr-purple-950)", color: "var(--mr-cream)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "0 20px", height: 50, cursor: "pointer" }}>
+        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase" }}>All categories</span>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></svg>
+      </div>
       {open && (
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 108 }} />
-          <div style={{ position: "absolute", left: 0, top: "100%", width: "min(760px, calc(100vw - 32px))", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "0 0 var(--radius-lg) var(--radius-lg)", boxShadow: "var(--shadow-lg)", zIndex: 109, padding: "20px 22px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 18, maxHeight: "70vh", overflowY: "auto" }}>
-            {ctx.categories.map((c) => (
-              <div key={c.id}>
-                <button onClick={() => go({ fCat: c.id })} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "var(--font-display)", fontSize: 16, color: "var(--text-strong)", textAlign: "left" }}>
-                  {c.label}
+        <div style={{ position: "absolute", left: "clamp(16px, 4vw, 40px)", top: "100%", width: RAIL_W, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderTop: "none", boxShadow: "var(--shadow-md)", zIndex: 60 }}>
+          {/* A house with a dozen categories would otherwise hang a 700px
+              curtain over the page, so the list keeps its own scroll. The
+              flyout sits outside it — inside, the scroller would clip it. */}
+          <div onScroll={(e) => setScroll(e.currentTarget.scrollTop)} style={{ maxHeight: "min(60vh, 520px)", overflowY: "auto" }}>
+            {cats.map((c) => {
+              const on = flyId === c.id;
+              return (
+                <button key={c.id} onMouseEnter={() => setFlyId(c.id)} onClick={() => go({ fCat: c.id, fSeg: null, fBrand: "", fCol: null })}
+                  style={{ ...row, color: on ? "var(--mr-orchid-600)" : "var(--text-body)", background: on ? "var(--surface-sunken)" : "transparent", borderBottomColor: "var(--border-hairline)", borderBottomWidth: 1 }}>
+                  <span>{c.label}</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
                 </button>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, marginTop: 6 }}>
-                  {(c.subcats || []).map((sc) => (
-                    <button key={sc} onClick={() => go({ fCat: c.id, fSeg: sc })} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-muted)", textAlign: "left" }}>
-                      {SUB_LABELS[sc] || sc}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              );
+            })}
+            {RAIL_FOOTER.map((r) => (
+              <button key={r.label} onMouseEnter={() => setFlyId(null)}
+                onClick={() => (r.page ? (setOpen(false), setFlyId(null), ctx.nav(r.page)) : go(r.extra))}
+                style={{ ...row, height: 44, borderBottom: "none", fontSize: 13, color: "var(--mr-orchid-600)" }}>
+                <span>{r.label}</span>
+              </button>
             ))}
-            <div style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--border-hairline)", paddingTop: 14, display: "flex", gap: 16, flexWrap: "wrap" }}>
-              <button onClick={() => go({ fCat: "all" })} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)" }}>All products —</button>
-              <button onClick={() => go({ fSeg: "gift-sets" })} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)" }}>Gift sets —</button>
-            </div>
           </div>
-        </>
+          {fly && (
+            <div style={{ position: "absolute", left: RAIL_W, top: Math.max(0, flyIdx * RAIL_ROW_H - scroll), width: 236, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", boxShadow: "var(--shadow-md)", padding: "14px 0" }}>
+              <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", padding: "0 20px 8px" }}>In {fly.label}</div>
+              <button onClick={() => go({ fCat: fly.id, fSeg: null, fBrand: "", fCol: null })}
+                style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 10, padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-body)", textAlign: "left" }}>
+                <span>Everything</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{inCat(fly.id)}</span>
+              </button>
+              {(fly.subcats || []).map((sc) => (
+                <button key={sc} onClick={() => go({ fCat: fly.id, fSeg: sc, fBrand: "", fCol: null })}
+                  style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 10, padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-800)", textAlign: "left" }}>
+                  <span>{SUB_LABELS[sc] || sc}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{inShelf(fly.id, sc)}</span>
+                </button>
+              ))}
+              {fly.desc && <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55, padding: "10px 20px 0", borderTop: "1px solid var(--border-hairline)", margin: "10px 20px 0" }}>{fly.desc}</div>}
+            </div>
+          )}
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
-function WishlistButton({ ctx }) {
-  const n = ctx.wishlist.length;
-  return (
-    <button onClick={() => ctx.nav("wishlist")} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} aria-label={`Wishlist${n ? ` — ${n} saved` : ""}`} title="Your wishlist">
-      <svg width="21" height="21" viewBox="0 0 24 24" fill={n ? "var(--mr-orchid-500)" : "none"} stroke={n ? "var(--mr-orchid-500)" : "var(--mr-purple-900)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>
-      {n > 0 && (
-        <span style={{ position: "absolute", top: -2, right: -4, background: "var(--mr-orchid-500)", color: "var(--mr-cream)", fontSize: 10.5, fontWeight: 600, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{n}</span>
-      )}
-    </button>
+// One of the three labelled destinations on the right of the top bar: an icon,
+// a quiet line, and the line that carries the state.
+function HeaderAction({ icon, kicker, label, onClick, href, badge }) {
+  const body = (
+    <>
+      <span style={{ position: "relative", display: "flex", color: "var(--mr-purple-800)" }}>
+        {icon}
+        {badge != null && (
+          <span style={{ position: "absolute", top: -5, right: -6, background: "var(--accent-gold)", color: "var(--mr-purple-950)", fontSize: 10.5, fontWeight: 600, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{badge}</span>
+        )}
+      </span>
+      <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, textAlign: "left" }}>
+        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{kicker}</span>
+        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--mr-purple-900)", whiteSpace: "nowrap" }}>{label}</span>
+      </span>
+    </>
   );
+  const style = { display: "flex", alignItems: "center", gap: 9, background: "none", border: "none", cursor: "pointer", padding: 0 };
+  return href
+    ? <a href={href} onClick={(e) => { e.preventDefault(); onClick(); }} style={style}>{body}</a>
+    : <button onClick={onClick} style={style}>{body}</button>;
 }
+
+const ICON_HEART = <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z" /></svg>;
+const ICON_BAG = <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>;
 
 function Header({ ctx }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const navLink = (label, page, extra, hot) => (
-    <a key={label} href={routeToPath(page, extra)} onClick={(e) => { e.preventDefault(); setMenuOpen(false); ctx.nav(page, extra || {}); }}
-      style={{ position: "relative", color: "var(--text-on-dark-muted)", fontSize: 12.5, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", padding: "13px 0", whiteSpace: "nowrap" }}>
-      {label}
-      {hot && (
-        <span style={{ position: "absolute", top: 2, right: -22, background: "var(--mr-orchid-500)", color: "var(--mr-cream)", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", padding: "1px 5px", borderRadius: 3 }}>HOT</span>
-      )}
-    </a>
+  const [railOpen, setRailOpen] = useState(false);
+  const w = useWindowWidth();
+  const tabs = NAV_TABS.filter((t) => !t.from || w >= t.from);
+  const bandSearch = w >= BAND_SEARCH_FROM;
+  // The rail stands open on the home page, which is the one layout that leaves
+  // it a column of its own. It closes as soon as the hero scrolls away, so it
+  // never ends up hanging over the shelves below it.
+  const home = ctx.page === "home" && !ctx.isMobile;
+  useEffect(() => {
+    if (!home) { setRailOpen(false); return undefined; }
+    setRailOpen(window.scrollY < 200);
+    const onScroll = () => setRailOpen(window.scrollY < 200);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [home]);
+
+  const cartCount = ctx.cart.reduce((n, c) => n + c.qty, 0);
+  const wishCount = ctx.wishlist.length;
+  const searchBox = (dark) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, alignSelf: "center", flex: dark ? "0 1 320px" : undefined, minWidth: dark ? 160 : undefined, background: "var(--surface-card)", borderRadius: "var(--radius-sm)", padding: "8px 14px", border: dark ? "none" : "1px solid var(--border-hairline)" }}>
+      <input value={ctx.search} onChange={(e) => ctx.setSearch(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && ctx.nav("shop", { fSeg: null, fCol: null })}
+        placeholder="Search entire store here..." aria-label="Search the store"
+        style={{ border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-strong)", width: "100%" }} />
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mr-mute)" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></svg>
+    </div>
   );
+  const bandControl = {
+    alignSelf: "center", background: "transparent", border: "1px solid rgba(255,255,255,0.28)", borderRadius: "var(--radius-sm)",
+    padding: "8px 12px", fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", color: "var(--mr-cream)", cursor: "pointer", flex: "none", outline: "none",
+  };
+
   return (
-    <header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(250,246,241,0.9)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--border-hairline)" }}>
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 clamp(16px, 4vw, 40px)", display: "flex", alignItems: "center", gap: 18, height: 66 }}>
+    <header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(250,246,241,0.94)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--border-hairline)" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 clamp(16px, 4vw, 40px)", display: "flex", alignItems: "center", gap: 16, height: ctx.isMobile ? 66 : 78, minWidth: 0 }}>
         {ctx.isMobile && (
           <button onClick={() => ctx.setMnav(!ctx.mnav)} style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} aria-label="Menu">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-900)" strokeWidth="1.5" strokeLinecap="round"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></svg>
           </button>
         )}
-        <a href="/" onClick={(e) => { e.preventDefault(); ctx.nav("home"); }} style={{ fontFamily: "var(--font-display)", fontSize: 21, color: "var(--mr-purple-900)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>Majestic Roobee</a>
-        {!ctx.isMobile && (
-          <>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", padding: "7px 14px", background: "var(--surface-card)", maxWidth: 420 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--mr-mute)" strokeWidth="1.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></svg>
-              <input value={ctx.search} onChange={(e) => ctx.setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ctx.nav("shop")} placeholder="Search the entire store" style={{ border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-strong)", width: "100%" }} />
-            </div>
-            {/* Everything after this spacer — currency, city, wishlist, account,
-                cart — sits hard against the right edge of the header. */}
-            <div style={{ flex: 1 }} />
-            <button onClick={ctx.toggleCurrency} title="Switch currency" style={{ background: "none", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", padding: "7px 13px", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, color: "var(--mr-purple-800)", cursor: "pointer" }}>
-              {ctx.currency === "NGN" ? "₦ NGN" : "$ USD"}
-            </button>
-            <CitySelect ctx={ctx} />
-          </>
+        <a href="/" onClick={(e) => { e.preventDefault(); ctx.nav("home"); }} style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
+          <span style={{ fontFamily: "var(--font-display)", fontSize: "clamp(20px, 2.4vw, 27px)", color: "var(--mr-purple-900)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>Majestic Roobee</span>
+          <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--accent-gold-ink)", paddingTop: 4 }}>Fragrance house</span>
+        </a>
+        <div style={{ flex: 1, display: "flex", justifyContent: "center", padding: "0 clamp(8px, 2vw, 28px)" }}>
+          {!ctx.isMobile && !bandSearch && <div style={{ width: "100%", maxWidth: 420 }}>{searchBox(false)}</div>}
+        </div>
+        {!ctx.isMobile ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "clamp(16px, 2.2vw, 30px)" }}>
+            <HeaderAction icon={ICON_HEART} href="/wishlist" kicker="Welcome" label={`Wish list${wishCount ? ` (${wishCount})` : ""}`} onClick={() => ctx.nav("wishlist")} />
+            <ProfileMenu ctx={ctx} />
+            <HeaderAction icon={ICON_BAG} kicker="Your cart" label={ctx.fmt(ctx.cc.sub)} badge={cartCount || null} onClick={() => ctx.setCartOpen(true)} />
+          </div>
+        ) : (
+          <button onClick={() => ctx.setCartOpen(true)} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} aria-label="Cart">
+            {ICON_BAG}
+            {cartCount > 0 && (
+              <span style={{ position: "absolute", top: -2, right: -4, background: "var(--accent-gold)", color: "var(--mr-purple-950)", fontSize: 10.5, fontWeight: 600, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{cartCount}</span>
+            )}
+          </button>
         )}
-        {ctx.isMobile && <div style={{ flex: 1 }} />}
-        <WishlistButton ctx={ctx} />
-        <ProfileMenu ctx={ctx} />
-        <button onClick={() => ctx.setCartOpen(true)} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} aria-label="Cart">
-          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-900)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
-          {ctx.cc.items.length > 0 && (
-            <span style={{ position: "absolute", top: -2, right: -4, background: "var(--accent-gold)", color: "var(--mr-purple-950)", fontSize: 10.5, fontWeight: 600, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>
-              {ctx.cart.reduce((n, c) => n + c.qty, 0)}
-            </span>
-          )}
-        </button>
       </div>
 
-      {/* The shelf bar. On a phone the same routes live in the drawer below. */}
       {!ctx.isMobile && (
-        <div style={{ background: "var(--mr-purple-950)" }}>
-          <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 clamp(16px, 4vw, 40px)", display: "flex", alignItems: "stretch", gap: 26 }}>
-            <CategoryMenu ctx={ctx} open={menuOpen} setOpen={setMenuOpen} />
-            <nav style={{ display: "flex", gap: 26, alignItems: "center", flexWrap: "wrap" }}>
-              {NAV_TABS.map((t) => navLink(t.label, t.page, t.extra, t.hot))}
+        <div onMouseLeave={() => !home && setRailOpen(false)} style={{ background: "var(--mr-purple-900)" }}>
+          <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 clamp(16px, 4vw, 40px)", display: "flex", alignItems: "stretch", position: "relative", minWidth: 0 }}>
+            <CategoryRail ctx={ctx} open={railOpen} setOpen={setRailOpen} />
+            <nav style={{ display: "flex", alignItems: "center", gap: "clamp(10px, 1.5vw, 26px)", padding: "0 clamp(12px, 1.8vw, 28px)", fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", whiteSpace: "nowrap", flex: "0 0 auto" }}>
+              {tabs.map((t) => (
+                <a key={t.label} href={routeToPath(t.page, t.extra)}
+                  onClick={(e) => { e.preventDefault(); ctx.nav(t.page, t.extra || {}); }}
+                  style={{ position: "relative", color: navActive(ctx, t) ? "var(--accent-gold)" : "var(--mr-cream)" }}>
+                  {t.label}
+                  {t.hot && (
+                    <span style={{ position: "absolute", top: -10, right: -17, background: "var(--mr-orchid-600)", color: "#fff", fontFamily: "var(--font-sans)", fontSize: 8.5, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", padding: "2px 5px", borderRadius: "var(--radius-xs)" }}>hot</span>
+                  )}
+                </a>
+              ))}
             </nav>
-            <div style={{ flex: 1 }} />
-            <a href="/track" onClick={(e) => { e.preventDefault(); ctx.nav("track"); }} style={{ color: "var(--mr-gold-400)", fontSize: 12.5, fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase", padding: "13px 0", whiteSpace: "nowrap" }}>Track order</a>
+            <div style={{ flex: 1, minWidth: 12 }} />
+            {bandSearch && searchBox(true)}
+            <button onClick={ctx.toggleCurrency} title="Switch currency" style={{ ...bandControl, marginLeft: 12 }}>
+              {ctx.currency === "NGN" ? "₦ NGN" : "$ USD"}
+            </button>
+            <CitySelect ctx={ctx} style={{ ...bandControl, marginLeft: 8, padding: "8px" }} />
           </div>
         </div>
       )}
 
       {ctx.mnav && ctx.isMobile && (
         <nav style={{ display: "flex", flexDirection: "column", borderTop: "1px solid var(--border-hairline)", background: "var(--mr-cream)", padding: "8px 0", maxHeight: "70vh", overflowY: "auto" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", padding: "8px 14px", background: "var(--surface-card)", margin: "8px 24px 12px" }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--mr-mute)" strokeWidth="1.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></svg>
-            <input value={ctx.search} onChange={(e) => ctx.setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ctx.nav("shop")} placeholder="Search the entire store" style={{ border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-sans)", fontSize: 14, color: "var(--text-strong)", width: "100%" }} />
-          </div>
-          {NAV_TABS.concat([{ label: "Wishlist", page: "wishlist" }, { label: "Track order", page: "track" }, { label: "Our house", page: "about" }, { label: "Contact", page: "contact" }]).map((t) => (
+          <div style={{ margin: "8px 24px 12px" }}>{searchBox(false)}</div>
+          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Track order", page: "track" }, { label: "Contact", page: "contact" }]).map((t) => (
             <a key={t.label} href={routeToPath(t.page, t.extra)} onClick={(e) => { e.preventDefault(); ctx.nav(t.page, t.extra || {}); }} style={{ padding: "12px 24px", fontSize: 15, fontWeight: 500 }}>{t.label}</a>
           ))}
           <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "8px 0", paddingTop: 8 }}>
             <div style={{ padding: "4px 24px 8px", fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Categories</div>
             {ctx.categories.map((c) => (
-              <a key={c.id} href={routeToPath("shop", { fCat: c.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id }); }} style={{ padding: "10px 24px", fontSize: 14 }}>{c.label}</a>
+              <a key={c.id} href={routeToPath("shop", { fCat: c.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id }); }} style={{ display: "block", padding: "10px 24px", fontSize: 14 }}>{c.label}</a>
             ))}
           </div>
           <div style={{ display: "flex", gap: 10, padding: "12px 24px", alignItems: "center" }}>
@@ -260,6 +387,7 @@ function Header({ ctx }) {
     </header>
   );
 }
+
 
 function CartDrawer({ ctx }) {
   if (!ctx.cartOpen) return null;
