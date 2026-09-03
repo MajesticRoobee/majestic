@@ -3,12 +3,12 @@ import { Hono } from "hono";
 import {
   getSettings, putSettings, loadProducts, issueToken, verifyToken, displayTime, displayDate,
   hashPassword, verifyPassword, randomPassphrase, randomTotpSecret, totpVerify, otpauthUri, sha256hex,
-  optionLabel, makeSku, allLocations, locationIds, promoIsLive, todayInWAT,
+  optionLabel, makeSku, allLocations, locationIds, promoIsLive, todayInWAT, watToMs, msToWat,
 } from "./util.js";
 import { emitEvent } from "./events.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
-import { parseEmbed, embedUrlFor, dealIsLive } from "./merch.js";
+import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
 import { putMedia, migrateToR2 } from "./media.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -790,6 +790,11 @@ admin.put("/settings", async (c) => {
     // Merchandising: how long a product reads as new, how far back the best
     // seller count looks, and whether the storefront shows live purchases.
     "newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs",
+    // The daily-deal card: whether it shows at all, whether it falls back to the
+    // deepest markdown when nothing is scheduled, and what it is called.
+    "dailyDealOn", "dailyDealAuto", "dailyDealHeadline",
+    // The three banners under the homepage hero.
+    "promoTileDeals", "promoTileNew", "promoTileSets",
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
   ];
@@ -1144,6 +1149,163 @@ async function setDealProducts(db, id, productIds) {
   const stmts = [db.prepare("DELETE FROM deal_products WHERE deal_id=?").bind(id)];
   wanted.forEach((pid, i) => stmts.push(db.prepare("INSERT INTO deal_products (deal_id, product_id, sort) VALUES (?, ?, ?)").bind(id, pid, i)));
   await db.batch(stmts);
+}
+
+// ---- Daily deals (one piece, one price, one clock) ----
+//
+// The countdown card on the home page. The house queues them ahead — Monday's
+// piece, Tuesday's — and the storefront shows whichever window contains right
+// now. The price named here is the price the shopper is charged, because
+// worker/shop.js lays it over the catalogue before anything reads a row.
+
+// 'YYYY-MM-DDTHH:MM' in WAT, which is what <input type="datetime-local"> hands
+// back. Anything else is refused rather than stored as a window nothing matches.
+const isoMinute = (s) => {
+  const v = String(s || "").trim().replace(" ", "T").slice(0, 16);
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? v : null;
+};
+const money = (v) => {
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+// A row as the panel shows it: the schedule, plus what the shopper would
+// actually see — resolved against the catalogue so a deal pointing at a piece
+// that has since been unpublished says so instead of looking fine.
+function dailyDealView(row, products, now) {
+  const product = products.find((p) => p.id === row.product_id) || null;
+  const variants = product ? (product.variants || []).filter((v) => v.active !== false) : [];
+  const variant = (row.variant_id ? variants.find((v) => v.id === row.variant_id) : null) || variants[0] || null;
+  const from = watToMs(row.starts_at);
+  const to = watToMs(row.ends_at);
+  const price = row.price_ngn || (variant ? variant.ngn : 0);
+  const compareAt = row.compare_at_ngn || (variant ? variant.compareAtNgn : 0) || 0;
+  return {
+    id: row.id,
+    productId: row.product_id,
+    productName: product ? product.name : "(deleted product)",
+    productLive: !!(product && product.live),
+    variantId: row.variant_id || null,
+    variantLabel: variant ? variant.size : "",
+    variantMissing: !variant,
+    headline: row.headline,
+    priceNgn: row.price_ngn || null,
+    compareAtNgn: row.compare_at_ngn || null,
+    // What a shopper would read on the card, once the blanks fall back to the
+    // variation's own numbers.
+    shownPriceNgn: price,
+    shownCompareAtNgn: compareAt > price ? compareAt : null,
+    off: compareAt > price ? Math.round((1 - price / compareAt) * 100) : 0,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    status: row.status,
+    state: row.status === "Paused" ? "Paused"
+      : Number.isNaN(from) || Number.isNaN(to) ? "Unscheduled"
+      : now < from ? "Upcoming"
+      : now >= to ? "Finished"
+      : "Running",
+  };
+}
+
+admin.get("/daily-deals", async (c) => {
+  const db = c.env.DB;
+  const now = Date.now();
+  const settings = await getSettings(db);
+  const products = await loadProducts(db);
+  const rows = (await db.prepare("SELECT * FROM daily_deals ORDER BY starts_at DESC, id DESC").all()).results;
+  const live = products.filter((p) => p.live);
+  // The same two calls the storefront makes, so the panel's "on the storefront
+  // now" line is the storefront's answer rather than a second opinion.
+  const showing = settings.dailyDealOn === false ? null : resolveDailyDeal({
+    products: live,
+    row: pickDailyDeal(rows, now),
+    auto: settings.dailyDealAuto !== false,
+    headline: settings.dailyDealHeadline || "Daily Deal",
+    now,
+  });
+  return c.json({
+    dailyDeals: rows.map((r) => dailyDealView(r, products, now)),
+    showing,
+    settings: {
+      dailyDealOn: settings.dailyDealOn !== false,
+      dailyDealAuto: settings.dailyDealAuto !== false,
+      dailyDealHeadline: settings.dailyDealHeadline || "Daily Deal",
+    },
+    now: msToWat(now),
+  });
+});
+
+admin.post("/daily-deals", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const productId = String(b.productId || "").trim();
+  if (!productId) return c.json({ error: "Choose the piece to feature." }, 400);
+  if (!(await db.prepare("SELECT id FROM products WHERE id=?").bind(productId).first())) return c.json({ error: "No such product." }, 404);
+  const startsAt = isoMinute(b.startsAt);
+  const endsAt = isoMinute(b.endsAt);
+  if (!startsAt || !endsAt) return c.json({ error: "A daily deal needs a start and an end." }, 400);
+  if (watToMs(endsAt) <= watToMs(startsAt)) return c.json({ error: "The deal has to end after it starts." }, 400);
+  const variantId = await resolveVariant(db, productId, b.variantId);
+  const r = await db.prepare(
+    `INSERT INTO daily_deals (product_id, variant_id, headline, price_ngn, compare_at_ngn, starts_at, ends_at, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    productId, variantId, String(b.headline || "Daily Deal").trim() || "Daily Deal",
+    money(b.priceNgn), money(b.compareAtNgn), startsAt, endsAt,
+    b.status === "Paused" ? "Paused" : "Scheduled"
+  ).run();
+  return c.json({ ok: true, id: r.meta ? r.meta.last_row_id : null });
+});
+
+admin.patch("/daily-deals/:id", async (c) => {
+  const b = await c.req.json();
+  const id = parseInt(c.req.param("id"), 10);
+  const db = c.env.DB;
+  const row = await db.prepare("SELECT * FROM daily_deals WHERE id=?").bind(id).first();
+  if (!row) return c.json({ error: "No such daily deal." }, 404);
+  const sets = [], vals = [];
+  const push = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.productId !== undefined) {
+    const pid = String(b.productId).trim();
+    if (!(await db.prepare("SELECT id FROM products WHERE id=?").bind(pid).first())) return c.json({ error: "No such product." }, 404);
+    push("product_id", pid);
+    // A new product invalidates the old variation, so the two move together.
+    push("variant_id", await resolveVariant(db, pid, b.variantId));
+  } else if (b.variantId !== undefined) {
+    push("variant_id", await resolveVariant(db, row.product_id, b.variantId));
+  }
+  if (b.headline !== undefined) push("headline", String(b.headline).trim() || "Daily Deal");
+  if (b.priceNgn !== undefined) push("price_ngn", money(b.priceNgn));
+  if (b.compareAtNgn !== undefined) push("compare_at_ngn", money(b.compareAtNgn));
+  const startsAt = b.startsAt !== undefined ? isoMinute(b.startsAt) : row.starts_at;
+  const endsAt = b.endsAt !== undefined ? isoMinute(b.endsAt) : row.ends_at;
+  if (b.startsAt !== undefined || b.endsAt !== undefined) {
+    if (!startsAt || !endsAt) return c.json({ error: "A daily deal needs a start and an end." }, 400);
+    if (watToMs(endsAt) <= watToMs(startsAt)) return c.json({ error: "The deal has to end after it starts." }, 400);
+    push("starts_at", startsAt);
+    push("ends_at", endsAt);
+  }
+  if (b.status !== undefined) push("status", b.status === "Paused" ? "Paused" : "Scheduled");
+  if (sets.length) {
+    vals.push(id);
+    await db.prepare(`UPDATE daily_deals SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  }
+  return c.json({ ok: true });
+});
+
+admin.delete("/daily-deals/:id", async (c) => {
+  await c.env.DB.prepare("DELETE FROM daily_deals WHERE id=?").bind(parseInt(c.req.param("id"), 10)).run();
+  return c.json({ ok: true });
+});
+
+// The variation to feature: the one named, if it belongs to this product and is
+// still on sale, otherwise the product's first active one. Never a variation of
+// some other product — that would price the wrong piece.
+async function resolveVariant(db, productId, variantId) {
+  const rows = (await db.prepare("SELECT id FROM variants WHERE product_id=? AND active=1 ORDER BY sort, id").bind(productId).all()).results;
+  const wanted = parseInt(variantId, 10);
+  if (Number.isFinite(wanted) && rows.some((v) => v.id === wanted)) return wanted;
+  return rows.length ? rows[0].id : null;
 }
 
 // ---- The blog ----

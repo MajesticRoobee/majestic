@@ -3,6 +3,7 @@ import { api } from "../lib/api.js";
 import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue, CollectionsPage } from "./pages-ops.jsx";
 import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage } from "./pages-content.jsx";
+import { DailyDealsPage } from "./daily-deals.jsx";
 import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
@@ -43,6 +44,7 @@ const PAGES = [
   { id: "collections", label: "Collections", title: "Collections & sets" },
   { id: "categories", label: "Categories", title: "Categories & sub-shelves" },
   { id: "deals", label: "Deals", title: "Deals & hot offers" },
+  { id: "daily-deals", label: "Daily Deals", title: "Daily deals & countdown" },
   { id: "blog", label: "Blog", title: "The blog" },
   { id: "reviews", label: "Reviews", title: "Reviews & testimonials" },
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
@@ -342,6 +344,7 @@ export default function App() {
         {activePage === "collections" && <CollectionsPage ctx={ctx} />}
         {activePage === "categories" && <CategoriesPage ctx={ctx} />}
         {activePage === "deals" && <DealsPage ctx={ctx} />}
+        {activePage === "daily-deals" && <DailyDealsPage ctx={ctx} />}
         {activePage === "blog" && <BlogPage ctx={ctx} />}
         {activePage === "reviews" && <TestimonialsPage ctx={ctx} />}
         {activePage === "sales" && <Sales ctx={ctx} />}

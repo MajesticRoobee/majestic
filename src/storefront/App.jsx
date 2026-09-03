@@ -111,6 +111,15 @@ export default function App() {
     setGateOpen(!confirmed);
   }, []);
 
+  // Re-read the catalogue without reloading the page. The daily deal is what
+  // needs this: when its clock runs out the prices on screen are no longer the
+  // prices the server will honour, so the page asks again rather than waiting
+  // for the shopper to navigate. The chosen city is left alone — that is the
+  // shopper's decision, not the server's.
+  const refreshStore = useCallback(() => {
+    api.get("/api/store").then((d) => { dataRef.current = d; setD(d); }).catch(() => {});
+  }, []);
+
   // Promo popup timer
   useEffect(() => {
     if (!D) return;
@@ -281,6 +290,10 @@ export default function App() {
   // strip all come down with the catalogue — one request, not five.
   const segments = useMemo(() => (D ? (D.segments || EMPTY_OBJ) : EMPTY_OBJ), [D]);
   const deals = useMemo(() => (D ? (D.deals || EMPTY_ARR) : EMPTY_ARR), [D]);
+  // The countdown card at the top of the home page — the server resolves which
+  // piece it is and at what price, having already applied that price to the
+  // catalogue above, so nothing here re-derives it.
+  const dailyDeal = useMemo(() => (D ? (D.dailyDeal || null) : null), [D]);
   const brands = useMemo(() => (D ? (D.brands || EMPTY_ARR) : EMPTY_ARR), [D]);
   const testimonials = useMemo(() => (D ? (D.testimonials || EMPTY_ARR) : EMPTY_ARR), [D]);
   const latestPosts = useMemo(() => (D ? (D.blog || EMPTY_ARR) : EMPTY_ARR), [D]);
@@ -710,7 +723,7 @@ export default function App() {
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
     fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
-    collections, segments, deals, brands, testimonials, latestPosts,
+    collections, segments, deals, dailyDeal, brands, testimonials, latestPosts, refreshStore,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
     blog, blogTag, setBlogTag, post, postSlug,

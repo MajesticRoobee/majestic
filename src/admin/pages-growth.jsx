@@ -375,7 +375,8 @@ export function Inquiries({ ctx }) {
 // is handed, so a panel can save its own without touching anything else — and
 // nobody has to scroll to the foot of the page to keep one edit.
 const SECTION_KEYS = {
-  storefront: ["announcement", "heroHeadline", "heroSub", "heroImage", "heroDirection", "defaultCity", "promoPopup"],
+  storefront: ["announcement", "heroHeadline", "heroSub", "heroImage", "heroDirection", "defaultCity", "promoPopup",
+    "promoTileDeals", "promoTileNew", "promoTileSets"],
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
   contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
@@ -433,7 +434,8 @@ export function SettingsPage({ ctx }) {
         <Textarea label="Hero headline" value={form.heroHeadline || ""} onChange={set("heroHeadline")} rows={2} hint="A line break shows as two lines on the storefront." />
         <Textarea label="Hero subtext" value={form.heroSub || ""} onChange={set("heroSub")} rows={2} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Select label="Homepage layout" value={form.heroDirection || "editorial split"} onChange={set("heroDirection")}>
+          <Select label="Homepage layout" value={form.heroDirection || "storefront grid"} onChange={set("heroDirection")}>
+            <option value="storefront grid">Storefront grid (banner, tiles + daily deal)</option>
             <option value="editorial split">Editorial split (image + copy)</option>
             <option value="royal statement">Royal statement (full-bleed)</option>
             <option value="product-led">Product-led (top picks)</option>
@@ -444,6 +446,19 @@ export function SettingsPage({ ctx }) {
         </div>
         <ImagePicker ctx={ctx} label="Hero image (optional)" value={form.heroImage || ""} onChange={(url) => touch({ heroImage: url })}
           hint="The picture beside the headline on the home page — and the backdrop behind it on the full-bleed layout. Leave it empty for the monogram placeholder. Wide images look best." />
+        {(form.heroDirection || "storefront grid") === "storefront grid" && (
+          <>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+              The three banners under the hero. Each one leads to the shelf it names — the picture is all that changes here.
+              Landscape shots crop best; leave one empty and it falls back to the monogram.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              <ImagePicker ctx={ctx} label="Hot Deals banner" value={form.promoTileDeals || ""} onChange={(url) => touch({ promoTileDeals: url })} />
+              <ImagePicker ctx={ctx} label="New Arrivals banner" value={form.promoTileNew || ""} onChange={(url) => touch({ promoTileNew: url })} />
+              <ImagePicker ctx={ctx} label="Gift Sets banner" value={form.promoTileSets || ""} onChange={(url) => touch({ promoTileSets: url })} />
+            </div>
+          </>
+        )}
         <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => touch({ promoPopup: e.target.checked })} />
         {sectionSave("storefront")}
       </div>

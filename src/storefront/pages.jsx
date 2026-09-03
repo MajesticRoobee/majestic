@@ -4,12 +4,22 @@ import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "
 import { ProductCard } from "./product-card.jsx";
 import { routeToPath } from "./router.js";
 import { EmbedCard, TestimonialCarousel } from "./pages-content.jsx";
+import { DailyDealCard } from "./daily-deal.jsx";
 
 export { ProductCard };
 export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody } from "./pages-content.jsx";
 export { EmbedCard, TestimonialCarousel };
 
 const PAD = "clamp(16px, 4vw, 40px)";
+
+// The three banners under the homepage hero. Fixed shelves rather than editable
+// blocks: what changes is the photograph behind each (Settings → Homepage), not
+// which three the house leads with.
+const PROMO_TILES = [
+  { id: "deals", setting: "promoTileDeals", kicker: "Markdowns on now", title: "Hot Deals", href: "/deals", extra: { fSeg: "deals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(37,20,50,0.9), rgba(37,20,50,0.12))" },
+  { id: "new", setting: "promoTileNew", kicker: "Just landed", title: "New Arrivals", href: "/new-arrivals", extra: { fSeg: "new-arrivals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(61,35,80,0.9), rgba(61,35,80,0.12))" },
+  { id: "sets", setting: "promoTileSets", kicker: "Wrapped & ready", title: "Gift Sets", href: "/gift-sets", extra: { fSeg: "gift-sets", fCat: "all" }, veil: "linear-gradient(0deg, rgba(90,45,110,0.9), rgba(90,45,110,0.12))" },
+];
 
 export function HomePage({ ctx }) {
   const { settings, products, categories, cityName, L, testimonials, latestPosts } = ctx;
@@ -18,7 +28,7 @@ export function HomePage({ ctx }) {
   const dealIds = (ctx.segments.deals || []).slice(0, 4);
   const dealPicks = dealIds.map((id) => ctx.listings.find((e) => e.product.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
   const runningDeal = ctx.deals.length === 1 ? ctx.deals[0] : null;
-  const dir = settings.heroDirection || "editorial split";
+  const dir = settings.heroDirection || "storefront grid";
   const sellable = products.filter((p) => p.variants && p.variants.length);
   const inCity = sellable.filter((p) => ctx.availInfo(p).inCity).slice(0, 4).map(ctx.card).filter(Boolean);
   // Three picks from whatever is live, city stock first — never named ids, which
@@ -38,6 +48,52 @@ export function HomePage({ ctx }) {
   const iconStyle = { flexShrink: 0, marginTop: 2 };
   return (
     <main>
+      {dir === "storefront grid" && (
+        <>
+          {/* Three columns, and the first is deliberately empty: it is the
+              width of the header's category rail, which stands open over it on
+              this page. The banner takes the middle, the daily deal the right.
+              A phone gets one column and the deal card below the tiles. */}
+          <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(18px, 2.6vw, 30px) ${PAD} 0`, display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "250px minmax(0, 1fr) 300px", gap: "clamp(16px, 1.8vw, 24px)", alignItems: "start" }}>
+            {!ctx.isMobile && <div />}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
+                {/* No placeholder caption on this one: the wash and the
+                    headline already sit on top of it, and a second line of
+                    grey type showing through them reads as a fault. */}
+                <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="(max-width: 860px) 92vw, 720px"
+                  style={{ width: "100%", height: "clamp(320px, 34vw, 420px)" }} />
+                {/* The wash is heaviest where the words are and clears to the
+                    right, so the photograph still reads as a photograph. */}
+                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(61,35,80,0.86) 0%, rgba(61,35,80,0.52) 48%, rgba(61,35,80,0.06) 100%)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, padding: "clamp(24px, 4vw, 48px)", pointerEvents: "none" }}>
+                  <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>Seductive fragrances · Feminine care</span>
+                  <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
+                  <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--text-on-dark-muted)", maxWidth: "34ch", margin: 0 }}>{settings.heroSub}</p>
+                  <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
+                    <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: "clamp(12px, 1.4vw, 18px)", marginTop: "clamp(12px, 1.4vw, 18px)" }}>
+                {PROMO_TILES.map((t) => (
+                  <a key={t.id} href={t.href} onClick={(e) => { e.preventDefault(); ctx.nav("shop", t.extra); }}
+                    style={{ position: "relative", display: "block", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                    <ImageSlot src={settings[t.setting]} name={t.title} sizes="(max-width: 860px) 92vw, 240px" style={{ width: "100%", height: 150 }} />
+                    <span style={{ position: "absolute", inset: 0, background: t.veil, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 4, padding: 16 }}>
+                      <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{t.kicker}</span>
+                      <span style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)", lineHeight: 1.15 }}>{t.title}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+              {/* On a phone the deal follows the tiles at full width rather
+                  than disappearing — most of this shop is read on a phone. */}
+              {ctx.isMobile && <DailyDealCard ctx={ctx} style={{ marginTop: "clamp(12px, 1.4vw, 18px)" }} />}
+            </div>
+            {!ctx.isMobile && <DailyDealCard ctx={ctx} />}
+          </section>
+        </>
+      )}
       {dir === "editorial split" && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 88px) ${PAD}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: "clamp(28px, 5vw, 64px)", alignItems: "center" }}>
           <div>

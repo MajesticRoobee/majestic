@@ -272,6 +272,32 @@ export function todayInWAT(now = Date.now()) {
 }
 
 /**
+ * A wall-clock moment in West Africa Time → epoch milliseconds.
+ *
+ * Daily deals are scheduled to the minute rather than the day, so they need the
+ * hour as well as the date. The house writes "2026-09-04T18:00" meaning six in
+ * the evening *here*; this is the one place that knows that means 17:00 UTC.
+ * NaN for anything unparseable — a caller treats that as "no window", which is
+ * safer than a deal that silently runs forever.
+ */
+export function watToMs(local) {
+  const s = String(local || "").trim().replace(" ", "T");
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+  if (!m) return NaN;
+  return Date.parse(`${m[1]}T${m[2]}:${m[3]}:00Z`) - WAT_OFFSET_MS;
+}
+
+/** Epoch milliseconds → 'YYYY-MM-DDTHH:MM' in WAT, the form the admin edits. */
+export function msToWat(ms) {
+  return new Date(ms + WAT_OFFSET_MS).toISOString().slice(0, 16);
+}
+
+/** Midnight tonight, WAT, as epoch ms — where an unscheduled daily deal ends. */
+export function endOfDayWAT(now = Date.now()) {
+  return watToMs(todayInWAT(now) + "T00:00") + 86400000;
+}
+
+/**
  * Is this promo live right now?
  *
  * Status is still the manual switch ("End now" in the admin), and the dates are
