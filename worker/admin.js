@@ -781,6 +781,9 @@ admin.put("/settings", async (c) => {
     "siteName", "metaDescription", "ogImage",
     // Marketing & analytics tags
     "ga4Id", "metaPixelId", "tiktokPixelId", "googleAdsId", "googleAdsPurchaseLabel", "clarityId", "gscVerification",
+    // The house's mark: the logo in the header, and a light version for the
+    // near-black footer.
+    "logoUrl", "logoLightUrl",
     // Storefront look & behaviour
     "heroDirection", "promoPopup", "defaultCity", "crossCityShipNGN", "crossCityEta", "freeShipAbujaOver", "freeShipCity",
     // Where a bank-transfer shopper is told to send the money. Empty until the

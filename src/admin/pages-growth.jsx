@@ -375,6 +375,7 @@ export function Inquiries({ ctx }) {
 // is handed, so a panel can save its own without touching anything else — and
 // nobody has to scroll to the foot of the page to keep one edit.
 const SECTION_KEYS = {
+  brand: ["logoUrl", "logoLightUrl"],
   storefront: ["announcement", "heroHeadline", "heroSub", "heroImage", "heroDirection", "defaultCity", "promoPopup",
     "promoTileDeals", "promoTileNew", "promoTileSets"],
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
@@ -428,6 +429,16 @@ export function SettingsPage({ ctx }) {
   );
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 18, maxWidth: 960 }}>
+      <div style={section}>
+        {sectionHead("Brand mark", "The logo in the storefront header and footer. Leave both empty and the name is typeset instead.")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <ImagePicker ctx={ctx} label="Logo" value={form.logoUrl || ""} onChange={(url) => touch({ logoUrl: url })}
+            hint="Shown in the header, on the cream bar. A wide lockup on a transparent background (PNG or SVG) sits best — it is scaled to 46px tall." />
+          <ImagePicker ctx={ctx} label="Logo — light version" value={form.logoLightUrl || ""} onChange={(url) => touch({ logoLightUrl: url })}
+            hint="For the footer, which is near-black purple. Leave it empty and the footer keeps the cream wordmark rather than showing a mark nobody can see." />
+        </div>
+        {sectionSave("brand")}
+      </div>
       <div style={section}>
         {sectionHead("Storefront text", "The top announcement bar and the homepage hero copy.")}
         <Input label="Announcement bar" value={form.announcement || ""} onChange={set("announcement")} />

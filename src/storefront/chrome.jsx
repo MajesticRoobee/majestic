@@ -248,6 +248,33 @@ function CategoryRail({ ctx, open, setOpen }) {
   );
 }
 
+// The house's mark.
+//
+// A logo is set in Admin → Settings, and until one is there the typeset lockup
+// stands in — the store must never open with a broken image where its name
+// should be. The supplied artwork is a full lockup (the bottle *and* the words),
+// so it replaces both lines rather than sitting beside them.
+//
+// `tone="light"` is the footer, which is near-black purple: a dark logo would
+// vanish into it, so it takes a light version if the house has uploaded one and
+// otherwise keeps the cream wordmark. Better a legible name than an invisible
+// mark.
+function Wordmark({ ctx, height, tone = "dark", onClick }) {
+  const { settings } = ctx;
+  const src = tone === "light" ? settings.logoLightUrl : settings.logoUrl;
+  const inner = src
+    ? <img src={src} alt="Majestic Roobee" style={{ display: "block", height, width: "auto", maxWidth: "min(52vw, 260px)", objectFit: "contain" }} />
+    : (
+      <>
+        <span style={{ fontFamily: "var(--font-display)", fontSize: tone === "light" ? 22 : "clamp(20px, 2.4vw, 27px)", color: tone === "light" ? "var(--mr-cream)" : "var(--mr-purple-900)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>Majestic Roobee</span>
+        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--accent-gold-ink)", paddingTop: 4 }}>Fragrance house</span>
+      </>
+    );
+  const style = { display: "flex", flexDirection: "column", lineHeight: 1.05 };
+  if (!onClick) return <div style={style}>{inner}</div>;
+  return <a href="/" onClick={(e) => { e.preventDefault(); onClick(); }} style={style} aria-label="Majestic Roobee — home">{inner}</a>;
+}
+
 // One of the three labelled destinations on the right of the top bar: an icon,
 // a quiet line, and the line that carries the state.
 function HeaderAction({ icon, kicker, label, onClick, href, badge }) {
@@ -315,10 +342,7 @@ function Header({ ctx }) {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-900)" strokeWidth="1.5" strokeLinecap="round"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></svg>
           </button>
         )}
-        <a href="/" onClick={(e) => { e.preventDefault(); ctx.nav("home"); }} style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
-          <span style={{ fontFamily: "var(--font-display)", fontSize: "clamp(20px, 2.4vw, 27px)", color: "var(--mr-purple-900)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>Majestic Roobee</span>
-          <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--accent-gold-ink)", paddingTop: 4 }}>Fragrance house</span>
-        </a>
+        <Wordmark ctx={ctx} height={ctx.isMobile ? 34 : 46} onClick={() => ctx.nav("home")} />
         <div style={{ flex: 1, display: "flex", justifyContent: "center", padding: "0 clamp(8px, 2vw, 28px)" }}>
           {!ctx.isMobile && !bandSearch && <div style={{ width: "100%", maxWidth: 420 }}>{searchBox(false)}</div>}
         </div>
@@ -481,7 +505,7 @@ function Footer({ ctx }) {
     <footer style={{ background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", marginTop: "clamp(48px, 8vw, 88px)" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "clamp(40px, 6vw, 64px) clamp(16px, 4vw, 40px) 28px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 32 }}>
         <div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--mr-cream)", marginBottom: 12 }}>Majestic Roobee</div>
+          <div style={{ marginBottom: 12 }}><Wordmark ctx={ctx} height={44} tone="light" /></div>
           <p style={{ fontSize: 13, lineHeight: 1.7, maxWidth: "34ch", margin: 0 }}>{settings.footerTagline}</p>
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
             <a href={settings.igUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram" title={settings.igHandle} style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid var(--border-inverse)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--mr-gold-400)" }}>
