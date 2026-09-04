@@ -8,9 +8,11 @@
 //   · "best sellers" must be counted, not guessed, and must never be empty
 //   · a deal must stop on the day after it ends, without anyone switching it off
 //   · a daily deal must price the catalogue, not just the card it appears on
+//   · a parent category must mean everything underneath it, or a shelf lies
 //   · a pasted post link must reduce to an embed, however it was copied
 import { computeSegments, dealIsLive, daysBefore, parseEmbed, embedUrlFor, firstName, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "../worker/merch.js";
 import { watToMs } from "../worker/util.js";
+import { catTree, catFamily, countIn, catPath } from "../src/lib/categories.js";
 import { pathToRoute, routeToPath } from "../src/storefront/router.js";
 
 let failures = 0;
@@ -195,6 +197,53 @@ check("a floor with no markdowns and no schedule shows no card",
 check("the deal's piece is on the Deals shelf, because its price is now below its was-price",
   computeSegments({ products: applyDailyDealPricing(shop, scheduled), categories, today: "2026-09-04" }).deals,
   ["flames", "pulze"]);
+
+// ---- 7. The category tree ------------------------------------------------
+//
+// One category system, two levels. The thing worth asserting is that a parent
+// is not an empty shelf: "Perfumes" holds no products of its own, and a shopper
+// clicking it must still see all 110 extraits, designer oils and custom oils.
+console.log("\nCategory tree");
+
+const cats = [
+  { id: "perfumes", label: "Perfumes", parentId: null },
+  { id: "extrait", label: "Extrait Perfumes", parentId: "perfumes" },
+  { id: "designer", label: "Designer Oils", parentId: "perfumes" },
+  { id: "mist", label: "Body Mists", parentId: null },
+  { id: "gifts", label: "Gift Sets", parentId: null },
+  { id: "gift-set", label: "Other Sets", parentId: "gifts" },
+];
+const shop2 = [
+  { id: "a", cat: "extrait" }, { id: "b", cat: "extrait" }, { id: "c", cat: "designer" },
+  { id: "d", cat: "mist" }, { id: "e", cat: "gift-set" },
+];
+
+check("the tree is the shelves, each carrying its own children",
+  catTree(cats).map((c) => [c.label, c.children.map((x) => x.label)]),
+  [["Perfumes", ["Extrait Perfumes", "Designer Oils"]], ["Body Mists", []], ["Gift Sets", ["Other Sets"]]]);
+
+check("a parent covers itself and everything under it",
+  [...catFamily(cats, "perfumes")].sort(), ["designer", "extrait", "perfumes"]);
+check("a leaf covers only itself", [...catFamily(cats, "mist")], ["mist"]);
+check("\"all\" is no filter at all", catFamily(cats, "all"), null);
+
+check("a parent shelf shows its children's products, though none are filed on it",
+  countIn(cats, shop2, "perfumes"), 3);
+check("...and a child shows only its own", countIn(cats, shop2, "extrait"), 2);
+check("...and no category at all shows everything", countIn(cats, shop2, "all"), 5);
+
+check("a sub-category knows the shelf it came from",
+  catPath(cats, "extrait").map((c) => c.label), ["Perfumes", "Extrait Perfumes"]);
+check("...and a top-level shelf is its own trail",
+  catPath(cats, "mist").map((c) => c.label), ["Body Mists"]);
+
+// A child whose parent is hidden must not fall off the menu while its products
+// are still on the shop floor.
+check("an orphaned child is promoted, not dropped",
+  catTree([{ id: "x", label: "Orphan", parentId: "gone" }]).map((c) => c.label), ["Orphan"]);
+// A malformed tree must not hang the page that walks it.
+check("a cycle terminates rather than spinning",
+  catPath([{ id: "a", parentId: "b" }, { id: "b", parentId: "a" }], "a").length <= 8, true);
 
 console.log(failures ? `\n${failures} check(s) failed\n` : "\nAll merchandising checks passed\n");
 process.exit(failures ? 1 : 0);

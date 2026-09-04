@@ -5,6 +5,7 @@ import { ProductCard } from "./product-card.jsx";
 import { routeToPath } from "./router.js";
 import { EmbedCard, TestimonialCarousel } from "./pages-content.jsx";
 import { DailyDealCard } from "./daily-deal.jsx";
+import { catFamily, catPath, countIn } from "../lib/categories.js";
 
 export { ProductCard };
 export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody } from "./pages-content.jsx";
@@ -181,8 +182,8 @@ export function HomePage({ ctx }) {
           <Eyebrow>Shop by moment</Eyebrow>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 14 }}>
-          {categories.map((c) => {
-            const n = products.filter((p) => p.cat === c.id).length;
+          {categories.filter((c) => !c.parentId).map((c) => {
+            const n = countIn(categories, products, c.id);
             return (
               <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
                 <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--mr-purple-900)" }}>{c.label}</div>
@@ -289,6 +290,12 @@ export function ShopPage({ ctx }) {
   const brand = ctx.fBrand ? ctx.brands.find((b) => b.id === ctx.fBrand) : null;
   const brandName = brand ? brand.name : ctx.fBrand;
   const activeCat = categories.find((c) => c.id === ctx.fCat) || null;
+  // A shelf is itself and everything under it: "Perfumes" is the extraits, the
+  // designer oils and the custom oils, not the nothing filed on the parent.
+  const catIds = catFamily(categories, ctx.fCat);
+  // ["Perfumes", "Extrait Perfumes"] when a sub-category is open, so the page
+  // says where the shopper is standing.
+  const trail = activeCat ? catPath(categories, activeCat.id) : [];
   // The deals running right now, so the Deals page names them rather than
   // showing a wall of discounted products with no reason attached.
   const runningDeals = seg === "deals" ? ctx.deals.filter((d) => d.productIds.length) : [];
@@ -321,7 +328,7 @@ export function ShopPage({ ctx }) {
   // in Lagos, not to be told it doesn't exist.
   let list = listings.filter((e) => {
     const p = e.product;
-    if (ctx.fCat !== "all" && p.cat !== ctx.fCat) return false;
+    if (catIds && !catIds.has(p.cat)) return false;
     if (segIds && !segIds.includes(p.id)) return false;
     if (brandName && (p.brand || "").toLowerCase() !== String(brandName).toLowerCase()) return false;
     if (collection && !collection.productIds.includes(p.id)) return false;
@@ -346,18 +353,12 @@ export function ShopPage({ ctx }) {
   else if (segRank) list = list.slice().sort((a, b) => segRank.get(a.product.id) - segRank.get(b.product.id));
   else list = list.slice().sort((a, b) => (inStockHere(b) ? 1 : 0) - (inStockHere(a) ? 1 : 0));
   const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || !!seg || !!brand || ctx.fScope !== "city";
-  const filterCats = [{ id: "all", label: "Everything" }].concat(categories);
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", outline: "none", cursor: "pointer" };
   const chip = (on, onClick, label, key) => (
     <button key={key} onClick={onClick} style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 16px", borderRadius: "var(--radius-pill)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : "var(--mr-purple-800)", transition: "all var(--dur-fast) var(--ease-standard)" }}>
       {label}
     </button>
   );
-  // Every sub-shelf a category offers. Which three (or fewer) it offers is the
-  // admin's choice, category by category.
-  const subLabels = { "new-arrivals": "New arrivals", "best-sellers": "Best sellers", "gift-sets": "Gift sets" };
-  const subShelves = activeCat ? (activeCat.subcats || []) : [];
-  const goto = (extra) => ctx.nav("shop", { fCat: ctx.fCat, fSeg: seg, ...extra });
   // Curated sets lead the page — but only when the shopper is browsing, not
   // when they have already narrowed to a category, a shelf, a set or a search.
   const showStrips = !searching && !collection && !seg && !brand && ctx.fCat === "all" && collections.length > 0;
@@ -390,7 +391,31 @@ export function ShopPage({ ctx }) {
         );
       })}
 
-      <Eyebrow>{segCopy ? segCopy.eyebrow : brand ? "By the label" : collection ? "Collection" : activeCat ? "The shelf" : "The collection"}</Eyebrow>
+      {/* Where the shopper is standing, and the way back up. Categories are
+          picked in exactly one place — the header's rail — so this is a trail,
+          not a second copy of the menu. */}
+      {trail.length > 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
+          <a href="/" onClick={(e) => { e.preventDefault(); ctx.nav("home"); }} style={{ color: "var(--text-muted)" }}>Home</a>
+          {trail.map((c, i) => (
+            <React.Fragment key={c.id}>
+              <span>&#8250;</span>
+              {i === trail.length - 1
+                ? <span style={{ color: "var(--mr-purple-800)" }}>{c.label}</span>
+                : <a href={routeToPath("shop", { fCat: c.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id }); }} style={{ color: "var(--text-muted)" }}>{c.label}</a>}
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+      <Eyebrow>
+        {segCopy ? segCopy.eyebrow
+          : brand ? "By the label"
+            : collection ? "Collection"
+              // Under a sub-category the eyebrow names its parent, which is the
+              // one piece of context a heading alone can't carry.
+              : trail.length > 1 ? trail[0].label
+                : activeCat ? "The shelf" : "The collection"}
+      </Eyebrow>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: `12px 0 ${subLine ? 6 : 24}px` }}>
         {segCopy
           ? (activeCat ? `${segCopy.title} — ${activeCat.label}` : segCopy.title)
@@ -419,18 +444,6 @@ export function ShopPage({ ctx }) {
 
       {(collection || brand) && (
         <button onClick={() => ctx.nav("shop", { fCat: "all" })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← Back to everything</button>
-      )}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-        {filterCats.map((c) => chip(ctx.fCat === c.id, () => goto({ fCat: c.id }), c.label, c.id))}
-      </div>
-      {/* The sub-shelves this category offers — the same three shelves the
-          header carries, narrowed to what is in front of the shopper. */}
-      {subShelves.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-          <span style={{ fontSize: 12, fontFamily: "var(--font-condensed)", letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>In {activeCat.label}:</span>
-          {chip(!seg, () => goto({ fSeg: null }), "All of it", "sub-all")}
-          {subShelves.map((sc) => chip(seg === sc, () => goto({ fSeg: seg === sc ? null : sc }), subLabels[sc] || sc, sc))}
-        </div>
       )}
       {/* Shelf vs house. Hidden mid-search, where the scope is always the house. */}
       {!searching && (

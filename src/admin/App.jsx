@@ -8,6 +8,7 @@ import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.js
 import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
 import { GoLivePage } from "./golive.jsx";
+import { catTree, catPath } from "../lib/categories.js";
 
 // The categories the shop was seeded with, kept only as a label of last resort:
 // categories are editable content now (Admin → Categories), so every screen
@@ -42,7 +43,7 @@ const PAGES = [
   { id: "inv", label: "Inventory", title: "Inventory" },
   { id: "cat", label: "Products", title: "Product catalogue" },
   { id: "collections", label: "Collections", title: "Collections & sets" },
-  { id: "categories", label: "Categories", title: "Categories & sub-shelves" },
+  { id: "categories", label: "Categories", title: "Categories" },
   { id: "deals", label: "Deals", title: "Deals & hot offers" },
   { id: "daily-deals", label: "Daily Deals", title: "Daily deals & countdown" },
   { id: "blog", label: "Blog", title: "The blog" },
@@ -273,7 +274,18 @@ export default function App() {
     // Category labels come from the live table; CAT_LABELS is only the fallback
     // for the moment before it has loaded.
     catLabel: (id) => (categories.find((c) => c.id === id) || {}).label || CAT_LABELS[id] || id,
-    catOptions: categories.length ? categories.map((c) => ({ id: c.id, label: c.label })) : Object.entries(CAT_LABELS).map(([id, label]) => ({ id, label })),
+    // "Perfumes › Extrait Perfumes" wherever a category is named on its own, so
+    // two sub-categories with similar names can be told apart.
+    catPathLabel: (id) => {
+      const trail = catPath(categories, id);
+      return trail.length ? trail.map((c) => c.label).join(" › ") : CAT_LABELS[id] || id;
+    },
+    // The picker on the product form, in tree order and indented, so filing a
+    // product reads the same way the storefront's menu does.
+    catOptions: categories.length
+      ? catTree(categories).flatMap((c) => [{ id: c.id, label: c.label }].concat(
+        c.children.map((sc) => ({ id: sc.id, label: `\u00a0\u00a0\u00a0\u2014 ${sc.label}` }))))
+      : Object.entries(CAT_LABELS).map(([id, label]) => ({ id, label })),
     loadOverview, loadProducts, loadPromos, loadCampaigns, loadInquiries, loadSettings, loadLocations, loadCollections,
     loadCategories, loadDeals, loadPosts, loadTestimonials,
     setProducts, setInquiries, authFail, flash,
