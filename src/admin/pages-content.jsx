@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { ImagePicker } from "./product-form.jsx";
+import { catTree, countIn } from "../lib/categories.js";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const linkBtn = { background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-700)", padding: 0 };
@@ -73,11 +74,8 @@ function ProductMultiPicker({ ctx, ids, toggle }) {
 
 // ---- Categories -----------------------------------------------------------
 
-const SUBCATS = [
-  { id: "new-arrivals", label: "New arrivals" },
-  { id: "best-sellers", label: "Best sellers" },
-  { id: "gift-sets", label: "Gift sets" },
-];
+// What a category is *for*, which is what a promo scope and the Gift sets shelf
+// read — distinct from where it sits in the tree.
 const GROUPS = [
   { id: "", label: "Ungrouped" },
   { id: "fragrance", label: "Fragrances" },
@@ -91,11 +89,11 @@ export function CategoriesPage({ ctx }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const blank = { label: "", desc: "", grp: "", live: true, subcats: SUBCATS.map((s) => s.id) };
+  const blank = { label: "", desc: "", grp: "", live: true, parentId: "" };
   const open = (c) => {
     setErr("");
     setEditing(c ? c.id : "new");
-    setF(c ? { label: c.label, desc: c.desc, grp: c.grp, live: c.live, subcats: (c.subcats || []).slice() } : { ...blank });
+    setF(c ? { label: c.label, desc: c.desc, grp: c.grp, live: c.live, parentId: c.parentId || "" } : { ...blank });
   };
   const close = () => { setEditing(null); setF(null); setErr(""); };
 
@@ -128,8 +126,12 @@ export function CategoriesPage({ ctx }) {
     } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
   };
 
+  // A category moves among its own siblings. Comparing it against the whole
+  // table would swap a sub-category's place with a top-level shelf's.
   const move = async (c, dir) => {
-    const ordered = ctx.categories.slice().sort((a, b) => a.sort - b.sort);
+    const ordered = ctx.categories
+      .filter((x) => (x.parentId || null) === (c.parentId || null))
+      .sort((a, b) => a.sort - b.sort);
     const i = ordered.findIndex((x) => x.id === c.id);
     const j = i + dir;
     if (j < 0 || j >= ordered.length) return;
@@ -137,44 +139,58 @@ export function CategoriesPage({ ctx }) {
     await patch(ordered[j], { sort: c.sort });
   };
 
-  const toggleSub = (id) => setF((s) => ({ ...s, subcats: s.subcats.includes(id) ? s.subcats.filter((x) => x !== id) : s.subcats.concat(id) }));
+  const shelves = catTree(ctx.categories);
+  const liveProducts = ctx.products.filter((p) => p.cat);
+  // One renderer for both levels: a sub-category is the same object as a shelf,
+  // so it gets the same controls rather than a cut-down copy of them.
+  const row = (c, i, n) => (
+    <>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: c.parentId ? 15 : 17, color: "var(--text-strong)" }}>{c.label}</div>
+          {c.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{c.desc}</div>}
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+            {/* Two numbers where they differ: what is filed here, and what the
+                shelf actually shows once its children are counted in. */}
+            {c.products} filed
+            {!c.parentId && countIn(ctx.categories, liveProducts, c.id) !== c.products
+              && ` · ${countIn(ctx.categories, liveProducts, c.id)} on the shelf`}
+            {` · /shop?category=${c.id}`}
+            {c.grp ? ` · ${(GROUPS.find((g) => g.id === c.grp) || {}).label}` : ""}
+          </div>
+        </div>
+        <Switch checked={c.live} onChange={() => patch(c, { live: !c.live }, c.live ? `${c.label} hidden` : `${c.label} is live`)} />
+      </div>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+        <button onClick={() => open(c)} style={linkBtn}>Edit →</button>
+        <button onClick={() => move(c, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑</button>
+        <button onClick={() => move(c, 1)} disabled={i === n - 1} style={{ ...linkBtn, opacity: i === n - 1 ? 0.4 : 1 }}>↓</button>
+        <button onClick={() => remove(c)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
+      </div>
+    </>
+  );
 
   return (
     <main style={pageStyle}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Intro title="Categories & sub-shelves">
-          A category is where a product lives — one each. Shoppers reach them from <strong>All categories</strong> in the storefront
-          header, and every category can offer up to three sub-shelves: <strong>New arrivals</strong>, <strong>Best sellers</strong> and
-          <strong> Gift sets</strong>. Those three fill themselves — by listing date, by real paid orders, and by which categories are
-          grouped as gift &amp; sets — so there is nothing to keep up to date.
+        <Intro title="Categories">
+          A category is where a product lives — one each — and this is the store&apos;s only category system: what is here is exactly what
+          shoppers see under <strong>All categories</strong> in the header, and nowhere else offers a competing menu. Shelves can hold
+          sub-categories one level deep (Perfumes → Extrait Perfumes), and a shelf shows everything underneath it, so a shopper on
+          Perfumes sees every extrait, designer oil and custom oil at once.
         </Intro>
-        {ctx.categories.slice().sort((a, b) => a.sort - b.sort).map((c, i, all) => (
+        {shelves.map((c, i) => (
           <div key={c.id} style={{ ...card, padding: 18, opacity: c.live ? 1 : 0.62 }}>
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)" }}>{c.label}</div>
-                {c.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{c.desc}</div>}
-                <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
-                  {c.products} {c.products === 1 ? "product" : "products"} · /shop?category={c.id}
-                  {c.grp ? ` · ${(GROUPS.find((g) => g.id === c.grp) || {}).label}` : ""}
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {(c.subcats || []).map((sc) => (
-                    <span key={sc} style={{ fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: "var(--surface-sunken)", color: "var(--mr-purple-800)" }}>
-                      {(SUBCATS.find((s) => s.id === sc) || {}).label || sc}
-                    </span>
-                  ))}
-                  {!(c.subcats || []).length && <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>No sub-shelves</span>}
-                </div>
+            {row(c, i, shelves.length)}
+            {c.children.length > 0 && (
+              <div style={{ marginTop: 14, borderTop: "1px solid var(--border-hairline)", paddingTop: 4 }}>
+                {c.children.map((sc, j) => (
+                  <div key={sc.id} style={{ paddingLeft: 16, borderLeft: "2px solid var(--surface-sunken)", marginTop: 10, opacity: sc.live ? 1 : 0.62 }}>
+                    {row(sc, j, c.children.length)}
+                  </div>
+                ))}
               </div>
-              <Switch checked={c.live} onChange={() => patch(c, { live: !c.live }, c.live ? `${c.label} hidden` : `${c.label} is live`)} />
-            </div>
-            <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={() => open(c)} style={linkBtn}>Edit →</button>
-              <button onClick={() => move(c, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑ Move up</button>
-              <button onClick={() => move(c, 1)} disabled={i === all.length - 1} style={{ ...linkBtn, opacity: i === all.length - 1 ? 0.4 : 1 }}>↓ Move down</button>
-              <button onClick={() => remove(c)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
-            </div>
+            )}
           </div>
         ))}
       </div>
@@ -182,7 +198,7 @@ export function CategoriesPage({ ctx }) {
       <Panel title={editing && editing !== "new" ? "Edit category" : "New category"} onClose={editing ? close : null}>
         {!editing ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Add a shelf, rename one, reorder the menu, or decide which sub-shelves a category offers.</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Add a shelf, rename one, move it under another, or reorder the menu shoppers see.</div>
             <Button variant="primary" block onClick={() => open(null)}>Add a category</Button>
           </>
         ) : (
@@ -196,14 +212,15 @@ export function CategoriesPage({ ctx }) {
             <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
               Anything grouped as <strong>Gift &amp; sets</strong> is what the storefront's Gift sets shelf is made of.
             </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 8 }}>Sub-shelves shoppers can filter by</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {SUBCATS.map((s) => (
-                  <Switch key={s.id} label={s.label} checked={f.subcats.includes(s.id)} onChange={() => toggleSub(s.id)} />
-                ))}
-              </div>
-            </div>
+            <Select label="Sits under" value={f.parentId} onChange={(e) => setF({ ...f, parentId: e.target.value })}
+              hint="Its own shelf in the header, or a sub-category of one. The tree is two deep.">
+              <option value="">— a shelf of its own —</option>
+              {/* Only a category that is itself top level and childless-safe can
+                  be a parent; the server refuses the rest either way. */}
+              {ctx.categories.filter((c) => !c.parentId && c.id !== editing).map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </Select>
             <Switch label="Live in the storefront menu" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
             <Button variant="primary" block disabled={busy || !f.label.trim()} onClick={save}>
               {busy ? "Saving…" : editing === "new" ? "Add category" : "Save changes"}

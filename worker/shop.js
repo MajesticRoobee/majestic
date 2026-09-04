@@ -85,11 +85,12 @@ shop.get("/store", async (c) => {
     hours: l.hours || "", mapsUrl: l.maps_url || "",
   }));
   const catRows = (await db.prepare("SELECT * FROM categories WHERE live=1 ORDER BY sort, id").all()).results;
-  // A category carries its own sub-shelves now, so the header's mega-menu is
-  // built from this table alone rather than from a list held in the client.
+  // Flat on the wire, a tree in the browser: `parentId` is all the storefront
+  // needs to build the header rail, and sending it flat keeps one category its
+  // own row rather than duplicated inside a parent.
   const categories = catRows.map((x) => ({
     id: x.id, label: x.label, desc: x.descr || "", grp: x.grp || "", imageUrl: x.image_url || null,
-    subcats: parseSubcats(x.subcats),
+    parentId: x.parent_id || null,
   }));
   const { products, dailyDeal } = await storeCatalogue(db, { settings });
   const colRows = (await db.prepare("SELECT * FROM collections WHERE live=1 ORDER BY sort, created_at").all()).results;
@@ -139,15 +140,6 @@ shop.get("/store", async (c) => {
 
   return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog });
 });
-
-function parseSubcats(raw) {
-  try {
-    const v = JSON.parse(raw || "[]");
-    return Array.isArray(v) ? v.filter((s) => typeof s === "string") : [];
-  } catch {
-    return [];
-  }
-}
 
 // Units sold per product over the best-seller window. Only orders that were
 // actually paid for count — a cancelled order or an abandoned card attempt is

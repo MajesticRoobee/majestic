@@ -990,23 +990,33 @@ async function setCollectionProducts(db, id, productIds) {
 // the default sub-shelves (new arrivals, best sellers, gift sets) each one
 // offers shoppers.
 
-const DEFAULT_SUBCATS = ["new-arrivals", "best-sellers", "gift-sets"];
 const CAT_GROUPS = ["", "fragrance", "gift", "care"];
 
 const categoryOut = (x, counts) => ({
   id: x.id, label: x.label, desc: x.descr || "", sort: x.sort, live: !!x.live,
   grp: x.grp || "", imageUrl: x.image_url || null,
-  subcats: readSubcats(x.subcats),
+  parentId: x.parent_id || null,
+  // Filed directly on this category. A parent's shelf also shows everything
+  // under it; the page adds those up from the tree rather than the server
+  // guessing which total the reader wanted.
   products: counts[x.id] || 0,
 });
 
-function readSubcats(raw) {
-  let v;
-  try { v = JSON.parse(raw || "[]"); } catch { v = []; }
-  if (!Array.isArray(v)) v = [];
-  // Only the sub-shelves the storefront can actually render, in a fixed order
-  // so two categories never present the same three in a different sequence.
-  return DEFAULT_SUBCATS.filter((s) => v.includes(s));
+// A category may not be its own ancestor, and the tree is two deep: a category
+// that has children cannot also become someone's child. Both rules are enforced
+// here rather than trusted from the form, because a cycle would hang every page
+// that walks the tree.
+async function parentRefusal(db, id, parentId) {
+  if (!parentId) return null;
+  if (parentId === id) return "A category can't sit inside itself.";
+  const parent = await db.prepare("SELECT id, parent_id FROM categories WHERE id=?").bind(parentId).first();
+  if (!parent) return "No such parent category.";
+  if (parent.parent_id) return `"${parentId}" is already inside another category — the tree is only two deep.`;
+  if (id) {
+    const kids = await db.prepare("SELECT COUNT(*) AS n FROM categories WHERE parent_id=?").bind(id).first();
+    if (kids.n) return "This category has sub-categories of its own, so it has to stay at the top level.";
+  }
+  return null;
 }
 
 async function categoryCounts(db) {
@@ -1018,7 +1028,7 @@ admin.get("/categories", async (c) => {
   const db = c.env.DB;
   const rows = (await db.prepare("SELECT * FROM categories ORDER BY sort, id").all()).results;
   const counts = await categoryCounts(db);
-  return c.json({ categories: rows.map((x) => categoryOut(x, counts)), subcatOptions: DEFAULT_SUBCATS, groups: CAT_GROUPS });
+  return c.json({ categories: rows.map((x) => categoryOut(x, counts)), groups: CAT_GROUPS });
 });
 
 admin.post("/categories", async (c) => {
@@ -1030,12 +1040,15 @@ admin.post("/categories", async (c) => {
   if (!base) return c.json({ error: "That name doesn't make a usable id." }, 400);
   if (await db.prepare("SELECT id FROM categories WHERE id=?").bind(base).first())
     return c.json({ error: `There is already a category with the id "${base}".` }, 400);
-  const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM categories").first();
-  const subcats = Array.isArray(b.subcats) ? DEFAULT_SUBCATS.filter((x) => b.subcats.includes(x)) : DEFAULT_SUBCATS;
-  await db.prepare("INSERT INTO categories (id, label, descr, sort, live, grp, image_url, subcats) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+  const parentId = String(b.parentId || "").trim() || null;
+  const refusal = await parentRefusal(db, null, parentId);
+  if (refusal) return c.json({ error: refusal }, 400);
+  // A new child sorts after its siblings; a new shelf after the other shelves.
+  const last = await db.prepare("SELECT COALESCE(MAX(sort),0) AS s FROM categories WHERE parent_id IS ?").bind(parentId).first();
+  await db.prepare("INSERT INTO categories (id, label, descr, sort, live, grp, image_url, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     .bind(base, label, String(b.desc || "").trim(), Number.isFinite(parseInt(b.sort, 10)) ? parseInt(b.sort, 10) : last.s + 1,
       b.live === false ? 0 : 1, CAT_GROUPS.includes(b.grp) ? b.grp : "", String(b.imageUrl || "").trim() || null,
-      JSON.stringify(subcats)).run();
+      parentId).run();
   return c.json({ ok: true, id: base });
 });
 
@@ -1052,7 +1065,12 @@ admin.patch("/categories/:id", async (c) => {
   if (b.live !== undefined) push("live", b.live ? 1 : 0);
   if (b.grp !== undefined) push("grp", CAT_GROUPS.includes(b.grp) ? b.grp : "");
   if (b.imageUrl !== undefined) push("image_url", String(b.imageUrl).trim() || null);
-  if (Array.isArray(b.subcats)) push("subcats", JSON.stringify(DEFAULT_SUBCATS.filter((x) => b.subcats.includes(x))));
+  if (b.parentId !== undefined) {
+    const parentId = String(b.parentId || "").trim() || null;
+    const refusal = await parentRefusal(db, id, parentId);
+    if (refusal) return c.json({ error: refusal }, 400);
+    push("parent_id", parentId);
+  }
   // Hiding the last live category would empty the storefront's menu entirely.
   if (b.live === false) {
     const others = await db.prepare("SELECT COUNT(*) AS n FROM categories WHERE live=1 AND id<>?").bind(id).first();
@@ -1072,6 +1090,10 @@ admin.delete("/categories/:id", async (c) => {
   const db = c.env.DB;
   const used = await db.prepare("SELECT COUNT(*) AS n FROM products WHERE cat=?").bind(id).first();
   if (used.n) return c.json({ error: `${used.n} product${used.n === 1 ? " is" : "s are"} filed under this category — move them first, or hide it instead.` }, 400);
+  // Deleting a parent would orphan its children, whose products are still on
+  // the shop floor. Empty it first, the same rule as products.
+  const kids = await db.prepare("SELECT COUNT(*) AS n FROM categories WHERE parent_id=?").bind(id).first();
+  if (kids.n) return c.json({ error: `${kids.n} sub-categor${kids.n === 1 ? "y sits" : "ies sit"} inside this one — move or delete ${kids.n === 1 ? "it" : "them"} first.` }, 400);
   const others = await db.prepare("SELECT COUNT(*) AS n FROM categories WHERE id<>?").bind(id).first();
   if (!others.n) return c.json({ error: "A shop needs at least one category." }, 400);
   await db.prepare("DELETE FROM categories WHERE id=?").bind(id).run();
