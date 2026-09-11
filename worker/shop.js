@@ -13,7 +13,7 @@ export const shop = new Hono();
 // a promo aimed at them is written Storewide.
 const SCOPE_CATS = {
   Storewide: null,
-  Fragrances: ["extrait", "designer", "custom-oil", "mist"],
+  Fragrances: ["perfumes", "perfume-oils", "designer", "custom-oil", "mist"],
   "Gift packages": ["fragrance-set", "mist-set", "custom-oil-set", "gift-set"],
   "Feminine care": ["care", "deo"],
 };

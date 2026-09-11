@@ -1,4 +1,4 @@
-// The daily-deal card: one piece, one price, and a clock running down beside
+// The daily-deal card: one product, one price, and a clock running down beside
 // it, in the corner the redesign reserves for it at the top of the home page.
 //
 // Everything on the card comes from the server (`/api/store` → dailyDeal),
@@ -67,7 +67,7 @@ export function DailyDealCard({ ctx, style = {} }) {
         {deal.compareAtNgn && <span style={{ fontSize: 13, color: "var(--text-muted)", textDecoration: "line-through" }}>{ctx.fmt(deal.compareAtNgn)}</span>}
       </div>
       <Button variant="primary" size="md" block disabled={!variant} onClick={() => variant && ctx.addToCart(deal.productId, variant, 1)}>
-        {variant ? "Add to cart" : "See the piece"}
+        {variant ? "Add to cart" : "View product"}
       </Button>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, paddingTop: 4 }}>
         {units(left).map((u) => (

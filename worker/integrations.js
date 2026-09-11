@@ -150,7 +150,7 @@ async function syncCatalogue(env, body) {
               `INSERT INTO products (id, name, cat, gender, family, notes, descr, image_url, live, option_names, external_source, external_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
-              productId, name, cat || "extrait",
+              productId, name, cat || "perfumes",
               String(pick(head, "gender", "wornBy") ?? "Unisex"),
               String(pick(head, "family") ?? ""),
               String(pick(head, "notes", "scentNotes") ?? "").trim() || "—",

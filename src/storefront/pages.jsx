@@ -8,27 +8,114 @@ import { DailyDealCard } from "./daily-deal.jsx";
 import { catFamily, catPath, countIn } from "../lib/categories.js";
 
 export { ProductCard };
-export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody } from "./pages-content.jsx";
+export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage } from "./pages-content.jsx";
 export { EmbedCard, TestimonialCarousel };
 
 const PAD = "clamp(16px, 4vw, 40px)";
 
 // The three banners under the homepage hero. Fixed shelves rather than editable
 // blocks: what changes is the photograph behind each (Settings → Homepage), not
-// which three the house leads with.
+// which three the store leads with.
 const PROMO_TILES = [
-  { id: "deals", setting: "promoTileDeals", kicker: "Markdowns on now", title: "Hot Deals", href: "/deals", extra: { fSeg: "deals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(37,20,50,0.9), rgba(37,20,50,0.12))" },
-  { id: "new", setting: "promoTileNew", kicker: "Just landed", title: "New Arrivals", href: "/new-arrivals", extra: { fSeg: "new-arrivals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(61,35,80,0.9), rgba(61,35,80,0.12))" },
-  { id: "sets", setting: "promoTileSets", kicker: "Wrapped & ready", title: "Gift Sets", href: "/gift-sets", extra: { fSeg: "gift-sets", fCat: "all" }, veil: "linear-gradient(0deg, rgba(90,45,110,0.9), rgba(90,45,110,0.12))" },
+  { id: "deals", setting: "promoTileDeals", kicker: "On sale now", title: "Deals", href: "/deals", extra: { fSeg: "deals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(37,20,50,0.9), rgba(37,20,50,0.12))" },
+  { id: "new", setting: "promoTileNew", kicker: "Just in", title: "New Arrivals", href: "/new-arrivals", extra: { fSeg: "new-arrivals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(61,35,80,0.9), rgba(61,35,80,0.12))" },
+  { id: "sets", setting: "promoTileSets", kicker: "Ready to give", title: "Gift Sets", href: "/gift-sets", extra: { fSeg: "gift-sets", fCat: "all" }, veil: "linear-gradient(0deg, rgba(90,45,110,0.9), rgba(90,45,110,0.12))" },
 ];
+
+// The founder's story, exactly as the client wrote it. The About page runs it
+// in full; the homepage shows the opening paragraph and links through.
+const STORY_TITLE = "How I never set out to build a fragrance brand";
+const STORY = [
+  "My name is Peace Ijeoma Jonathan, founder of Majesticroobee. Most people assume this story began with perfume. It didn't. It began with a woman waiting to become a mother. There was a season in my life when I was trusting God for a child. It was a quiet season filled with prayers, hope, questions and waiting. Someone once told me that if I was to believe in God for children, I should spend more time around children. I held on to those words and moved straight to get a job in a school. At the time, I thought I was simply giving my heart something meaningful to do while I waited on God. I had no idea that the place I entered because I was waiting would become the place where He was quietly preparing me for work I never imagined I would one day do.",
+  "The children quickly became part of my heart, but so did their mothers. Every conversation, every school run and every interaction reminded me that every woman was carrying something, even when she smiled. Somewhere in the middle of that season, one of my colleagues introduced me to someone who brought attars into Nigeria. At the time, hardly anyone knew what they were. I was fascinated. I had always loved beautiful scents, but this was different. It opened a world I couldn't stop exploring. I learnt, I practised, I asked questions, and I kept learning. What started as curiosity slowly became purpose, and over the years that journey led me to become an internationally certified natural perfumer. Looking back now, I realise that what felt like an ordinary introduction was one of the quiet miracles hidden inside my season of waiting.",
+  "Life continued to unfold, and I became a mother. Motherhood changed me in ways I never expected. It introduced me to depths of love I had never known, but it also introduced me to a kind of grief that words still struggle to hold. Long before people came to know the name Majesticroobee, there was a little girl named Ruby. She lived for only twenty days, but she changed me forever. Losing her broke something in me, but it also awakened something in me. It made me pay closer attention to women, to our bodies, to our emotions and to the battles we carry without anyone noticing. I had lived through the waiting, the pregnancy, the birth, the joy, the loss, the hormonal changes, the exhaustion, the isolation and the quiet search for myself again. As I spoke with more women, I realised I wasn't alone. Different homes, different stories, but the same questions. The same desire to feel whole again. The same longing to understand our bodies deeply, to feel like ourselves again. The same hope that somewhere beneath everything life had placed on us, we could still find ourselves.",
+  "As I searched for answers for myself, I found myself searching for answers for other women too. I enrolled in schools, studied relentlessly and refused to stop asking questions. The more I learnt, the more I understood that what a woman puts on her body is never just about appearance. It touches her emotions, her confidence, her memories, her routines and sometimes even the way she sees herself. Around the same time, I found myself thinking often about my own mother. I grew up in a very Nigerian home with a very Nigerian mother who believed that cleanliness, good character and intentional living mattered. She read labels, questioned ingredients and paid close attention to what entered our home. She loved looking beautiful and smelling beautiful, but she never believed beauty should come at the expense of her health. She also never allowed motherhood to erase the woman she was. She continued to care for herself with grace and intention, and although I didn't know it then, she was quietly planting seeds that would later shape everything I believed about women's wellness and self-care.",
+  "As the years passed, every part of my journey slowly came together. The waiting. The classroom. The mothers I had met. My own experiences of womanhood. The lessons my mother had quietly lived before me. The years of studying natural perfumery and understanding the connection between scent, emotion and wellbeing. Then life carried me to Bonny Island. It was there that everything I had been learning finally found people. For the first time, women were not just hearing me talk about fragrance; they were experiencing it for themselves. They wore the products, shared their honest experiences, came back for more and introduced them to other women. Watching those conversations happen made something very clear to me. This was no longer just something I loved. It had become something that genuinely served women. It was also in Bonny Island that the vision became clear enough to give it a name. I called it Majesticroobee. It is a name that carries love, but it also carries strength, courage and resilience. More importantly, it carries a responsibility. Today, we are building for the women who are here, for the little girls who are quietly becoming tomorrow's women and for the generations still waiting to arrive. Every decision we make is guided by one belief: every woman deserves to feel safe in her body, confident in herself and deeply connected to who she is, no matter what season of life she is walking through.",
+  "Today, when people ask me how I built a fragrance brand, I smile because I know the answer has very little to do with perfume. This brand was built in classrooms, in hospital rooms, in seasons of waiting, in motherhood, in grief, in healing and in years of learning how to care for women well. Every bottle we make carries a small piece of that journey. Majesticroobee is more than the name of a company. It is the story of where God met me, where He restored me and where He gave purpose to every season I once struggled to understand. ",
+];
+
+// One section heading: the small line above, the heading, the line under it,
+// and — on a row of products — the link to the rest.
+function SectionHead({ eyebrow, title, sub, centred = false, action = null }) {
+  const head = (
+    <div style={{ maxWidth: "62ch", ...(centred ? { margin: "0 auto" } : null) }}>
+      {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+      <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
+      {sub && <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "8px 0 0" }}>{sub}</p>}
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22, textAlign: centred ? "center" : "left" }}>
+      {head}
+      {action}
+    </div>
+  );
+}
+
+// A heading, a line or two, and one button — the shape every "go and look at
+// this part of the shop" block on the homepage takes.
+function CtaBand({ title, lines, cta, onClick, dark = false }) {
+  return (
+    <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
+      <div style={{ background: dark ? "var(--royal-wash)" : "var(--surface-card)", border: dark ? "none" : "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "clamp(26px, 4vw, 44px)", display: "flex", flexWrap: "wrap", gap: 22, alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ maxWidth: "54ch" }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: dark ? "var(--mr-cream)" : "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: 0 }}>{title}</h2>
+          {lines.map((l) => (
+            <p key={l} style={{ fontSize: 14.5, lineHeight: 1.7, color: dark ? "var(--text-on-dark-muted)" : "var(--text-muted)", margin: "10px 0 0" }}>{l}</p>
+          ))}
+        </div>
+        <Button variant={dark ? "gold" : "primary"} size="lg" onClick={onClick}>{cta}</Button>
+      </div>
+    </section>
+  );
+}
+
+// How the rewards work, in the four steps the client wrote.
+const REWARD_STEPS = [
+  { step: "Shop", copy: "Purchase your favourite Majestic Roobee products." },
+  { step: "Earn", copy: "Collect points with every qualifying purchase." },
+  { step: "Redeem", copy: "Turn your points into rewards." },
+  { step: "Enjoy", copy: "Come back for more of the scents you love." },
+];
+
+// The newsletter block. It feeds the same list as the first-order pop-up, so
+// an address left here reaches the store the same way.
+function NewsletterSignup({ ctx }) {
+  const [email, setEmail] = useState("");
+  const [done, setDone] = useState(false);
+  const join = () => { if (ctx.joinList(email, "newsletter")) setDone(true); };
+  return (
+    <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
+      <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "clamp(28px, 4vw, 48px)", textAlign: "center" }}>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: 0 }}>Join the list</h2>
+        <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 20px", maxWidth: "54ch" }}>
+          Be the first to know about new scents, restocks, special offers and everything happening at Majestic Roobee.
+        </p>
+        {done ? (
+          <p style={{ fontSize: 14, color: "var(--mr-purple-900)", fontWeight: 500, margin: 0 }}>You&apos;re on the list. Watch your inbox.</p>
+        ) : (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", maxWidth: 460, margin: "0 auto" }}>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && join()}
+              type="email" aria-label="Your email address" placeholder="Enter your email address"
+              style={{ flex: "1 1 220px", minWidth: 0, fontFamily: "var(--font-sans)", fontSize: 14, padding: "12px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
+            <Button variant="primary" onClick={join}>Join the list</Button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export function HomePage({ ctx }) {
   const { settings, products, categories, cityName, L, testimonials, latestPosts } = ctx;
-  // Four pieces from whatever is marked down right now, and the deal they sit
+  // Four products from whatever is marked down right now, and the deal they sit
   // under when there is exactly one running — a strip that names its reason.
   const dealIds = (ctx.segments.deals || []).slice(0, 4);
   const dealPicks = dealIds.map((id) => ctx.listings.find((e) => e.product.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
   const runningDeal = ctx.deals.length === 1 ? ctx.deals[0] : null;
+  // Four best sellers, in the order the server ranked them.
+  const bestPicks = (ctx.segments["best-sellers"] || []).slice(0, 4)
+    .map((id) => ctx.listings.find((e) => e.product.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
   const dir = settings.heroDirection || "storefront grid";
   const sellable = products.filter((p) => p.variants && p.variants.length);
   const inCity = sellable.filter((p) => ctx.availInfo(p).inCity).slice(0, 4).map(ctx.card).filter(Boolean);
@@ -67,11 +154,11 @@ export function HomePage({ ctx }) {
                 {/* The wash is heaviest where the words are and clears to the
                     right, so the photograph still reads as a photograph. */}
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(61,35,80,0.86) 0%, rgba(61,35,80,0.52) 48%, rgba(61,35,80,0.06) 100%)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, padding: "clamp(24px, 4vw, 48px)", pointerEvents: "none" }}>
-                  <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>Seductive fragrances · Feminine care</span>
+                  <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>Perfumes · Perfume oils · Body mists · Feminine care</span>
                   <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
                   <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--text-on-dark-muted)", maxWidth: "34ch", margin: 0 }}>{settings.heroSub}</p>
                   <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
-                    <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
+                    <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
                   </div>
                 </div>
               </div>
@@ -98,16 +185,16 @@ export function HomePage({ ctx }) {
       {dir === "editorial split" && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 88px) ${PAD}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: "clamp(28px, 5vw, 64px)", alignItems: "center" }}>
           <div>
-            <Eyebrow>Seductive fragrances · Feminine care</Eyebrow>
+            <Eyebrow>Perfumes · Perfume oils · Body mists · Feminine care</Eyebrow>
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(38px, 5.4vw, 64px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "18px 0 0", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
             <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(19px, 2vw, 23px)", lineHeight: 1.5, color: "var(--text-body)", maxWidth: "46ch", margin: "22px 0 30px" }}>{settings.heroSub}</p>
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-              <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop the collection</Button>
-              <Button variant="ghost" size="lg" onClick={() => ctx.nav("about")}>Our story —</Button>
+              <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
+              <Button variant="ghost" size="lg" onClick={() => ctx.nav("about")}>Our story</Button>
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 34, fontSize: 12.5, color: "var(--text-muted)" }}>
               <span style={{ width: 22, height: 1, background: "var(--mr-gold-500)" }} />
-              Now serving {cityName} from our {L ? L.store : "store"}
+              Delivering to {cityName} from our {L ? L.store : "store"}
             </div>
           </div>
           <div style={{ position: "relative", minHeight: 380 }}>
@@ -119,19 +206,19 @@ export function HomePage({ ctx }) {
       )}
       {dir === "royal statement" && (
         <section style={{ background: settings.heroImage ? `linear-gradient(rgba(36,20,48,0.72), rgba(36,20,48,0.72)), url("${settings.heroImage}") center/cover` : "var(--royal-wash)", textAlign: "center", padding: `clamp(64px, 10vw, 130px) ${PAD}` }}>
-          <Eyebrow tone="light">The house of Majestic Roobee</Eyebrow>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(40px, 6.4vw, 84px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: "22px auto 0", maxWidth: "18ch" }}>Leave a trail, not just an impression.</h1>
+          <Eyebrow tone="light">Majestic Roobee</Eyebrow>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(40px, 6.4vw, 84px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: "22px auto 0", maxWidth: "18ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
           <GildedRule width="220px" style={{ margin: "18px auto" }} />
-          <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(18px, 2vw, 22px)", color: "var(--text-on-dark-muted)", maxWidth: "52ch", margin: "0 auto 34px" }}>Perfume oils and extraits blended for presence that lingers — routed to you from the store nearest {cityName}.</p>
-          <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Begin your trail</Button>
+          <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(18px, 2vw, 22px)", color: "var(--text-on-dark-muted)", maxWidth: "52ch", margin: "0 auto 34px" }}>{settings.heroSub}</p>
+          <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
         </section>
       )}
       {dir === "product-led" && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 6vw, 72px) ${PAD}` }}>
           <div style={{ maxWidth: 640 }}>
-            <Eyebrow>The Majestic edit — July</Eyebrow>
-            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(36px, 4.6vw, 56px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "16px 0 12px" }}>This month's most-followed trails</h1>
-            <p style={{ fontFamily: "var(--font-serif)", fontSize: 20, color: "var(--text-body)", margin: "0 0 30px" }}>Three fragrances {cityName} keeps coming back for.</p>
+            <Eyebrow>Featured</Eyebrow>
+            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(36px, 4.6vw, 56px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "16px 0 12px" }}>This month&apos;s favourites</h1>
+            <p style={{ fontFamily: "var(--font-serif)", fontSize: 20, color: "var(--text-body)", margin: "0 0 30px" }}>Three fragrances our customers keep coming back for.</p>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(250px, 100%), 1fr))", gap: 20 }}>
             {heroPicks.map((hp) => (
@@ -151,60 +238,84 @@ export function HomePage({ ctx }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(230px, 100%), 1fr))", gap: 14 }}>
           {perk(
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>,
-            "Routed from your nearest store", "Orders ship from the location that has everything you chose."
+            "Delivered from your nearest store", "Your order ships from the store that has everything you chose."
           )}
           {perk(
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>,
-            "Secure payments", "Paystack, bank transfer, or order over WhatsApp."
+            "Secure payment", "Card, bank transfer, or order on WhatsApp."
           )}
           {perk(
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg>,
-            "Worldwide shipping", "Naira and US Dollar pricing, delivered anywhere."
+            "Worldwide delivery", "Naira and US Dollar pricing, delivered anywhere."
           )}
         </div>
       </section>
 
-      <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD} 0` }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
-          <div>
-            <Eyebrow>In {cityName} now</Eyebrow>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>Ready at your store today</h2>
-          </div>
-          <a href="#shop" onClick={(e) => { e.preventDefault(); ctx.nav("shop"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>View everything —</a>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-          {inCity.map((p) => <ProductCard key={p.key} p={p} />)}
-        </div>
-      </section>
-
+      {/* Shop by category. The tiles are the live category tree, so this can
+          never disagree with the menu in the header. */}
       <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
-        <div style={{ textAlign: "center", marginBottom: 26 }}>
-          <Eyebrow>Shop by moment</Eyebrow>
-        </div>
+        <SectionHead centred eyebrow="Shop by category" title="Find Your Fragrance"
+          sub="Whatever you're in the mood for, there's a fragrance for it." />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 14 }}>
           {categories.filter((c) => !c.parentId).map((c) => {
             const n = countIn(categories, products, c.id);
             return (
-              <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
+              <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id, fSeg: null, fBrand: "", fCol: null })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
                 <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--mr-purple-900)" }}>{c.label}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 5 }}>{n} {n === 1 ? "piece" : "pieces"}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 5 }}>{n} {n === 1 ? "product" : "products"}</div>
               </button>
             );
           })}
         </div>
       </section>
 
+      <CtaBand
+        title="The products your intimate area needs"
+        lines={["Looking for a safe product for your intimate area?", "Shop our plant-based and non-toxic intimate care."]}
+        cta="Shop feminine care"
+        onClick={() => ctx.nav("shop", { fCat: "care", fSeg: null, fBrand: "", fCol: null })}
+      />
+
+      {/* Best sellers — the server decides what has actually sold, so this is
+          never a hand-picked list that has quietly gone out of date. */}
+      {bestPicks.length > 0 && (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+          <SectionHead
+            eyebrow="Best sellers"
+            title="The fragrance everyone is talking about"
+            sub="Not sure where to start? Start with the fragrances our customers keep coming back for."
+            action={<a href="/best-sellers" onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fSeg: "best-sellers" }); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Shop best sellers</a>}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
+            {bestPicks.map((p) => <ProductCard key={p.key} p={p} />)}
+          </div>
+        </section>
+      )}
+
+      {inCity.length > 0 && (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD} 0` }}>
+          <SectionHead
+            eyebrow={`In ${cityName} now`}
+            title="Ready at your store today"
+            action={<a href="/shop" onClick={(e) => { e.preventDefault(); ctx.nav("shop"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>View all products</a>}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
+            {inCity.map((p) => <ProductCard key={p.key} p={p} />)}
+          </div>
+        </section>
+      )}
+
       {dealPicks.length > 0 && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
-              <Eyebrow>While it lasts</Eyebrow>
+              <Eyebrow>On sale now</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
                 {runningDeal ? runningDeal.title : "Hot deals"}
               </h2>
               {runningDeal && runningDeal.desc && <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "6px 0 0", maxWidth: "58ch" }}>{runningDeal.desc}</p>}
             </div>
-            <a href="/deals" onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fSeg: "deals" }); }} style={{ fontSize: 13.5, fontWeight: 500 }}>See every deal —</a>
+            <a href="/deals" onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fSeg: "deals" }); }} style={{ fontSize: 13.5, fontWeight: 500 }}>See all deals</a>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
             {dealPicks.map((p) => <ProductCard key={p.key} p={p} />)}
@@ -212,19 +323,68 @@ export function HomePage({ ctx }) {
         </section>
       )}
 
+      <CtaBand
+        title="What's your fragrance personality?"
+        lines={[
+          "Are you soft and feminine? Warm and sensual? Fresh and effortless? Bold and commanding?",
+          "There's a fragrance for every version of you.",
+        ]}
+        cta="Find your signature scent"
+        onClick={() => ctx.nav("shop", { fCat: "perfumes", fSeg: null, fBrand: "", fCol: null })}
+        dark
+      />
+
+      <CtaBand
+        title="Your home deserves a signature scent too"
+        lines={["Explore our collection of home fragrances created to make your space feel warmer, fresher and more inviting."]}
+        cta="Shop home fragrance"
+        onClick={() => ctx.nav("shop", { fCat: "home", fSeg: null, fBrand: "", fCol: null })}
+      />
+
+      {/* The founder's story. The opening paragraph stands here and the rest is
+          on the About page, so the homepage introduces it rather than running
+          two thousand words before the shopper reaches the reviews. */}
+      <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+        <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "clamp(26px, 4vw, 48px)" }}>
+          <Eyebrow>Our story</Eyebrow>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{STORY_TITLE}</h2>
+          <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", maxWidth: "72ch", margin: "0 0 20px" }}>{STORY[0]}</p>
+          <Button variant="secondary" onClick={() => ctx.nav("about")}>Read our story</Button>
+        </div>
+      </section>
+
+      {/* Rewards. The points themselves are not built yet — this section says
+          what the programme is, and the button sends people to the shop. */}
+      <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+        <SectionHead centred eyebrow="Rewards" title="The more you shop, the more you earn"
+          sub="Every qualifying purchase earns you points that you can redeem for rewards on future orders." />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 14 }}>
+          {REWARD_STEPS.map((r, i) => (
+            <div key={r.step} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 22px 24px" }}>
+              <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Step {i + 1}</div>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "8px 0 6px" }}>{r.step}</div>
+              <div style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.65 }}>{r.copy}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
+          <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop to earn your points</Button>
+        </div>
+      </section>
+
       {/* Reviews & testimonials — the customers' own posts, on a rail that moves
-          on its own. The house adds and removes them under Reviews in the admin;
-          nothing on this section is written into the page. */}
+          on its own. They are added and removed under Reviews in the admin;
+          nothing in this section is written into the page. */}
       {testimonials.length > 0 && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
-              <Eyebrow>In their own words</Eyebrow>
+              <Eyebrow>Reviews</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {settings.reviewsHeadline || "Reviews & testimonials"}
+                {settings.reviewsHeadline || "Don't just take our word for it"}
               </h2>
             </div>
-            <a href="/reviews" onClick={(e) => { e.preventDefault(); ctx.nav("reviews"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>See them all —</a>
+            <a href="/reviews" onClick={(e) => { e.preventDefault(); ctx.nav("reviews"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read all reviews</a>
           </div>
           {/* The rail has its own gutter, so it pulls back level with the grids
               above and below it. */}
@@ -239,12 +399,12 @@ export function HomePage({ ctx }) {
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
-              <Eyebrow>From the house</Eyebrow>
+              <Eyebrow>Journal</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {settings.blogHeadline || "The blog"}
+                {settings.blogHeadline || "From the blog"}
               </h2>
             </div>
-            <a href="/blog" onClick={(e) => { e.preventDefault(); ctx.nav("blog"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read the blog —</a>
+            <a href="/blog" onClick={(e) => { e.preventDefault(); ctx.nav("blog"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read the blog</a>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
             {latestPosts.map((p) => (
@@ -261,23 +421,48 @@ export function HomePage({ ctx }) {
           </div>
         </section>
       )}
+
+      <NewsletterSignup ctx={ctx} />
+
+      {settings.igUrl && (
+        <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
+          <div style={{ textAlign: "center" }}>
+            <Eyebrow>Instagram</Eyebrow>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>Follow the fragrance</h2>
+            <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 6px", maxWidth: "54ch" }}>
+              Come behind the scenes, discover new fragrances and see what&apos;s happening at Majestic Roobee.
+            </p>
+            <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", marginBottom: 18 }}>
+              {settings.igHandle || "@majesticroobee"}
+            </div>
+            <a href={settings.igUrl} target="_blank" rel="noopener noreferrer"
+              style={{ display: "inline-block", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, color: "var(--mr-purple-900)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "12px 24px" }}>
+              Follow us on Instagram
+            </a>
+          </div>
+        </section>
+      )}
     </main>
   );
 }
 
-// The shop grid, and every shelf the header leads to.
+// The shop grid, and every page in the header that leads to it.
 //
 // "New arrivals", "Best sellers", "Deals" and "Gift sets" are this same grid
-// with one filter already applied — which products are on each shelf is the
-// server's answer (worker/merch.js), so the browser never has to decide what
-// counts as new or what has sold well. Category, sub-shelf, brand, collection
-// and search all compose, so "gift sets in body mists" is one address.
+// with one filter already applied — which products are in each is the server's
+// answer (worker/merch.js), so the browser never has to decide what counts as
+// new or what has sold well. Category, sub-category, brand, collection and
+// search all compose, so "gift sets in body mists" is one address.
 const SEGMENT_COPY = {
-  "new-arrivals": { eyebrow: "Just landed", title: "New arrivals", sub: "The newest pieces to reach the house — freshest first." },
-  "best-sellers": { eyebrow: "Most followed", title: "Best sellers" },
-  deals: { eyebrow: "While it lasts", title: "Hot deals" },
-  "gift-sets": { eyebrow: "Ready to give", title: "Gift sets", sub: "Fragrance, mist and custom-oil sets, boxed and ready." },
+  "new-arrivals": { eyebrow: "New in", title: "New arrivals", sub: "The newest products in the store, newest first." },
+  "best-sellers": { eyebrow: "Best sellers", title: "Best sellers", sub: "The products our customers keep coming back for." },
+  deals: { eyebrow: "On sale now", title: "Deals" },
+  "gift-sets": { eyebrow: "Ready to give", title: "Gift sets", sub: "Fragrance, mist and custom-oil sets, boxed and ready to give." },
 };
+
+// The shop page with nothing narrowed down, in the client's words.
+const SHOP_TITLE = "Shop Majestic Roobee products";
+const SHOP_SUB = "From everyday signature fragrances to fragrances reserved for special moments, plus wellness products made with you in mind, discover our collection of perfumes, perfume oils, body mists, feminine care, and home fragrances. Find something that smells like you.";
 
 export function ShopPage({ ctx }) {
   const { listings, categories, collections, cityName, segments } = ctx;
@@ -290,42 +475,40 @@ export function ShopPage({ ctx }) {
   const brand = ctx.fBrand ? ctx.brands.find((b) => b.id === ctx.fBrand) : null;
   const brandName = brand ? brand.name : ctx.fBrand;
   const activeCat = categories.find((c) => c.id === ctx.fCat) || null;
-  // A shelf is itself and everything under it: "Perfumes" is the extraits, the
+  // A category is itself and everything under it: "Perfume Oils" is the
   // designer oils and the custom oils, not the nothing filed on the parent.
   const catIds = catFamily(categories, ctx.fCat);
-  // ["Perfumes", "Extrait Perfumes"] when a sub-category is open, so the page
-  // says where the shopper is standing.
+  // ["Perfume Oils", "Designer Oils"] when a sub-category is open, so the page
+  // says where the shopper is.
   const trail = activeCat ? catPath(categories, activeCat.id) : [];
   // The deals running right now, so the Deals page names them rather than
   // showing a wall of discounted products with no reason attached.
   const runningDeals = seg === "deals" ? ctx.deals.filter((d) => d.productIds.length) : [];
-  // The line under the title. Deals and best sellers deliberately carry none —
-  // the shelf speaks for itself — so the title stands alone there.
+  // The line under the title. Deals carries none — the title says it all — so
+  // the heading stands alone there.
   const subLine = segCopy
     ? segCopy.sub || ""
     : brand
-      ? `Every ${brandName} piece the house carries.`
+      ? `Every ${brandName} product we carry.`
       : collection && collection.desc
         ? collection.desc
         : activeCat && activeCat.desc
           ? activeCat.desc
           : searching
-            ? `Searching every store — pieces held in ${cityName} come first.`
-            : ctx.fScope === "city"
-              ? `On the shelf at our ${cityName} store today.`
-              : `Everything the house carries — pieces held in ${cityName} come first.`;
+            ? `Searching every store. Products in stock in ${cityName} come first.`
+            : SHOP_SUB;
   // The grid iterates listing entries, not products: one entry per card. A
   // product with a picker is one entry carrying all its variations; a
   // split-listed product contributes one entry per variation.
   //
-  // "On the shelf here" therefore means any variation the card can show is in
+  // "In stock here" therefore means any variation the card can show is in
   // the city — which is the whole product for a picker card, and exactly one
   // variation for a split card.
   const inStockHere = (e) => e.variants.some((v) => (v.stock[ctx.city] || 0) > 0);
   const scopedOut = listings.filter((e) => !inStockHere(e)).length;
-  // The shelf you can walk up to today is the default. A search always reaches
-  // every store — someone looking for a specific scent wants to know it exists
-  // in Lagos, not to be told it doesn't exist.
+  // What is in stock nearby is the default. A search always reaches every
+  // store — someone looking for a specific scent wants to know it exists in
+  // Lagos, not to be told it doesn't exist.
   let list = listings.filter((e) => {
     const p = e.product;
     if (catIds && !catIds.has(p.cat)) return false;
@@ -344,12 +527,23 @@ export function ShopPage({ ctx }) {
   // Sorting reads the cheapest variation on the card, so a card never sorts by
   // a price the shopper can't actually see on it.
   const priceOf = (e) => Math.min(...e.variants.map((v) => v.ngn));
-  if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
+  // "Newest" and "Best selling" reuse the rankings the New arrivals and Best
+  // sellers pages are built from, so the shop sorts by what the server knows
+  // actually sold rather than by anything the browser guesses at.
+  const rankBy = (key) => {
+    const ids = segments[key] || [];
+    const rank = new Map(ids.map((id, i) => [id, i]));
+    const at = (e) => (rank.has(e.product.id) ? rank.get(e.product.id) : ids.length);
+    return (a, b) => at(a) - at(b);
+  };
+  if (ctx.fSort === "new") list = list.slice().sort(rankBy("new-arrivals"));
+  else if (ctx.fSort === "best") list = list.slice().sort(rankBy("best-sellers"));
+  else if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
   else if (ctx.fSort === "high") list = list.slice().sort((a, b) => priceOf(b) - priceOf(a));
   else if (ctx.fSort === "name") list = list.slice().sort((a, b) => a.product.name.localeCompare(b.product.name));
-  // On a shelf, "featured" means the order the shelf itself is in — newest
-  // first on new arrivals, best-selling first on best sellers — rather than
-  // city stock, which would shuffle the ranking the shelf exists to show.
+  // On new arrivals, deals or best sellers, "featured" means the order that
+  // page is already in — newest first, best-selling first — rather than city
+  // stock, which would shuffle the ranking the page exists to show.
   else if (segRank) list = list.slice().sort((a, b) => segRank.get(a.product.id) - segRank.get(b.product.id));
   else list = list.slice().sort((a, b) => (inStockHere(b) ? 1 : 0) - (inStockHere(a) ? 1 : 0));
   const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || !!seg || !!brand || ctx.fScope !== "city";
@@ -360,7 +554,7 @@ export function ShopPage({ ctx }) {
     </button>
   );
   // Curated sets lead the page — but only when the shopper is browsing, not
-  // when they have already narrowed to a category, a shelf, a set or a search.
+  // when they have already narrowed to a category, a set or a search.
   const showStrips = !searching && !collection && !seg && !brand && ctx.fCat === "all" && collections.length > 0;
   return (
     <main style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
@@ -380,7 +574,7 @@ export function ShopPage({ ctx }) {
               </div>
               {picks.length > 4 && (
                 <button onClick={() => ctx.nav("shop", { fCol: col.id })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, color: "var(--mr-orchid-600)" }}>
-                  See all {picks.length} —
+                  See all {picks.length}
                 </button>
               )}
             </div>
@@ -391,9 +585,9 @@ export function ShopPage({ ctx }) {
         );
       })}
 
-      {/* Where the shopper is standing, and the way back up. Categories are
-          picked in exactly one place — the header's rail — so this is a trail,
-          not a second copy of the menu. */}
+      {/* Where the shopper is, and the way back up. Categories are picked in
+          exactly one place — the header's menu — so this is a breadcrumb, not a
+          second copy of the menu. */}
       {trail.length > 0 && (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "var(--text-muted)", marginBottom: 12 }}>
           <a href="/" onClick={(e) => { e.preventDefault(); ctx.nav("home"); }} style={{ color: "var(--text-muted)" }}>Home</a>
@@ -414,14 +608,14 @@ export function ShopPage({ ctx }) {
               // Under a sub-category the eyebrow names its parent, which is the
               // one piece of context a heading alone can't carry.
               : trail.length > 1 ? trail[0].label
-                : activeCat ? "The shelf" : "The collection"}
+                : activeCat ? "Category" : "Shop"}
       </Eyebrow>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: `12px 0 ${subLine ? 6 : 24}px` }}>
         {segCopy
           ? (activeCat ? `${segCopy.title} — ${activeCat.label}` : segCopy.title)
           : brand ? brandName
             : collection ? collection.title
-              : activeCat ? activeCat.label : "All products"}
+              : activeCat ? activeCat.label : SHOP_TITLE}
       </h1>
       {subLine && (
         <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 24px", maxWidth: "62ch", lineHeight: 1.7 }}>{subLine}</p>
@@ -435,7 +629,7 @@ export function ShopPage({ ctx }) {
               <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)", marginTop: 10 }}>{d.title}</div>
               {d.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>{d.desc}</div>}
               <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8 }}>
-                {d.productIds.length} {d.productIds.length === 1 ? "piece" : "pieces"}{d.endsAt ? ` · ends ${d.endsAt}` : ""}
+                {d.productIds.length} {d.productIds.length === 1 ? "product" : "products"}{d.endsAt ? ` · ends ${d.endsAt}` : ""}
               </div>
             </div>
           ))}
@@ -443,16 +637,17 @@ export function ShopPage({ ctx }) {
       )}
 
       {(collection || brand) && (
-        <button onClick={() => ctx.nav("shop", { fCat: "all" })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← Back to everything</button>
+        <button onClick={() => ctx.nav("shop", { fCat: "all" })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← Back to all products</button>
       )}
-      {/* Shelf vs house. Hidden mid-search, where the scope is always the house. */}
+      {/* This store, or every store. Hidden mid-search, which always reaches
+          every store. */}
       {!searching && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
-          {chip(ctx.fScope === "city", () => ctx.setFScope("city"), `In ${cityName} now`, "sc-city")}
+          {chip(ctx.fScope === "city", () => ctx.setFScope("city"), `In stock in ${cityName}`, "sc-city")}
           {chip(ctx.fScope === "all", () => ctx.setFScope("all"), "Every store", "sc-all")}
           {ctx.fScope === "city" && scopedOut > 0 && (
             <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
-              {scopedOut} more {scopedOut === 1 ? "piece ships" : "pieces ship"} from our other stores — search or switch to see {scopedOut === 1 ? "it" : "them"}.
+              {scopedOut} more {scopedOut === 1 ? "product ships" : "products ship"} from our other stores — switch to see {scopedOut === 1 ? "it" : "them"}.
             </span>
           )}
         </div>
@@ -460,11 +655,13 @@ export function ShopPage({ ctx }) {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 28 }}>
         <select value={ctx.fSort} onChange={(e) => ctx.setFSort(e.target.value)} style={selStyle}>
           <option value="featured">{seg ? `Sort — ${segCopy.title.toLowerCase()} first` : `Sort — ${cityName} first`}</option>
+          <option value="best">Best sellers</option>
+          <option value="new">Newest</option>
           <option value="low">Price · low to high</option>
           <option value="high">Price · high to low</option>
           <option value="name">Name A–Z</option>
         </select>
-        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{list.length} {list.length === 1 ? "piece" : "pieces"}</span>
+        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{list.length} {list.length === 1 ? "product" : "products"}</span>
         <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
           {list.reduce((n, e) => n + e.variants.length, 0)} sizes in total
         </span>
@@ -478,11 +675,11 @@ export function ShopPage({ ctx }) {
             {searching
               ? `Nothing matches "${ctx.search}" in any of our stores.`
               : seg
-                ? `Nothing on this shelf${activeCat ? ` under ${activeCat.label}` : ""} in ${cityName} today.`
-                : `Nothing on the ${cityName} shelf under this filter.`}
+                ? `Nothing here${activeCat ? ` under ${activeCat.label}` : ""} in ${cityName} today.`
+                : `Nothing in stock in ${cityName} under this filter.`}
           </p>
           {!searching && ctx.fScope === "city" && scopedOut > 0 && (
-            <Button variant="secondary" onClick={() => ctx.setFScope("all")}>Look in every store</Button>
+            <Button variant="secondary" onClick={() => ctx.setFScope("all")}>Search every store</Button>
           )}
         </div>
       ) : (
@@ -505,7 +702,7 @@ export function ProductPage({ ctx }) {
   if (!pr || !variants.length) return <ShopPage ctx={ctx} />;
 
   // The selected variation: whatever the shopper picked, else the SKU the URL
-  // asked for, else the first one on the shelf in their city.
+  // asked for, else the first one in stock in their city.
   const prV = variants.find((v) => v.id === ctx.prVariantId)
     || (ctx.prSku && variants.find((v) => v.sku === ctx.prSku))
     || ctx.defaultVariant(variants);
@@ -547,7 +744,7 @@ export function ProductPage({ ctx }) {
     .filter(Boolean);
   return (
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>
-      <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to the collection</button>
+      <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to shop</button>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(400px, 100%), 1fr))", gap: "clamp(28px, 5vw, 56px)", alignItems: "start" }}>
         <div style={{ position: "relative" }}>
           <ImageSlot src={hero && hero.url} shape="rounded" radius={16} name={pr.name} eager
@@ -567,7 +764,7 @@ export function ProductPage({ ctx }) {
         <div>
           <Eyebrow>{ctx.catLabel(pr.cat)}</Eyebrow>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 42px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>{pr.name}</h1>
-          {/* The label on the bottle, and the way to everything else wearing it. */}
+          {/* The label on the bottle, and the way to everything else under it. */}
           {pr.brand && (
             <a href={routeToPath("shop", { fBrand: brandSlug })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fBrand: brandSlug }); }}
               style={{ display: "inline-block", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)", marginBottom: 10 }}>
@@ -629,14 +826,14 @@ export function ProductPage({ ctx }) {
               {prA.inCity
                 ? `Delivery in ${cityName}: ${L ? L.eta : ""} · Click & collect today at ${L ? L.store : ""}`
                 : prA.soldOut
-                ? "Join the waitlist — we'll notify you the moment it returns."
+                ? "Join the waitlist and we'll email you as soon as it's back."
                 : `Delivery to ${cityName}: 3–5 days (${prA.note})`}
             </div>
           </div>
         </div>
       </div>
       <section style={{ marginTop: "clamp(40px, 6vw, 64px)" }}>
-        <Eyebrow>You may also follow</Eyebrow>
+        <Eyebrow>You may also like</Eyebrow>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20, marginTop: 18 }}>
           {related.map((p) => (
             <div key={p.key} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
@@ -656,16 +853,31 @@ export function ProductPage({ ctx }) {
 }
 
 export function AboutPage({ ctx }) {
+  const para = { fontFamily: "var(--font-editorial)", fontSize: 16.5, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 18px" };
   return (
     <main>
       <section style={{ background: "var(--royal-wash)", textAlign: "center", padding: `clamp(52px, 8vw, 96px) ${PAD}` }}>
-        <Eyebrow tone="light">Our house</Eyebrow>
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(34px, 5vw, 60px)", color: "var(--mr-cream)", letterSpacing: "var(--ls-display)", margin: "18px auto 0", maxWidth: "20ch" }}>A ruby you carry. A mark you leave.</h1>
+        <Eyebrow tone="light">About us</Eyebrow>
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(34px, 5vw, 60px)", color: "var(--mr-cream)", letterSpacing: "var(--ls-display)", margin: "18px auto 0", maxWidth: "20ch" }}>Who are we?</h1>
       </section>
-      <section style={{ maxWidth: 860, margin: "0 auto", padding: `clamp(40px, 6vw, 64px) ${PAD}` }}>
-        <p style={{ fontFamily: "var(--font-editorial)", fontSize: 17, lineHeight: "var(--lh-relaxed)", margin: "0 0 18px" }}>Majestic Roobee began in Abuja with a simple conviction — that fragrance is not decoration, it is legacy. Every extrait, mist and moment in our house is blended to leave a trail: the pause when you enter a room, the question after you leave it.</p>
-        <p style={{ fontFamily: "var(--font-editorial)", fontSize: 17, lineHeight: "var(--lh-relaxed)", margin: "0 0 18px" }}>Today we serve kings and queens from three stores — Abuja, Lagos and Ibadan — and ship worldwide. Every order is routed to the store nearest you that holds everything you chose, hand-wrapped, and sent with a note.</p>
-        <GildedRule style={{ margin: "34px 0" }} />
+
+      <section style={{ maxWidth: 860, margin: "0 auto", padding: `clamp(40px, 6vw, 64px) ${PAD} 0` }}>
+        <p style={para}>Majestic Roobee is a Nigerian fragrance brand created for men and women who are intentional about what they put on their body.</p>
+        <p style={para}>We believe fragrance is more than smelling good. It should be safe, unique and made intentionally.</p>
+        <p style={para}>That is why we create perfumes, perfume oils, body mists, feminine care and home fragrances designed to make everyday moments feel a little more special.</p>
+        <p style={para}>Our vision is to grow into one of Africa&apos;s leading fragrance houses while creating intentional products you can enjoy, trust and make part of your everyday routine.</p>
+      </section>
+
+      {/* The founder's story, in full and in her own words. */}
+      <section style={{ maxWidth: 860, margin: "0 auto", padding: `clamp(32px, 5vw, 48px) ${PAD} 0` }}>
+        <GildedRule style={{ margin: "0 0 30px" }} />
+        <Eyebrow>Our story</Eyebrow>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3.4vw, 38px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 22px" }}>{STORY_TITLE}</h2>
+        {STORY.map((par, i) => <p key={i} style={para}>{par}</p>)}
+      </section>
+
+      <section style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(40px, 6vw, 64px) ${PAD} 0` }}>
+        <SectionHead centred eyebrow="Visit us" title="Our stores" />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
           {ctx.locations.map((b) => (
             <div key={b.id} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 22 }}>
@@ -677,10 +889,14 @@ export function AboutPage({ ctx }) {
           ))}
         </div>
       </section>
-      <section style={{ maxWidth: 1100, margin: "0 auto", padding: `0 ${PAD} clamp(48px, 7vw, 72px)`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: 16 }}>
-        <ImageSlot shape="rounded" radius={14} name="The Atelier" label="The atelier — blending table" style={{ width: "100%", height: 300 }} />
-        <ImageSlot shape="rounded" radius={14} name="Abuja Store" label="Abuja store interior" style={{ width: "100%", height: 300 }} />
-      </section>
+
+      <CtaBand
+        title="Find something that smells like you"
+        lines={["Perfumes, perfume oils, body mists, feminine care and home fragrances."]}
+        cta="Shop fragrances"
+        onClick={() => ctx.nav("shop")}
+      />
+      <div style={{ height: "clamp(32px, 5vw, 48px)" }} />
     </main>
   );
 }
@@ -734,7 +950,7 @@ function LockIcon() {
 }
 
 // The one line the shopper actually wants from all of the routing machinery:
-// when it turns up, and in how many pieces.
+// when it turns up, and in how many parcels.
 function arrivalLine(ctx) {
   const { plan, co, cc } = ctx;
   if (co.fulfill === "collect") return "Ready to collect in about 3 hours";
@@ -1101,21 +1317,22 @@ export function ContactPage({ ctx }) {
   const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 22 };
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
-      <Eyebrow>At your service</Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 28px" }}>Speak with the house</h1>
+      <Eyebrow>Contact</Eyebrow>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 6px", maxWidth: "24ch" }}>Have a question about an order, product or fragrance?</h1>
+      <p style={{ fontSize: 15, color: "var(--text-muted)", margin: "0 0 28px" }}>We&apos;re happy to help.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))", gap: 24, alignItems: "start" }}>
         <div style={{ ...card, padding: 26 }}>
           {ctx.contactSent ? (
             <div style={{ textAlign: "center", padding: "30px 10px" }}>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--mr-purple-900)", marginBottom: 8 }}>Received — quietly.</div>
-              <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>We reply within a few hours, {cf.name.split(" ")[0] || "friend"}. Watch your inbox.</p>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--mr-purple-900)", marginBottom: 8 }}>Message received.</div>
+              <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>We&apos;ll reply within a few hours{cf.name.trim() ? `, ${cf.name.trim().split(" ")[0]}` : ""}. Watch your inbox.</p>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <Input label="Your name" value={cf.name} onChange={(e) => setCf({ ...cf, name: e.target.value })} placeholder="Adaeze Okafor" />
               <Input label="Email" value={cf.email} onChange={(e) => setCf({ ...cf, email: e.target.value })} placeholder="you@email.com" />
               <Textarea label="How can we help?" value={cf.msg} onChange={(e) => setCf({ ...cf, msg: e.target.value })} rows={4} placeholder="An order, a gift, a fragrance question…" />
-              <Button variant="primary" onClick={ctx.sendContact}>Send message</Button>
+              <Button variant="primary" onClick={ctx.sendContact}>Send us a message</Button>
             </div>
           )}
         </div>
@@ -1124,16 +1341,21 @@ export function ContactPage({ ctx }) {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" /></svg>
             <div>
               <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-strong)" }}>Live chat</div>
-              <div style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 10px" }}>Real people, usually within minutes — {settings.contactHours}.</div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 10px" }}>Open {settings.contactHours}. We usually reply within minutes.</div>
               <Button variant="secondary" size="sm" onClick={() => ctx.setChat((s) => ({ ...s, open: true }))}>Start a chat</Button>
             </div>
           </div>
           <div style={{ ...card, display: "flex", gap: 16, alignItems: "flex-start" }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-strong)" }}>WhatsApp &amp; phone</div>
-              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>{settings.contactPhone} — orders, gifting, wholesale.</div>
-              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>{settings.contactEmail}</div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-strong)" }}>Customer service</div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>WhatsApp: <a href={`https://wa.me/${String(settings.contactPhone || "").replace(/[^\d]/g, "").replace(/^0/, "234")}`} target="_blank" rel="noopener noreferrer">{settings.contactPhone}</a></div>
+              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>Email: <a href={`mailto:${settings.contactEmail}`}>{settings.contactEmail}</a></div>
+              {settings.igUrl && (
+                <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
+                  Instagram: <a href={settings.igUrl} target="_blank" rel="noopener noreferrer">{settings.igHandle || "@majesticroobee"}</a>
+                </div>
+              )}
             </div>
           </div>
           <div style={card}>
@@ -1158,7 +1380,7 @@ export function PrivacyPage({ ctx }) {
   const p = { fontFamily: "var(--font-editorial)", fontSize: 15.5, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 12px" };
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
-      <Eyebrow>The house keeps confidence</Eyebrow>
+      <Eyebrow>Legal</Eyebrow>
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 6px" }}>Privacy &amp; cookies</h1>
       <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 8px" }}>Last updated July 2026</p>
       <GildedRule style={{ margin: "18px 0 4px" }} />

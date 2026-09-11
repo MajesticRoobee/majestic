@@ -67,11 +67,42 @@ export function setGscVerification(token) {
 
 const origin = () => window.location.origin;
 
+// The titles and meta descriptions the client wrote, per category. Anything not
+// named here gets one built from the category's own label and description, so a
+// category added in the admin still arrives with a sensible title rather than
+// inheriting "Shop all".
+const CATEGORY_HEADS = {
+  perfumes: {
+    title: "Men's and Women's Perfumes in Nigeria | Luxury Fragrances",
+    desc: "Explore men's and women's perfumes from Majestic Roobee. Discover feminine, sensual, floral, warm, bold, commanding and captivating fragrances for every mood and occasion.",
+  },
+  "perfume-oils": {
+    title: "Perfume Oils in Nigeria | Luxury Fragrance Oils",
+    desc: "Shop luxurious perfume oils from Majestic Roobee. Discover concentrated fragrances designed for an intimate and beautiful scent experience.",
+  },
+  home: {
+    title: "Home Fragrance in Nigeria | Candles, Diffusers & Room Sprays",
+    desc: "Make your space smell as beautiful as it looks with Majestic Roobee candles, diffusers and room sprays.",
+  },
+  mist: {
+    title: "Body Mists in Nigeria | Long-Lasting Fragrance Mists",
+    desc: "Shop body mists from Majestic Roobee — light, refreshing fragrance you can wear every day.",
+  },
+  care: {
+    title: "Feminine Care in Nigeria | Plant-Based & Non-Toxic",
+    desc: "Shop plant-based, non-toxic feminine care from Majestic Roobee — safe products for your intimate area.",
+  },
+  wellness: {
+    title: "Wellness Products in Nigeria | Health Drinks & Massage Oils",
+    desc: "Shop wellness products from Majestic Roobee — health drinks and massage oils made with you in mind.",
+  },
+};
+
 // Build the head payload for a given page from live data.
-export function headFor({ page, product, variant, settings, categories = [], segment = null, brand = "", post = null }) {
+export function headFor({ page, product, variant, settings, categories = [], segment = null, brand = "", post = null, category = "" }) {
   const siteName = settings.siteName || "Majestic Roobee";
   const baseDesc = settings.metaDescription
-    || "Seductive extrait perfumes, body mists and organic feminine care — blended in Nigeria, worn everywhere. Stores in Abuja, Lagos & Ibadan.";
+    || "Discover luxurious perfumes, fragrance oils, body mists, feminine care, wellness products and home fragrances from Majestic Roobee. Find your signature scent and shop online in Nigeria.";
   const ogImage = settings.ogImage || "";
   const org = {
     "@type": "Organization",
@@ -103,7 +134,7 @@ export function headFor({ page, product, variant, settings, categories = [], seg
     const images = (product.images || []).map((im) => im.url).filter(Boolean);
     return {
       // The title names the variation only when there is a choice to make.
-      title: multi && sel ? `${product.name} ${sel.size} — ${siteName}` : `${product.name} — ${siteName}`,
+      title: multi && sel ? `${product.name} ${sel.size} | ${siteName}` : `${product.name} | ${siteName}`,
       description: product.desc || `${product.name}: ${product.notes}. ${baseDesc}`,
       // Canonical points at the selected variation, so a link someone shares
       // resolves to the size they were looking at.
@@ -135,29 +166,45 @@ export function headFor({ page, product, variant, settings, categories = [], seg
     };
   }
 
-  // A merchandising shelf is the shop page with one filter on it, and each has
-  // its own URL — so each needs its own title rather than inheriting "Shop all".
+  // New arrivals, best sellers, deals and gift sets are the shop page with one
+  // filter on it, and each has its own URL — so each needs its own title rather
+  // than inheriting "Shop all".
   const SEGMENT_HEADS = {
-    "new-arrivals": { title: `New arrivals — ${siteName}`, path: "/new-arrivals", desc: `The newest extraits, mists and sets to reach the house. ${baseDesc}` },
-    "best-sellers": { title: `Best sellers — ${siteName}`, path: "/best-sellers", desc: `The pieces our customers come back for. ${baseDesc}` },
-    deals: { title: `Deals & offers — ${siteName}`, path: "/deals", desc: `Everything marked down at Majestic Roobee right now. ${baseDesc}` },
-    "gift-sets": { title: `Gift sets — ${siteName}`, path: "/gift-sets", desc: `Fragrance, mist and custom-oil sets, ready to give. ${baseDesc}` },
+    "new-arrivals": { title: `New Arrivals | ${siteName}`, path: "/new-arrivals", desc: `The newest perfumes, oils, mists and sets at Majestic Roobee. ${baseDesc}` },
+    "best-sellers": { title: `Best Sellers | ${siteName}`, path: "/best-sellers", desc: `The fragrances our customers keep coming back for. ${baseDesc}` },
+    deals: { title: `Deals & Offers | ${siteName}`, path: "/deals", desc: `Everything on sale at Majestic Roobee right now. ${baseDesc}` },
+    "gift-sets": { title: `Gift Sets | ${siteName}`, path: "/gift-sets", desc: `Fragrance, mist and custom-oil sets, ready to give. ${baseDesc}` },
   };
   if (page === "shop" && segment && SEGMENT_HEADS[segment]) {
     const m = SEGMENT_HEADS[segment];
     return { title: m.title, description: m.desc, canonical: origin() + m.path, image: ogImage, noindex: false, jsonLd: null };
   }
+  // A category page: the client's own title where there is one, otherwise one
+  // built from the category itself.
+  if (page === "shop" && category) {
+    const cat = categories.find((c) => c.id === category);
+    const written = CATEGORY_HEADS[category];
+    if (cat || written) {
+      const label = cat ? cat.label : category;
+      return {
+        title: `${written ? written.title : `${label} in Nigeria`} | ${siteName}`,
+        description: written ? written.desc : (cat && cat.desc) || `Shop ${label.toLowerCase()} from Majestic Roobee. ${baseDesc}`,
+        canonical: `${origin()}/shop?category=${encodeURIComponent(category)}`,
+        image: ogImage, noindex: false, jsonLd: null,
+      };
+    }
+  }
   if (page === "shop" && brand) {
     return {
-      title: `${brand} — ${siteName}`,
-      description: `Every ${brand} piece the house carries. ${baseDesc}`,
+      title: `${brand} | ${siteName}`,
+      description: `Every ${brand} product we carry. ${baseDesc}`,
       canonical: `${origin()}/brand/${encodeURIComponent(brand.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, ""))}`,
       image: ogImage, noindex: false, jsonLd: null,
     };
   }
   if (page === "post" && post) {
     return {
-      title: `${post.title} — ${siteName}`,
+      title: `${post.title} | ${siteName}`,
       description: post.excerpt || baseDesc,
       canonical: `${origin()}/blog/${post.slug}`,
       image: post.coverUrl || ogImage,
@@ -178,23 +225,26 @@ export function headFor({ page, product, variant, settings, categories = [], seg
   }
 
   const pageMeta = {
-    home: { title: `${siteName} — Leave a trail, not just an impression`, path: "/", desc: baseDesc,
+    home: { title: `Luxury Perfumes & Fragrance Oils, Feminine Care and Wellness Products in Nigeria | ${siteName}`, path: "/", desc: baseDesc,
       jsonLd: { "@context": "https://schema.org", "@graph": [
         { ...org, "@context": "https://schema.org" },
         { "@type": "WebSite", name: siteName, url: origin(), potentialAction: { "@type": "SearchAction", target: `${origin()}/shop?category={search_term_string}`, "query-input": "required name=search_term_string" } },
       ] } },
-    shop: { title: `Shop all fragrances — ${siteName}`, path: "/shop", desc: `Browse every extrait, mist and gift set. ${baseDesc}` },
-    about: { title: `Our house — ${siteName}`, path: "/about", desc: "A ruby you carry, a mark you leave. The story of Majestic Roobee — Abuja, Lagos and Ibadan." },
-    track: { title: `Track your order — ${siteName}`, path: "/track", desc: "Follow your Majestic Roobee order with your order number and contact." },
-    contact: { title: `Contact & support — ${siteName}`, path: "/contact", desc: "Speak with the house — live chat, WhatsApp, phone and our three stores." },
-    privacy: { title: `Privacy & cookies — ${siteName}`, path: "/privacy", desc: "How Majestic Roobee collects, uses and protects your information." },
-    wishlist: { title: `Your wishlist — ${siteName}`, path: "/wishlist", desc: "The pieces you've saved to come back to.", noindex: true },
-    locations: { title: `Our stores — ${siteName}`, path: "/locations", desc: "Where to find Majestic Roobee — addresses, opening hours and phone numbers for every store." },
-    reviews: { title: `Reviews & testimonials — ${siteName}`, path: "/reviews", desc: "What customers say about Majestic Roobee, in their own posts and their own words." },
-    blog: { title: `Blog — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
-    post: { title: `Blog — ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from the house of Majestic Roobee." },
-    checkout: { title: `Checkout — ${siteName}`, path: "/checkout", desc: "", noindex: true },
-    confirm: { title: `Order confirmed — ${siteName}`, path: "/confirm", desc: "", noindex: true },
+    shop: { title: `Shop Perfumes, Fragrance Oils & Body Mists, Home Fragrance And Feminine Care in Nigeria | ${siteName}`, path: "/shop",
+      desc: "Shop perfumes, perfume oils, body mists, candles, diffusers, room sprays, feminine care, and wellness products from Majestic Roobee. Discover your next signature scent." },
+    about: { title: `About Majestic Roobee | Nigerian Fragrance Brand`, path: "/about",
+      desc: "Discover the story behind Majestic Roobee, a Nigerian fragrance brand creating luxury, safe, non-toxic perfumes, fragrance oils, body mists, feminine care, wellness products and home fragrances for modern women." },
+    faq: { title: `Frequently Asked Questions | ${siteName}`, path: "/faq", desc: "Answers on choosing a perfume, making it last, perfume oils, layering, storage, delivery across Nigeria and returns." },
+    track: { title: `Track Your Order | ${siteName}`, path: "/track", desc: "Follow your Majestic Roobee order with your order number and contact." },
+    contact: { title: `Contact Us | ${siteName}`, path: "/contact", desc: "Questions about an order, product or fragrance? Reach Majestic Roobee on WhatsApp, email, Instagram or live chat." },
+    privacy: { title: `Privacy & Cookies | ${siteName}`, path: "/privacy", desc: "How Majestic Roobee collects, uses and protects your information." },
+    wishlist: { title: `Your Wishlist | ${siteName}`, path: "/wishlist", desc: "The products you've saved to come back to.", noindex: true },
+    locations: { title: `Our Stores | ${siteName}`, path: "/locations", desc: "Where to find Majestic Roobee — addresses, opening hours and phone numbers for every store." },
+    reviews: { title: `Reviews | ${siteName}`, path: "/reviews", desc: "What customers say about Majestic Roobee, in their own posts and their own words." },
+    blog: { title: `Blog | ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from Majestic Roobee." },
+    post: { title: `Blog | ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from Majestic Roobee." },
+    checkout: { title: `Checkout | ${siteName}`, path: "/checkout", desc: "", noindex: true },
+    confirm: { title: `Order Confirmed | ${siteName}`, path: "/confirm", desc: "", noindex: true },
   }[page] || { title: siteName, path: "/", desc: baseDesc };
 
   return {

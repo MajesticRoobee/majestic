@@ -381,7 +381,7 @@ const SECTION_KEYS = {
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
   contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
-  footer: ["footerTagline", "igUrl", "igHandle"],
+  footer: ["footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl"],
   seo: ["siteName", "metaDescription", "ogImage"],
   analytics: ["ga4Id", "clarityId", "googleAdsId", "googleAdsPurchaseLabel", "metaPixelId", "tiktokPixelId", "gscVerification"],
 };
@@ -520,11 +520,13 @@ export function SettingsPage({ ctx }) {
         {sectionSave("contact")}
       </div>
       <div style={{ ...section, gap: 14 }}>
-        {sectionHead("Footer", "Tagline and the Instagram link in the storefront footer.")}
+        {sectionHead("Footer", "Tagline and the social links in the storefront footer. An empty link means that icon is not shown.")}
         <Textarea label="Footer tagline" value={form.footerTagline || ""} onChange={set("footerTagline")} rows={2} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Instagram URL" value={form.igUrl || ""} onChange={set("igUrl")} />
           <Input label="Instagram handle" value={form.igHandle || ""} onChange={set("igHandle")} />
+          <Input label="TikTok URL" value={form.tiktokUrl || ""} onChange={set("tiktokUrl")} placeholder="https://tiktok.com/@majesticroobee" />
+          <Input label="Facebook URL" value={form.facebookUrl || ""} onChange={set("facebookUrl")} placeholder="https://facebook.com/majesticroobee" />
         </div>
         {sectionSave("footer")}
       </div>

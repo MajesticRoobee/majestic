@@ -349,7 +349,7 @@ admin.post("/products", async (c) => {
   const db = c.env.DB;
   // cat is a foreign key into categories — check it here so a bad value reads as
   // a sentence rather than surfacing as a constraint failure.
-  const cat = String(b.cat || "extrait").trim();
+  const cat = String(b.cat || "perfumes").trim();
   const catRow = await db.prepare("SELECT id FROM categories WHERE id=?").bind(cat).first();
   if (!catRow) {
     const all = await db.prepare("SELECT id FROM categories ORDER BY sort").all();
@@ -775,7 +775,7 @@ admin.put("/settings", async (c) => {
   const { settings, locations } = await c.req.json();
   const db = c.env.DB;
   const allowed = [
-    "announcement", "heroHeadline", "heroSub", "heroImage", "footerTagline", "igUrl", "igHandle",
+    "announcement", "heroHeadline", "heroSub", "heroImage", "footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl",
     "contactPhone", "contactEmail", "contactHours", "ngnPerUsd", "lowStockThreshold",
     // SEO
     "siteName", "metaDescription", "ogImage",

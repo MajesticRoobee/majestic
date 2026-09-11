@@ -62,7 +62,7 @@ function ProfileMenu({ ctx }) {
   );
 }
 
-// Cities come from the stores the house actually has open.
+// Cities come from the stores the business actually has open.
 function CitySelect({ ctx, style }) {
   return (
     <select
@@ -86,19 +86,19 @@ function PromoPopup({ ctx }) {
     <div style={{ position: "fixed", inset: 0, background: "rgba(36,20,48,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={ctx.closePopup}>
       <div style={{ background: "var(--surface-card)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", maxWidth: 440, width: "100%", padding: "40px 36px", textAlign: "center", position: "relative" }} onClick={(e) => e.stopPropagation()}>
         <button onClick={ctx.closePopup} style={{ position: "absolute", top: 14, right: 16, background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "var(--text-muted)" }}>✕</button>
-        <Eyebrow>Your trail begins here</Eyebrow>
+        <Eyebrow>First order</Eyebrow>
         <h2 style={{ fontFamily: "var(--font-display)", fontSize: 30, color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "14px 0 8px" }}>{content ? content.title : "10% off your first order"}</h2>
-        <p style={{ fontSize: 14, lineHeight: "var(--lh-body)", margin: "0 0 20px" }}>{content ? content.message : "Leave your email — we'll send the code, and only what's worth reading."}</p>
+        <p style={{ fontSize: 14, lineHeight: "var(--lh-body)", margin: "0 0 20px" }}>{content ? content.message : "Enter your email and we'll send you the code."}</p>
         {ctx.plDone ? (
           <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: 16 }}>
             <div style={{ fontFamily: "var(--font-condensed)", letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", fontSize: 12, color: "var(--accent-gold-ink)" }}>Your code</div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--mr-purple-900)", marginTop: 4 }}>FIRSTTRAIL</div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>Saved — quietly. It's in your inbox too.</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>We've sent it to your inbox too.</div>
           </div>
         ) : (
           <div style={{ display: "flex", gap: 10 }}>
             <input value={ctx.plEmail} onChange={(e) => ctx.setPlEmail(e.target.value)} placeholder="you@email.com" style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 14, padding: "12px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
-            <Button variant="gold" onClick={ctx.submitLead}>Claim it</Button>
+            <Button variant="gold" onClick={ctx.submitLead}>Get my code</Button>
           </div>
         )}
       </div>
@@ -111,8 +111,8 @@ function CityGate({ ctx }) {
   return (
     <div style={{ background: "var(--mr-lavender-200)", borderBottom: "1px solid var(--border-hairline)", padding: "12px 20px", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "center" }}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-700)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
-      <span style={{ fontSize: 13, color: "var(--mr-purple-800)" }}>Shopping from <strong style={{ fontWeight: 600 }}>{ctx.cityName}</strong>? We've arranged your nearest store first.</span>
-      <Button variant="primary" size="sm" onClick={() => ctx.setCityConfirmed(ctx.city)}>That's right</Button>
+      <span style={{ fontSize: 13, color: "var(--mr-purple-800)" }}>Shopping from <strong style={{ fontWeight: 600 }}>{ctx.cityName}</strong>? We'll show you what's in stock there first.</span>
+      <Button variant="primary" size="sm" onClick={() => ctx.setCityConfirmed(ctx.city)}>Yes, that's right</Button>
       <CitySelect ctx={ctx} style={{ fontSize: 13, padding: "7px 10px", border: "1px solid var(--border-strong)" }} />
     </div>
   );
@@ -121,17 +121,17 @@ function CityGate({ ctx }) {
 // The header, in two tiers, as the redesign draws it.
 //
 // Tier one is the cream bar: the wordmark, and on the right the three things a
-// shopper reaches for — saved pieces, their account, their cart — each with its
+// shopper reaches for — saved products, their account, their cart — each with its
 // own label rather than a bare icon, so nothing has to be guessed at.
 //
 // Tier two is the purple band: a fixed 250px "All categories" panel opening a
-// rail of the house's categories, the shelves by name, and then search,
+// menu of the store's categories, the main pages by name, and then search,
 // currency and city. The homepage's hero grid leaves a 250px column empty on
 // the left precisely so the rail can stand open over it.
 //
-// The band is a fixed 1280px wide at most, of which the rail takes 250 and the
+// The band is a fixed 1280px wide at most, of which the menu takes 250 and the
 // search box up to 320 — so it seats five tabs and no more. Everything else the
-// old header carried moves into the rail's own footer, which has no such
+// old header carried moves into the menu's own footer, which has no such
 // ceiling. `from` drops the last tab, and then the search box, on the narrow
 // desktops where even five will not fit: the band shortens rather than clipping
 // a word in half.
@@ -140,24 +140,25 @@ const NAV_TABS = [
   { label: "New arrivals", page: "shop", extra: { fSeg: "new-arrivals" } },
   { label: "Deals", page: "shop", extra: { fSeg: "deals" }, hot: true },
   { label: "Best sellers", page: "shop", extra: { fSeg: "best-sellers" } },
-  { label: "Our house", page: "about", from: 1000 },
+  { label: "About", page: "about", from: 1000 },
 ];
 
 // Below this the search box leaves the band and takes its old place in the top
 // bar, where there is room to spare.
 const BAND_SEARCH_FROM = 1150;
 
-// Under the categories in the rail: the whole catalogue, and the pages the band
+// Under the categories in the menu: the whole catalogue, and the pages the band
 // has no room to name.
 const RAIL_FOOTER = [
-  { label: "All products —", extra: { fCat: "all", fSeg: null, fBrand: "", fCol: null } },
-  { label: "Our stores —", page: "locations" },
-  { label: "The blog —", page: "blog" },
-  { label: "Our house —", page: "about" },
+  { label: "All products", extra: { fCat: "all", fSeg: null, fBrand: "", fCol: null } },
+  { label: "Our stores", page: "locations" },
+  { label: "Blog", page: "blog" },
+  { label: "About", page: "about" },
+  { label: "FAQs", page: "faq" },
 ];
 
-// Which nav tab is lit. A shelf lights when it is the shelf being looked at,
-// not merely when the shop page is open.
+// Which nav tab is lit. A tab lights when its own page is the one being looked
+// at, not merely when the shop page is open.
 function navActive(ctx, tab) {
   if (tab.extra && tab.extra.fSeg) return ctx.page === "shop" && ctx.fSeg === tab.extra.fSeg;
   if (tab.page === "shop") return ctx.page === "shop" && !ctx.fSeg;
@@ -167,15 +168,15 @@ function navActive(ctx, tab) {
 const RAIL_W = 250;
 const RAIL_ROW_H = 56;
 
-// The categories rail and its flyout.
+// The categories menu and its flyout.
 //
-// A category's sub-shelves are the ones the admin ticked on it (Categories →
-// sub-shelves), so what hangs off "Body Mists" here is whatever the house said
-// hangs off it — no list is kept in the browser.
+// A category's sub-categories are the ones set in the admin (Categories), so
+// what hangs off "Perfume Oils" here is whatever the store filed under it — no
+// list is kept in the browser.
 function CategoryRail({ ctx, open, setOpen }) {
   const [flyId, setFlyId] = useState(null);
   const [scroll, setScroll] = useState(0);
-  // The seven shelves the house sells by, each carrying its own children.
+  // The categories the store sells by, each carrying its own sub-categories.
   const cats = catTree(ctx.categories);
   const go = (extra) => { setOpen(false); setFlyId(null); ctx.nav("shop", extra); };
   const flyIdx = cats.findIndex((c) => c.id === flyId);
@@ -198,7 +199,7 @@ function CategoryRail({ ctx, open, setOpen }) {
       </div>
       {open && (
         <div style={{ position: "absolute", left: "clamp(16px, 4vw, 40px)", top: "100%", width: RAIL_W, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderTop: "none", boxShadow: "var(--shadow-md)", zIndex: 60 }}>
-          {/* A house with a dozen categories would otherwise hang a 700px
+          {/* A store with a dozen categories would otherwise hang a 700px
               curtain over the page, so the list keeps its own scroll. The
               flyout sits outside it — inside, the scroller would clip it. */}
           <div onScroll={(e) => setScroll(e.currentTarget.scrollTop)} style={{ maxHeight: "min(60vh, 520px)", overflowY: "auto" }}>
@@ -208,8 +209,8 @@ function CategoryRail({ ctx, open, setOpen }) {
                   <button key={c.id} onMouseEnter={() => setFlyId(c.id)} onClick={() => go({ fCat: c.id, fSeg: null, fBrand: "", fCol: null })}
                   style={{ ...row, color: on ? "var(--mr-orchid-600)" : "var(--text-body)", background: on ? "var(--surface-sunken)" : "transparent", borderBottomColor: "var(--border-hairline)", borderBottomWidth: 1 }}>
                   <span>{c.label}</span>
-                  {/* A chevron promises something further in, so only a shelf
-                      that actually has sub-categories wears one. */}
+                  {/* A chevron promises something further in, so only a
+                      category that actually has sub-categories gets one. */}
                   {c.children.length > 0
                     ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
                     : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{inCat(c.id)}</span>}
@@ -226,10 +227,9 @@ function CategoryRail({ ctx, open, setOpen }) {
           </div>
           {fly && (
             <div style={{ position: "absolute", left: RAIL_W, top: Math.max(0, flyIdx * RAIL_ROW_H - scroll), width: 236, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", boxShadow: "var(--shadow-md)", padding: "14px 0" }}>
-              <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", padding: "0 20px 8px" }}>In {fly.label}</div>
               <button onClick={() => go({ fCat: fly.id, fSeg: null, fBrand: "", fCol: null })}
-                style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 10, padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-body)", textAlign: "left" }}>
-                <span>Everything</span>
+                style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 10, padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", textAlign: "left" }}>
+                <span>All {fly.label}</span>
                 <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{inCat(fly.id)}</span>
               </button>
               {fly.children.map((sc) => (
@@ -248,7 +248,7 @@ function CategoryRail({ ctx, open, setOpen }) {
   );
 }
 
-// The house's mark.
+// The store's logo.
 //
 // A logo is set in Admin → Settings, and until one is there the typeset lockup
 // stands in — the store must never open with a broken image where its name
@@ -256,14 +256,14 @@ function CategoryRail({ ctx, open, setOpen }) {
 // so it replaces both lines rather than sitting beside them.
 //
 // `tone="light"` is the footer, which is near-black purple: a dark logo would
-// vanish into it, so it takes a light version if the house has uploaded one and
+// vanish into it, so it takes a light version if one has been uploaded and
 // otherwise keeps the cream wordmark. Better a legible name than an invisible
 // mark.
 //
-// The house's own artwork ships with the build, so the store wears its logo
-// from the first request rather than waiting on someone to upload one. The
-// setting still wins where it is filled in — that is how the logo gets changed
-// without a deploy.
+// The store's own artwork ships with the build, so the logo shows from the
+// first request rather than waiting on someone to upload one. The setting still
+// wins where it is filled in — that is how the logo gets changed without a
+// deploy.
 const LOGO = { dark: "/logo.png", light: "/logo-light.png" };
 
 function Wordmark({ ctx, height, tone = "dark", onClick }) {
@@ -274,7 +274,7 @@ function Wordmark({ ctx, height, tone = "dark", onClick }) {
     : (
       <>
         <span style={{ fontFamily: "var(--font-display)", fontSize: tone === "light" ? 22 : "clamp(20px, 2.4vw, 27px)", color: tone === "light" ? "var(--mr-cream)" : "var(--mr-purple-900)", letterSpacing: "0.01em", whiteSpace: "nowrap" }}>Majestic Roobee</span>
-        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--accent-gold-ink)", paddingTop: 4 }}>Fragrance house</span>
+        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.3em", textTransform: "uppercase", color: "var(--accent-gold-ink)", paddingTop: 4 }}>Perfumes &amp; wellness</span>
       </>
     );
   const style = { display: "flex", flexDirection: "column", lineHeight: 1.05 };
@@ -331,7 +331,7 @@ function Header({ ctx }) {
     <div style={{ display: "flex", alignItems: "center", gap: 10, alignSelf: "center", flex: dark ? "0 1 320px" : undefined, minWidth: dark ? 160 : undefined, background: "var(--surface-card)", borderRadius: "var(--radius-sm)", padding: "8px 14px", border: dark ? "none" : "1px solid var(--border-hairline)" }}>
       <input value={ctx.search} onChange={(e) => ctx.setSearch(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && ctx.nav("shop", { fSeg: null, fCol: null })}
-        placeholder="Search entire store here..." aria-label="Search the store"
+        placeholder="Search for a perfume, oil or mist…" aria-label="Search the store"
         style={{ border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-strong)", width: "100%" }} />
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mr-mute)" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></svg>
     </div>
@@ -398,14 +398,14 @@ function Header({ ctx }) {
       {ctx.mnav && ctx.isMobile && (
         <nav style={{ display: "flex", flexDirection: "column", borderTop: "1px solid var(--border-hairline)", background: "var(--mr-cream)", padding: "8px 0", maxHeight: "70vh", overflowY: "auto" }}>
           <div style={{ margin: "8px 24px 12px" }}>{searchBox(false)}</div>
-          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Track order", page: "track" }, { label: "Contact", page: "contact" }]).map((t) => (
+          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }]).map((t) => (
             <a key={t.label} href={routeToPath(t.page, t.extra)} onClick={(e) => { e.preventDefault(); ctx.nav(t.page, t.extra || {}); }} style={{ padding: "12px 24px", fontSize: 15, fontWeight: 500 }}>{t.label}</a>
           ))}
           <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "8px 0", paddingTop: 8 }}>
             <div style={{ padding: "4px 24px 8px", fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Categories</div>
-            {/* The rail is a desktop thing, so on a phone this drawer *is* the
-                category system — which means it carries the whole tree, not a
-                flattened list of the shelves. */}
+            {/* The menu bar is a desktop thing, so on a phone this drawer *is*
+                the category system — which means it carries the whole tree, not
+                a flattened list of the top-level categories. */}
             {catTree(ctx.categories).map((c) => (
               <div key={c.id}>
                 <a href={routeToPath("shop", { fCat: c.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id }); }}
@@ -493,7 +493,7 @@ function ChatWidget({ ctx }) {
           <div style={{ background: "var(--mr-purple-900)", color: "var(--mr-cream)", padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#8fd694" }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600 }}>Majestic Roobee concierge</div>
+              <div style={{ fontSize: 13.5, fontWeight: 600 }}>Majestic Roobee customer service</div>
               <div style={{ fontSize: 11, color: "var(--text-on-dark-muted)" }}>Usually replies in minutes</div>
             </div>
             <button onClick={() => setChat((s) => ({ ...s, open: false }))} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-on-dark-muted)", fontSize: 15 }}>✕</button>
@@ -518,10 +518,35 @@ function ChatWidget({ ctx }) {
   );
 }
 
+// Instagram, TikTok and Facebook — each shown only once its link is filled in
+// under Admin → Settings → Footer.
+const SOCIALS = [
+  { id: "instagram", name: "Instagram", setting: "igUrl",
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37Z" /><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" /></svg> },
+  { id: "tiktok", name: "TikTok", setting: "tiktokUrl",
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 3a5 5 0 0 0 5 5" /><path d="M16 3v11.5a5.5 5.5 0 1 1-5.5-5.5c.35 0 .69.03 1 .1" /></svg> },
+  { id: "facebook", name: "Facebook", setting: "facebookUrl",
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3Z" /></svg> },
+];
+
 function Footer({ ctx }) {
   const { settings } = ctx;
   const link = (label, page, extra) => (
     <a href={routeToPath(page, extra)} onClick={(e) => { e.preventDefault(); ctx.nav(page, extra); }} style={{ color: "var(--text-on-dark-muted)" }}>{label}</a>
+  );
+  // Shipping and returns are answers on the FAQ page rather than pages of their
+  // own, so these open it and then move to the question. The scroll is a
+  // nicety: if the anchor isn't there, the shopper is still on the FAQ.
+  const faqLink = (label, hash) => (
+    <a href={`/faq#${hash}`} style={{ color: "var(--text-on-dark-muted)" }}
+      onClick={(e) => {
+        e.preventDefault();
+        ctx.nav("faq");
+        setTimeout(() => {
+          const el = document.getElementById(hash);
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 80);
+      }}>{label}</a>
   );
   const colTitle = { fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--mr-gold-400)", marginBottom: 14 };
   return (
@@ -530,47 +555,59 @@ function Footer({ ctx }) {
         <div>
           <div style={{ marginBottom: 12 }}><Wordmark ctx={ctx} height={44} tone="light" /></div>
           <p style={{ fontSize: 13, lineHeight: 1.7, maxWidth: "34ch", margin: 0 }}>{settings.footerTagline}</p>
+          {/* Only the accounts the store actually keeps: a dead icon linking
+              nowhere is worse than no icon. */}
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-            <a href={settings.igUrl} target="_blank" rel="noopener noreferrer" aria-label="Instagram" title={settings.igHandle} style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid var(--border-inverse)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--mr-gold-400)" }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37Z" /><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" /></svg>
-            </a>
+            {SOCIALS.filter((so) => settings[so.setting]).map((so) => (
+              <a key={so.id} href={settings[so.setting]} target="_blank" rel="noopener noreferrer" aria-label={so.name} title={so.id === "instagram" ? settings.igHandle || so.name : so.name}
+                style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid var(--border-inverse)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--mr-gold-400)" }}>
+                {so.icon}
+              </a>
+            ))}
           </div>
         </div>
         <div>
           <div style={colTitle}>Shop</div>
+          {/* The categories themselves, so this column says the same thing as
+              the header menu rather than keeping its own list to go stale. */}
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
-            {link("All products", "shop", { fCat: "all" })}
-            {link("New arrivals", "shop", { fSeg: "new-arrivals" })}
-            {link("Hot deals", "shop", { fSeg: "deals" })}
+            {catTree(ctx.categories).map((c) => (
+              <a key={c.id} href={routeToPath("shop", { fCat: c.id })}
+                onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id, fSeg: null, fBrand: "", fCol: null }); }}
+                style={{ color: "var(--text-on-dark-muted)" }}>{c.label}</a>
+            ))}
             {link("Best sellers", "shop", { fSeg: "best-sellers" })}
-            {link("Gift sets", "shop", { fSeg: "gift-sets" })}
           </div>
         </div>
         <div>
-          <div style={colTitle}>The house</div>
+          <div style={colTitle}>About</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
             {link("Our story", "about")}
-            {link("The blog", "blog")}
-            {link("Reviews & testimonials", "reviews")}
-            {link("Track an order", "track")}
-            {link("Your wishlist", "wishlist")}
-            {link("Contact & support", "contact")}
+            {link("Our stores", "locations")}
+            {link("Blog", "blog")}
+            {link("Reviews", "reviews")}
+            {link("Contact us", "contact")}
+            {link("FAQs", "faq")}
           </div>
         </div>
         <div>
-          <div style={colTitle}>Stores</div>
+          <div style={colTitle}>Help</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
-            {ctx.locations.map((l) => <span key={l.id}>{l.city} — {l.store.replace(" Store", "")}</span>)}
-            {link("All our stores —", "locations")}
+            {link("Track an order", "track")}
+            {link("Your wishlist", "wishlist")}
+            {faqLink("Shipping & delivery", "shipping")}
+            {faqLink("Returns & exchanges", "returns")}
+            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy policy</a>
           </div>
         </div>
       </div>
       <div style={{ borderTop: "1px solid var(--border-inverse)" }}>
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "18px clamp(16px, 4vw, 40px)", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 12 }}>
-          <span>© 2026 Majestic Roobee — all rights reserved</span>
+          <span>© {new Date().getFullYear()} Majestic Roobee. All rights reserved.</span>
           <span style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: "var(--font-condensed)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--mr-gold-400)" }}>Elevate Your Smellgame</span>
             <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
-            <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff portal —</a>
+            <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff portal</a>
           </span>
         </div>
       </div>
@@ -579,28 +616,28 @@ function Footer({ ctx }) {
 }
 
 // A slim, non-blocking bottom bar (no backdrop — the whole store stays usable
-// while it's open). Welcomes every shopper and nudges them to start shopping.
+// while it's open). Says what the cookies are for and takes an answer either
+// way; it never stands between a shopper and the store.
 function ConsentBanner({ ctx }) {
   if (!ctx.showConsent) return null;
   return (
     <div style={{ position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 180, maxWidth: 720, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span style={{ fontSize: 13, lineHeight: 1.5, flex: 1, minWidth: 220 }}>
-        Welcome to Majestic Roobee — browse freely, the store works with or without cookies. We use them for analytics &amp; marketing to improve your experience.
-        {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--mr-gold-400)" }}>Privacy</a>
+        We use cookies to run the store and, if you accept, to measure and improve it.
+        {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--mr-gold-400)" }}>Privacy policy</a>
       </span>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Button variant="gold" size="sm" onClick={() => { ctx.grantConsent(); ctx.nav("shop"); }}>Start shopping</Button>
-        <button onClick={ctx.denyConsent} style={{ background: "none", border: "1px solid var(--border-inverse)", borderRadius: "var(--radius-pill)", padding: "8px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-on-dark-muted)", cursor: "pointer" }}>Decline cookies</button>
-        <button onClick={ctx.grantConsent} style={{ background: "none", border: "none", padding: "8px 10px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-gold-400)", cursor: "pointer" }}>Accept</button>
+        <Button variant="gold" size="sm" onClick={ctx.grantConsent}>Accept</Button>
+        <button onClick={ctx.denyConsent} style={{ background: "none", border: "1px solid var(--border-inverse)", borderRadius: "var(--radius-pill)", padding: "8px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-on-dark-muted)", cursor: "pointer" }}>Decline</button>
       </div>
     </div>
   );
 }
 
-// The announcement bar carries whatever promotion is running. A shopper who
-// doesn't want it can close it, and it stays closed — keyed on the message
-// itself, so the next promotion is still shown rather than being suppressed by
-// a dismissal of the one before it.
+// The announcement bar carries whatever promotion is running, scrolling across
+// the top of the store. A shopper who doesn't want it can close it, and it
+// stays closed — keyed on the message itself, so the next promotion is still
+// shown rather than being suppressed by a dismissal of the one before it.
 function AnnouncementBar({ ctx }) {
   const message = (ctx.settings.announcement || "").trim();
   const key = "mr-announce-dismissed";
@@ -612,9 +649,23 @@ function AnnouncementBar({ ctx }) {
     try { localStorage.setItem(key, message); } catch {}
     setDismissed(true);
   };
-  return (
-    <div style={{ position: "relative", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", fontSize: 12, letterSpacing: "0.06em", textAlign: "center", padding: "9px 44px" }}>
+  // Two copies of the line make the loop: the track is translated by exactly
+  // half its width, so the second copy arrives where the first began. A reader
+  // who wants it to stop can hover it, and one who has asked for less motion
+  // never sees it move (see .mr-marquee in theme.css).
+  const run = (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 28, padding: "0 14px", whiteSpace: "nowrap" }}>
       {message}
+    </span>
+  );
+  return (
+    <div style={{ position: "relative", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", fontSize: 12, letterSpacing: "0.06em", padding: "9px 44px" }}>
+      <div className="mr-marquee">
+        <div className="mr-marquee-track">
+          {run}
+          <span aria-hidden="true" style={{ display: "inline-flex", alignItems: "center", gap: 28, padding: "0 14px", whiteSpace: "nowrap" }}>{message}</span>
+        </div>
+      </div>
       <button onClick={close} aria-label="Dismiss this announcement" title="Dismiss"
         style={{ position: "absolute", top: "50%", right: 10, transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "inherit", opacity: 0.7, fontSize: 14, lineHeight: 1, padding: 6 }}>
         ✕

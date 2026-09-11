@@ -4,7 +4,7 @@ import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import {
   HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage,
-  WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage,
+  WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, FaqPage,
 } from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
@@ -13,7 +13,7 @@ import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./a
 
 const SCOPE_CATS = {
   Storewide: null,
-  Fragrances: ["extrait", "designer", "custom-oil", "mist"],
+  Fragrances: ["perfumes", "perfume-oils", "designer", "custom-oil", "mist"],
   "Gift packages": ["fragrance-set", "mist-set", "custom-oil-set", "gift-set"],
   "Feminine care": ["care", "deo"],
 };
@@ -67,7 +67,7 @@ export default function App() {
   const [track, setTrack] = useState({ no: "", contact: "", order: null, err: "" });
   const [cf, setCf] = useState({ name: "", email: "", msg: "" });
   const [contactSent, setContactSent] = useState(false);
-  const [chat, setChat] = useState({ open: false, val: "", inquiryId: null, key: null, msgs: [{ from: "us", text: "Welcome to the house — how can we help today?" }] });
+  const [chat, setChat] = useState({ open: false, val: "", inquiryId: null, key: null, msgs: [{ from: "us", text: "Hi! How can we help you today?" }] });
   const [popup, setPopup] = useState(false);
   const [plEmail, setPlEmail] = useState("");
   const [plDone, setPlDone] = useState(false);
@@ -86,7 +86,7 @@ export default function App() {
   const [post, setPost] = useState(null);
   const [blogTag, setBlogTag] = useState("");
   // Real, paid purchases, shown to the next shopper. Fetched once — this is a
-  // note about what the house has been selling, not a live feed to poll.
+  // note about what the store has been selling, not a live feed to poll.
   const [proof, setProof] = useState({ enabled: false, purchases: [], intervalMs: 14000 });
   const w = useWindowWidth();
   const isMobile = w < 860;
@@ -291,7 +291,7 @@ export default function App() {
   const segments = useMemo(() => (D ? (D.segments || EMPTY_OBJ) : EMPTY_OBJ), [D]);
   const deals = useMemo(() => (D ? (D.deals || EMPTY_ARR) : EMPTY_ARR), [D]);
   // The countdown card at the top of the home page — the server resolves which
-  // piece it is and at what price, having already applied that price to the
+  // product it is and at what price, having already applied that price to the
   // catalogue above, so nothing here re-derives it.
   const dailyDeal = useMemo(() => (D ? (D.dailyDeal || null) : null), [D]);
   const brands = useMemo(() => (D ? (D.brands || EMPTY_ARR) : EMPTY_ARR), [D]);
@@ -531,6 +531,7 @@ export default function App() {
     setHead(headFor({
       page, product, variant, settings, categories,
       segment: fSeg,
+      category: page === "shop" && fCat && fCat !== "all" ? fCat : "",
       brand: fBrand ? (brands.find((b) => b.id === fBrand) || { name: fBrand }).name : "",
       post: post && post.post ? post.post : null,
     }));
@@ -539,7 +540,7 @@ export default function App() {
     if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
     if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fBrand, post]);
+  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fCat, fBrand, post]);
 
   // Prefill checkout for a signed-in customer, once per visit to the page.
   const prefilled = useRef(false);
@@ -712,6 +713,15 @@ export default function App() {
     api.post("/api/leads", { email: plEmail, source: "popup" }).catch(() => {});
   }, [plEmail]);
 
+  // The same list the pop-up feeds, joined from anywhere else on the store —
+  // the newsletter block on the homepage today. The source is recorded so the
+  // house can see which one people actually use.
+  const joinList = useCallback((email, source) => {
+    if (!String(email).includes("@")) return false;
+    api.post("/api/leads", { email, source }).catch(() => {});
+    return true;
+  }, []);
+
   const ctx = {
     D, settings, locations, products, categories, page, nav, isMobile,
     city, cityName, L,
@@ -727,7 +737,7 @@ export default function App() {
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
     blog, blogTag, setBlogTag, post, postSlug,
-    proof,
+    proof, joinList,
     plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
@@ -753,6 +763,7 @@ export default function App() {
     page === "confirm" ? <ConfirmPage ctx={ctx} /> :
     page === "track" ? <TrackPage ctx={ctx} /> :
     page === "contact" ? <ContactPage ctx={ctx} /> :
+    page === "faq" ? <FaqPage ctx={ctx} /> :
     page === "privacy" ? <PrivacyPage ctx={ctx} /> :
     page === "account" ? <AccountPage ctx={ctx} /> :
     page === "wishlist" ? <WishlistPage ctx={ctx} /> :

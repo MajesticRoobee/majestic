@@ -1,7 +1,7 @@
 // Path-based routing for the storefront so every page (and every product) has a
 // real, crawlable URL. The Worker serves the SPA shell for all these paths.
 
-const STATIC = ["home", "shop", "about", "track", "contact", "checkout", "confirm", "privacy", "account", "wishlist", "locations", "reviews"];
+const STATIC = ["home", "shop", "about", "faq", "track", "contact", "checkout", "confirm", "privacy", "account", "wishlist", "locations", "reviews"];
 
 // The header's merchandising tabs are the shop grid with one filter already
 // applied, so they share its implementation — but each gets its own short URL,
@@ -14,6 +14,15 @@ const SEGMENT_PATHS = {
   "gift-sets": "/gift-sets",
 };
 const PATH_SEGMENTS = Object.fromEntries(Object.entries(SEGMENT_PATHS).map(([seg, path]) => [path.slice(1), seg]));
+
+// Categories the copy rewrite retired, and the shelf that now holds their
+// products. A link someone already shared — a flyer, a bookmark, a search
+// result — lands on the right shelf rather than on an empty grid.
+const CAT_ALIASES = { extrait: "perfumes", bodycare: "care" };
+const catParam = (params) => {
+  const id = params.get("category");
+  return id ? CAT_ALIASES[id] || id : null;
+};
 
 export function pathToRoute(pathname = window.location.pathname, search = window.location.search) {
   const parts = pathname.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
@@ -34,11 +43,11 @@ export function pathToRoute(pathname = window.location.pathname, search = window
   if (parts[0] === "brands") return { page: "shop", fCat: "all" };
   if (parts[0] === "brand" && parts[1]) return { page: "shop", fBrand: decodeURIComponent(parts[1]), fCat: "all" };
   if (PATH_SEGMENTS[parts[0]]) {
-    const fCat = params.get("category");
+    const fCat = catParam(params);
     return { page: "shop", fSeg: PATH_SEGMENTS[parts[0]], ...(fCat ? { fCat } : {}) };
   }
   if (parts[0] === "shop") {
-    const fCat = params.get("category");
+    const fCat = catParam(params);
     const fCol = params.get("collection");
     const fSeg = params.get("segment");
     const fBrand = params.get("brand");

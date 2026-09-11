@@ -51,7 +51,7 @@ function AuthForm({ ctx }) {
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))", gap: 28, alignItems: "start" }}>
       <div>
-        <Eyebrow>Your trail, remembered</Eyebrow>
+        <Eyebrow>Your account</Eyebrow>
         <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 4vw, 40px)", color: "var(--text-strong)", margin: "12px 0 16px" }}>{mode === "register" ? "Create your account" : mode === "forgot" ? "Reset your password" : "Welcome back"}</h1>
         <p style={{ fontFamily: "var(--font-serif)", fontSize: 18, color: "var(--text-body)", margin: "0 0 18px" }}>Shopping is always faster with a profile — but never required. You can keep checking out as a guest anytime.</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -124,7 +124,7 @@ function Dashboard({ ctx }) {
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <Eyebrow>Your house</Eyebrow>
+          <Eyebrow>Your account</Eyebrow>
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 4vw, 40px)", color: "var(--text-strong)", margin: "10px 0 0" }}>Hello, {(cust.name || "friend").split(" ")[0]}</h1>
         </div>
         <button onClick={ctx.custLogout} style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "8px 16px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-800)", cursor: "pointer" }}>Sign out</button>
@@ -135,7 +135,7 @@ function Dashboard({ ctx }) {
         <div style={card}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 14 }}>Your orders</div>
           {custData.orders.length === 0 ? (
-            <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: 0 }}>No orders yet — your trail starts with your first.</p>
+            <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: 0 }}>No orders yet.</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {custData.orders.map((o) => (

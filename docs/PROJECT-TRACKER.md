@@ -129,6 +129,16 @@ These cannot be done from the code, and several unblock work that is already bui
 
 ## Change log
 
+- **11 Sep 2026** — The client's website copy applied across the storefront. The
+  category tree was reorganised to the one her copy sheet names (Perfumes,
+  Perfume Oils, Body Mists, Feminine Care, Home Fragrance, Wellness Products,
+  plus Deodorants and Gift Sets), the flowery house voice was taken out
+  everywhere — no more "in Perfumes" over a category flyout, no more "pieces" or
+  "shelves" — and the home, shop, about and contact pages, the footer and every
+  page title and meta description were rewritten to her words. A **/faq** page
+  was added from her nine questions, and the homepage gained the sections she
+  wrote for it: best sellers, feminine care, fragrance personality, home
+  fragrance, the founder's story, rewards, the newsletter block and Instagram.
 - **30 Aug 2026** — Sprint 2: the merchandising header (categories with
   sub-shelves, new arrivals, deals, best sellers, locations), a guest-first
   wishlist, the blog with its admin, embedded reviews & testimonials, and live

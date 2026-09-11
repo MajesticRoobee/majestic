@@ -14,13 +14,15 @@ import { catTree, catPath } from "../lib/categories.js";
 // categories are editable content now (Admin → Categories), so every screen
 // reads the live list and falls back to this when it hasn't loaded yet.
 export const CAT_LABELS = {
-  extrait: "Extrait Perfumes",
+  perfumes: "Perfumes",
+  "perfume-oils": "Perfume Oils",
   designer: "Designer Oils",
   "custom-oil": "Custom Oils",
   mist: "Body Mists",
   home: "Home Fragrance",
   deo: "Deodorants",
   care: "Feminine Care",
+  wellness: "Wellness Products",
   massage: "Massage Oils",
   health: "Health Drinks",
   "fragrance-set": "Fragrance Sets",

@@ -175,9 +175,9 @@ export function CategoriesPage({ ctx }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <Intro title="Categories">
           A category is where a product lives — one each — and this is the store&apos;s only category system: what is here is exactly what
-          shoppers see under <strong>All categories</strong> in the header, and nowhere else offers a competing menu. Shelves can hold
-          sub-categories one level deep (Perfumes → Extrait Perfumes), and a shelf shows everything underneath it, so a shopper on
-          Perfumes sees every extrait, designer oil and custom oil at once.
+          shoppers see under <strong>All categories</strong> in the header, and nowhere else offers a competing menu. A category can hold
+          sub-categories one level deep (Perfume Oils → Designer Oils), and a category shows everything underneath it, so a shopper on
+          Perfume Oils sees every designer oil and custom oil at once.
         </Intro>
         {shelves.map((c, i) => (
           <div key={c.id} style={{ ...card, padding: 18, opacity: c.live ? 1 : 0.62 }}>
