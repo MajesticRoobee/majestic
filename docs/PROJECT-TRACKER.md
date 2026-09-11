@@ -129,6 +129,15 @@ These cannot be done from the code, and several unblock work that is already bui
 
 ## Change log
 
+- **11 Sep 2026** — The header's category menu was unusable and is now fixed.
+  The dropdown hangs below the purple band while the band owned the
+  mouse-leave, so walking the pointer into the list closed it before anything
+  could be clicked; and `nav()` read `fCol: null` as "a collection was chosen",
+  resetting the category to "all" on the way past. Every category now opens a
+  flyout — Everything, its sub-categories, then Best sellers, New arrivals and
+  Deals narrowed to it, each hidden when it would land on an empty grid. The
+  feminine-care block on the home page became a band showing real products, and
+  the founder's photograph now leads the story on both the home page and About.
 - **11 Sep 2026** — Reward codes shipped (`worker/rewards.js`, migration 0017).
   A reward is one code, one person, one use — earned when an order is *paid
   for*, or minted by hand from Admin → Rewards for a giveaway or an apology. It

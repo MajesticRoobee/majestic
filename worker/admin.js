@@ -938,6 +938,8 @@ admin.put("/settings", async (c) => {
     // The house's mark: the logo in the header, and a light version for the
     // near-black footer.
     "logoUrl", "logoLightUrl",
+    // The founder's portrait, on the home page's story band and the About page.
+    "founderImage",
     // Storefront look & behaviour
     "heroDirection", "promoPopup", "defaultCity", "crossCityShipNGN", "crossCityEta", "freeShipAbujaOver", "freeShipCity",
     // Where a bank-transfer shopper is told to send the money. Empty until the

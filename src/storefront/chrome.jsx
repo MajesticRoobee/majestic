@@ -1,15 +1,17 @@
 // Storefront chrome: announcement bar, city gate, header, cart drawer,
 // concierge chat, lead popup, footer. Markup ported from the design handoff.
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Eyebrow, Button, ImageSlot } from "../ds/components.jsx";
 import { routeToPath } from "./router.js";
-import { useWindowWidth } from "../lib/hooks.js";
-import { catTree, countIn } from "../lib/categories.js";
+import { useWindowWidth, useDismiss } from "../lib/hooks.js";
+import { catTree, catFamily, countIn } from "../lib/categories.js";
 
 // Profile menu — sign in / create account when logged out, the customer's name
 // and account actions when logged in, and always the gateway to the staff portal.
 function ProfileMenu({ ctx }) {
   const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  useDismiss(wrap, open, useCallback(() => setOpen(false), []));
   const cust = ctx.cust;
   const firstName = cust ? (cust.name || cust.email).trim().split(" ")[0] : "";
   const initial = cust ? (cust.name || cust.email || "?").trim().charAt(0).toUpperCase() : "";
@@ -17,7 +19,7 @@ function ProfileMenu({ ctx }) {
     <button onClick={() => { setOpen(false); onClick(); }} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, color: color || "var(--mr-purple-800)", padding: "9px 12px", borderRadius: "var(--radius-sm)" }}>{label}</button>
   );
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={wrap} style={{ position: "relative" }}>
       {/* The labelled form on desktop, matching the wishlist and cart beside it;
           a bare avatar on a phone, where there is no room for two lines. */}
       <button onClick={() => setOpen((o) => !o)} title={cust ? cust.name : "Sign in"} aria-label="Account"
@@ -38,7 +40,6 @@ function ProfileMenu({ ctx }) {
       </button>
       {open && (
         <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 170 }} />
           <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 224, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", zIndex: 171, padding: 8 }}>
             {cust ? (
               <>
@@ -167,38 +168,85 @@ function navActive(ctx, tab) {
 
 const RAIL_W = 250;
 const RAIL_ROW_H = 56;
+const FLY_W = 250;
 
-// The categories menu and its flyout.
+// The categories menu, its flyout, and the one rule that makes both usable:
+// **the thing that owns "open" has to contain everything the pointer touches.**
 //
-// A category's sub-categories are the ones set in the admin (Categories), so
-// what hangs off "Perfume Oils" here is whatever the store filed under it — no
-// list is kept in the browser.
-function CategoryRail({ ctx, open, setOpen }) {
+// It didn't. The panel hangs below the purple band (`top: 100%`, outside its
+// box) while the band owned the mouse-leave — so walking down from "All
+// categories" into the list left the band, closed the menu, and every category
+// in it was unclickable. The trigger and the panel now sit inside one relative
+// wrapper that owns the hover, and the flyout is a DOM descendant of that
+// wrapper, so moving out along a row doesn't close anything either.
+//
+// Three ways in, because a menu is used three ways: hover (a mouse), click (a
+// trackpad, a touchscreen, a keyboard), and pinned open by the home page, whose
+// hero grid leaves a 250px column empty for exactly that.
+function CategoryRail({ ctx, pinned }) {
+  const [hover, setHover] = useState(false);
+  const [stuck, setStuck] = useState(false);
   const [flyId, setFlyId] = useState(null);
   const [scroll, setScroll] = useState(0);
+  const wrap = useRef(null);
+  const open = pinned || hover || stuck;
+  useDismiss(wrap, stuck, useCallback(() => setStuck(false), []));
+
   // The categories the store sells by, each carrying its own sub-categories.
   const cats = catTree(ctx.categories);
-  const go = (extra) => { setOpen(false); setFlyId(null); ctx.nav("shop", extra); };
+  const byId = new Map(ctx.products.map((p) => [p.id, p]));
+  const close = () => { setHover(false); setStuck(false); setFlyId(null); };
+  const go = (extra) => { close(); ctx.nav("shop", extra); };
+  const goPage = (page) => { close(); ctx.nav(page); };
+
   const flyIdx = cats.findIndex((c) => c.id === flyId);
-  const fly = flyIdx >= 0 && cats[flyIdx].children.length ? cats[flyIdx] : null;
+  const fly = flyIdx >= 0 ? cats[flyIdx] : null;
   const inCat = (id) => countIn(ctx.categories, ctx.products, id);
+
+  // How many products a merchandising shelf holds *within* one category. The
+  // shelf itself is the server's answer (worker/merch.js); this only asks how
+  // much of it is filed under here, so a row that would land on an empty grid
+  // is never offered.
+  const shelfCount = (segment, catId) => {
+    const fam = catFamily(ctx.categories, catId);
+    return (ctx.segments[segment] || []).filter((id) => {
+      const p = byId.get(id);
+      return p && (!fam || fam.has(p.cat));
+    }).length;
+  };
+
   const row = {
     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
     height: RAIL_ROW_H, padding: "0 20px", borderBottom: "1px solid var(--border-hairline)",
     fontFamily: "var(--font-sans)", fontSize: 13.5, cursor: "pointer", background: "transparent",
     border: "none", borderBottomStyle: "solid", width: "100%", textAlign: "left",
   };
+  const flyRow = {
+    display: "flex", width: "100%", justifyContent: "space-between", gap: 10, alignItems: "center",
+    padding: "9px 20px", background: "none", border: "none", cursor: "pointer",
+    fontFamily: "var(--font-sans)", fontSize: 13, textAlign: "left",
+  };
+  const count = (n) => <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{n}</span>;
+
   return (
-    <>
-      <div
-        onMouseEnter={() => setOpen(true)}
-        onClick={() => setOpen(!open)}
-        style={{ width: RAIL_W, flex: "none", background: "var(--mr-purple-950)", color: "var(--mr-cream)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "0 20px", height: 50, cursor: "pointer" }}>
-        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase" }}>All categories</span>
+    <div
+      ref={wrap}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => { setHover(false); setFlyId(null); }}
+      style={{ position: "relative", flex: "none", alignSelf: "stretch", display: "flex", alignItems: "center" }}>
+      {/* Clicking pins the menu open, for a trackpad or a touchscreen where
+          there is no hover to hold it. */}
+      <button
+        onClick={() => setStuck((v) => !v)}
+        aria-expanded={open}
+        aria-label="All categories"
+        style={{ width: RAIL_W, background: "var(--mr-purple-950)", color: "var(--mr-cream)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "0 20px", height: 50, cursor: "pointer", border: "none", fontFamily: "var(--font-condensed)" }}>
+        <span style={{ fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase" }}>All categories</span>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></svg>
-      </div>
+      </button>
+
       {open && (
-        <div style={{ position: "absolute", left: "clamp(16px, 4vw, 40px)", top: "100%", width: RAIL_W, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderTop: "none", boxShadow: "var(--shadow-md)", zIndex: 60 }}>
+        <div style={{ position: "absolute", left: 0, top: "100%", width: RAIL_W, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderTop: "none", boxShadow: "var(--shadow-md)", zIndex: 60 }}>
           {/* A store with a dozen categories would otherwise hang a 700px
               curtain over the page, so the list keeps its own scroll. The
               flyout sits outside it — inside, the scroller would clip it. */}
@@ -206,45 +254,80 @@ function CategoryRail({ ctx, open, setOpen }) {
             {cats.map((c) => {
               const on = flyId === c.id;
               return (
-                  <button key={c.id} onMouseEnter={() => setFlyId(c.id)} onClick={() => go({ fCat: c.id, fSeg: null, fBrand: "", fCol: null })}
+                <button key={c.id} onMouseEnter={() => setFlyId(c.id)} onFocus={() => setFlyId(c.id)}
+                  onClick={() => go({ fCat: c.id, fSeg: null, fBrand: "", fCol: null })}
                   style={{ ...row, color: on ? "var(--mr-orchid-600)" : "var(--text-body)", background: on ? "var(--surface-sunken)" : "transparent", borderBottomColor: "var(--border-hairline)", borderBottomWidth: 1 }}>
                   <span>{c.label}</span>
-                  {/* A chevron promises something further in, so only a
-                      category that actually has sub-categories gets one. */}
-                  {c.children.length > 0
-                    ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
-                    : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{inCat(c.id)}</span>}
+                  {/* Every category opens something now — its shelves, if not
+                      its sub-categories — so every one carries the chevron. */}
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {count(inCat(c.id))}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                  </span>
                 </button>
               );
             })}
             {RAIL_FOOTER.map((r) => (
               <button key={r.label} onMouseEnter={() => setFlyId(null)}
-                onClick={() => (r.page ? (setOpen(false), setFlyId(null), ctx.nav(r.page)) : go(r.extra))}
+                onClick={() => (r.page ? goPage(r.page) : go(r.extra))}
                 style={{ ...row, height: 44, borderBottom: "none", fontSize: 13, color: "var(--mr-orchid-600)" }}>
                 <span>{r.label}</span>
               </button>
             ))}
           </div>
+
           {fly && (
-            <div style={{ position: "absolute", left: RAIL_W, top: Math.max(0, flyIdx * RAIL_ROW_H - scroll), width: 236, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", boxShadow: "var(--shadow-md)", padding: "14px 0" }}>
+            <div
+              // It opens beside the row it belongs to, and it starts exactly at
+              // the panel's right edge — a gap there would be a gap the pointer
+              // falls through on the way over.
+              style={{ position: "absolute", left: RAIL_W, top: Math.max(0, flyIdx * RAIL_ROW_H - scroll), width: FLY_W, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", boxShadow: "var(--shadow-md)", padding: "12px 0", zIndex: 61 }}>
+              <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", padding: "0 20px 8px" }}>{fly.label}</div>
+
               <button onClick={() => go({ fCat: fly.id, fSeg: null, fBrand: "", fCol: null })}
-                style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 10, padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", textAlign: "left" }}>
-                <span>All {fly.label}</span>
-                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{inCat(fly.id)}</span>
+                style={{ ...flyRow, fontWeight: 500, color: "var(--text-strong)" }}>
+                <span>Everything</span>
+                {count(inCat(fly.id))}
               </button>
+
               {fly.children.map((sc) => (
                 <button key={sc.id} onClick={() => go({ fCat: sc.id, fSeg: null, fBrand: "", fCol: null })}
-                  style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 10, padding: "8px 20px", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-800)", textAlign: "left" }}>
+                  style={{ ...flyRow, color: "var(--mr-purple-800)" }}>
                   <span>{sc.label}</span>
-                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{inCat(sc.id)}</span>
+                  {count(inCat(sc.id))}
                 </button>
               ))}
-              {fly.desc && <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55, padding: "10px 20px 0", borderTop: "1px solid var(--border-hairline)", margin: "10px 20px 0" }}>{fly.desc}</div>}
+
+              {/* The shelves, narrowed to this category — "/best-sellers?
+                  category=perfumes" is a real address, so each of these is a
+                  link a shopper can keep. A shelf with nothing on it here is
+                  left out rather than offered as a road to an empty page. */}
+              {(() => {
+                const shelves = [
+                  { seg: "best-sellers", label: "Best sellers" },
+                  { seg: "new-arrivals", label: "New arrivals" },
+                  { seg: "deals", label: "Deals" },
+                ].map((sh) => ({ ...sh, n: shelfCount(sh.seg, fly.id) })).filter((sh) => sh.n > 0);
+                if (!shelves.length) return null;
+                return (
+                  <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "8px 20px 0", paddingTop: 6 }}>
+                    {shelves.map((sh) => (
+                      <button key={sh.seg} onClick={() => go({ fCat: fly.id, fSeg: sh.seg, fBrand: "", fCol: null })}
+                        style={{ ...flyRow, padding: "8px 0", fontSize: 12.5, color: "var(--mr-orchid-600)" }}>
+                        <span>{sh.label}</span>
+                        {count(sh.n)}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {fly.desc && <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55, padding: "10px 20px 0", borderTop: "1px solid var(--border-hairline)", margin: "8px 20px 0" }}>{fly.desc}</div>}
             </div>
           )}
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -309,20 +392,22 @@ const ICON_HEART = <svg width="21" height="21" viewBox="0 0 24 24" fill="none" s
 const ICON_BAG = <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>;
 
 function Header({ ctx }) {
-  const [railOpen, setRailOpen] = useState(false);
+  const [atTop, setAtTop] = useState(true);
   const w = useWindowWidth();
   const tabs = NAV_TABS.filter((t) => !t.from || w >= t.from);
   const bandSearch = w >= BAND_SEARCH_FROM;
-  // The rail stands open on the home page, which is the one layout that leaves
-  // it a column of its own. It closes as soon as the hero scrolls away, so it
-  // never ends up hanging over the shelves below it.
+  // The menu stands open on the home page, which is the one layout that leaves
+  // it a column of its own, and only while the hero is still on screen — below
+  // that it would hang over the shelves. Everywhere else it opens on hover or a
+  // click, which the menu itself owns; this only says when it is *pinned*, so
+  // the two can't fight over one piece of state.
   const home = ctx.page === "home" && !ctx.isMobile;
   useEffect(() => {
-    if (!home) { setRailOpen(false); return undefined; }
-    setRailOpen(window.scrollY < 200);
-    const onScroll = () => setRailOpen(window.scrollY < 200);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    if (!home) return undefined;
+    const sync = () => setAtTop(window.scrollY < 200);
+    sync();
+    window.addEventListener("scroll", sync, { passive: true });
+    return () => window.removeEventListener("scroll", sync);
   }, [home]);
 
   const cartCount = ctx.cart.reduce((n, c) => n + c.qty, 0);
@@ -370,9 +455,9 @@ function Header({ ctx }) {
       </div>
 
       {!ctx.isMobile && (
-        <div onMouseLeave={() => !home && setRailOpen(false)} style={{ background: "var(--mr-purple-900)" }}>
+        <div style={{ background: "var(--mr-purple-900)" }}>
           <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 clamp(16px, 4vw, 40px)", display: "flex", alignItems: "stretch", position: "relative", minWidth: 0 }}>
-            <CategoryRail ctx={ctx} open={railOpen} setOpen={setRailOpen} />
+            <CategoryRail ctx={ctx} pinned={home && atTop} />
             <nav style={{ display: "flex", alignItems: "center", gap: "clamp(10px, 1.5vw, 26px)", padding: "0 clamp(12px, 1.8vw, 28px)", fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", whiteSpace: "nowrap", flex: "0 0 auto" }}>
               {tabs.map((t) => (
                 <a key={t.label} href={routeToPath(t.page, t.extra)}
@@ -408,13 +493,13 @@ function Header({ ctx }) {
                 a flattened list of the top-level categories. */}
             {catTree(ctx.categories).map((c) => (
               <div key={c.id}>
-                <a href={routeToPath("shop", { fCat: c.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id }); }}
+                <a href={routeToPath("shop", { fCat: c.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id, fSeg: null, fBrand: "", fCol: null }); }}
                   style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "10px 24px", fontSize: 14.5, fontWeight: c.children.length ? 500 : 400 }}>
                   <span>{c.label}</span>
                   <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{countIn(ctx.categories, ctx.products, c.id)}</span>
                 </a>
                 {c.children.map((sc) => (
-                  <a key={sc.id} href={routeToPath("shop", { fCat: sc.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: sc.id }); }}
+                  <a key={sc.id} href={routeToPath("shop", { fCat: sc.id })} onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: sc.id, fSeg: null, fBrand: "", fCol: null }); }}
                     style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 24px 8px 38px", fontSize: 13.5, color: "var(--text-body)" }}>
                     <span>{sc.label}</span>
                     <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{countIn(ctx.categories, ctx.products, sc.id)}</span>
