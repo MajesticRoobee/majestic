@@ -106,7 +106,7 @@ function VariantRows({ ctx, variants, setVariants, stores, showStock = true, opt
 }
 
 export function NewProduct({ ctx }) {
-  const [f, setF] = useState({ name: "", cat: "extrait", brand: "", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true, optionName: "Size", splitListing: false, pinNew: false, pinBest: false });
+  const [f, setF] = useState({ name: "", cat: "perfumes", brand: "", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true, optionName: "Size", splitListing: false, pinNew: false, pinBest: false });
   const [variants, setVariants] = useState([blankVariant()]);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);

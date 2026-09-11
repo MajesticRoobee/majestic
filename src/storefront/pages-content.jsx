@@ -36,7 +36,7 @@ export function WishlistPage({ ctx }) {
   return (
     <main style={shellStyle}>
       <PageHead
-        eyebrow="Kept for later"
+        eyebrow="Saved"
         title="Your wishlist"
         sub={ctx.cust
           ? `Saved to your account — ${ctx.cust.name || ctx.cust.email}. It follows you to any device you sign in on.`
@@ -44,16 +44,16 @@ export function WishlistPage({ ctx }) {
       />
       {!ctx.wishlist.length ? (
         <Empty title="Nothing saved yet.">
-          <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "0 0 18px" }}>Tap the heart on any piece and it waits for you here.</p>
-          <Button variant="primary" onClick={() => ctx.nav("shop")}>Browse the collection</Button>
+          <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "0 0 18px" }}>Tap the heart on any product and it waits for you here.</p>
+          <Button variant="primary" onClick={() => ctx.nav("shop")}>Shop all products</Button>
         </Empty>
       ) : (
         <>
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 22 }}>
-            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{saved.length} {saved.length === 1 ? "piece" : "pieces"} saved</span>
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{saved.length} {saved.length === 1 ? "product" : "products"} saved</span>
             {!ctx.cust && (
               <button onClick={() => ctx.nav("account")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)" }}>
-                Create an account to keep it —
+                Create an account to keep it
               </button>
             )}
           </div>
@@ -62,7 +62,7 @@ export function WishlistPage({ ctx }) {
           </div>
           {missing > 0 && (
             <p style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 20 }}>
-              {missing} saved {missing === 1 ? "piece is" : "pieces are"} no longer on sale — {missing === 1 ? "it will reappear" : "they'll reappear"} here if {missing === 1 ? "it comes" : "they come"} back.
+              {missing} saved {missing === 1 ? "product is" : "products are"} no longer on sale — {missing === 1 ? "it will reappear" : "they'll reappear"} here if {missing === 1 ? "it comes" : "they come"} back.
             </p>
           )}
         </>
@@ -78,9 +78,9 @@ export function LocationsPage({ ctx }) {
   return (
     <main style={shellStyle}>
       <PageHead
-        eyebrow="Come and see us"
+        eyebrow="Visit us"
         title="Our stores"
-        sub="Every door we keep open. Order online and collect from any of them, or walk in and be talked through the whole shelf."
+        sub="Order online and collect from any of our stores, or walk in and we'll take you through the range."
       />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 18 }}>
         {ctx.locations.map((l) => {
@@ -102,7 +102,7 @@ export function LocationsPage({ ctx }) {
               </div>
               {!here && (
                 <button onClick={() => ctx.setCityConfirmed(l.id)} style={{ marginTop: 10, alignSelf: "flex-start", background: "none", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", padding: "8px 16px", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)", cursor: "pointer" }}>
-                  Shop the {l.city} shelf
+                  Shop {l.city} stock
                 </button>
               )}
             </div>
@@ -112,6 +112,84 @@ export function LocationsPage({ ctx }) {
       <div style={{ marginTop: 32, padding: "22px 24px", background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", fontSize: 13.5, color: "var(--text-body)", lineHeight: 1.7 }}>
         Not near a store? We deliver nationwide, and worldwide in Naira or US Dollars — pick anything and we ship it from whichever store holds your whole order.
         {settings.contactPhone && <> Questions before you travel: <a href={`tel:${settings.contactPhone.replace(/[^\d+]/g, "")}`}>{settings.contactPhone}</a>.</>}
+      </div>
+    </main>
+  );
+}
+
+// ---- FAQ ------------------------------------------------------------------
+
+// The questions the store is actually asked, and the answers the client wrote.
+// Shipping and returns carry ids so the footer can link straight to them.
+const FAQS = [
+  {
+    q: "What makes Majestic Roobee fragrances different?",
+    a: ["Majestic Roobee creates its own perfumes and fragrance products with a focus on safe products, quality and an elevated everyday fragrance experience."],
+  },
+  {
+    q: "How do I choose a perfume?",
+    a: ["Think about the fragrances you naturally enjoy. Do you prefer something floral, sweet, fresh, woody, warm or sensual? You can also consider when and where you plan to wear the fragrance.", "If you need recommendations on what to get, you can contact us on WhatsApp."],
+    whatsapp: true,
+  },
+  {
+    q: "How can I make my perfume last longer?",
+    a: ["Apply perfume to moisturised skin. You can also layer complementary fragrance products."],
+  },
+  {
+    q: "What is perfume oil?",
+    a: ["Perfume oil is a concentrated fragrance designed to be applied directly to the skin and clothes. It usually sits closer to the skin than a traditional spray perfume."],
+  },
+  {
+    q: "Can I layer my fragrances?",
+    a: ["Yes. Layering allows you to combine complementary products and create a more personalised scent."],
+  },
+  {
+    q: "How should I store my perfume?",
+    a: ["Keep your perfume away from direct sunlight, excessive heat and humidity. A cool, dry place is ideal."],
+  },
+  {
+    id: "shipping",
+    q: "Do you deliver across Nigeria?",
+    a: ["Yes, we deliver everywhere across Nigeria and outside Nigeria."],
+  },
+  {
+    q: "How long does delivery take?",
+    a: ["Priority delivery takes 1–2 days and standard shipping takes 3–5 business days.", "International shipping takes 3–12 working days."],
+  },
+  {
+    id: "returns",
+    q: "Do you accept returns or exchanges?",
+    a: ["If you receive the wrong item or your products arrive faulty or damaged, please contact us as soon as possible so we can help resolve the issue. Terms and conditions apply."],
+  },
+];
+
+export function FaqPage({ ctx }) {
+  const { settings } = ctx;
+  const wa = `https://wa.me/${String(settings.contactPhone || "").replace(/[^\d]/g, "").replace(/^0/, "234")}`;
+  return (
+    <main style={{ ...shellStyle, maxWidth: 820 }}>
+      <PageHead eyebrow="Help" title="Frequently asked questions"
+        sub="Everything we are asked most often. If your question is not here, contact us and we will answer it." />
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {FAQS.map((f) => (
+          <div key={f.q} id={f.id} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "20px 22px", scrollMarginTop: 100 }}>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--text-strong)", margin: "0 0 8px" }}>{f.q}</h2>
+            {f.a.map((par) => (
+              <p key={par} style={{ fontSize: 14.5, lineHeight: 1.75, color: "var(--text-body)", margin: "0 0 8px" }}>{par}</p>
+            ))}
+            {f.whatsapp && settings.contactPhone && (
+              <a href={wa} target="_blank" rel="noopener noreferrer" style={{ fontSize: 14, fontWeight: 500 }}>
+                Message us on WhatsApp — {settings.contactPhone}
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 28, padding: "22px 24px", background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 14, color: "var(--text-body)", lineHeight: 1.7, maxWidth: "48ch" }}>
+          Still have a question about an order, product or fragrance? We&apos;re happy to help.
+        </div>
+        <Button variant="primary" onClick={() => ctx.nav("contact")}>Send us a message</Button>
       </div>
     </main>
   );
@@ -204,7 +282,7 @@ export function EmbedCard({ t, frameHeight }) {
       </div>
     );
   }
-  // A written review, with the photo the house was sent when there is one.
+  // A written review, with the photo the store was sent when there is one.
   return (
     <div ref={ref} style={{ ...shell, justifyContent: "space-between", gap: 0, minHeight: frameHeight || undefined }}>
       {t.thumbUrl && <ImageSlot src={t.thumbUrl} name={t.author || "A customer's photo"} sizes="(max-width: 640px) 92vw, 400px" style={{ width: "100%", height: Math.round(width * 1.25) }} />}
@@ -228,7 +306,7 @@ export function TestimonialCarousel({ items, intervalMs = 6000 }) {
   // across the whole page and the embed inside it letterboxed to fit.
   const perView = w < 700 ? 1 : w < 1060 ? 2 : 3;
   const last = Math.max(0, items.length - perView);
-  // One shape for the whole row — the Instagram post's, which is what the house
+  // One shape for the whole row — the Instagram post's, which is what the store
   // mostly posts — so the rail's height is steady and a single tall TikTok
   // doesn't set it for everyone.
   const [railRef, railWidth] = useMeasuredWidth(1000);
@@ -304,9 +382,9 @@ export function ReviewsPage({ ctx }) {
   return (
     <main style={shellStyle}>
       <PageHead
-        eyebrow="In their own words"
-        title={settings.reviewsHeadline || "Reviews & testimonials"}
-        sub={settings.reviewsIntro || "What customers tell us, in their words — and the posts they made themselves, embedded exactly as they published them."}
+        eyebrow="Reviews"
+        title={settings.reviewsHeadline || "Don't just take our word for it"}
+        sub={settings.reviewsIntro || "What our customers say, in their own words and their own posts."}
       />
       {kinds.length > 1 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
@@ -342,7 +420,7 @@ export function ReviewsPage({ ctx }) {
 
 // Posts are written as plain text: blank lines separate paragraphs, a line
 // starting "## " is a heading, and a line that is only a URL is an image. That
-// is enough for the house to write in, and it means nothing user-supplied is
+// is enough for the store to write in, and it means nothing user-supplied is
 // ever handed to dangerouslySetInnerHTML.
 export function PostBody({ body }) {
   const blocks = String(body || "").split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
@@ -398,9 +476,9 @@ export function BlogPage({ ctx }) {
   return (
     <main style={shellStyle}>
       <PageHead
-        eyebrow="From the house"
-        title={settings.blogHeadline || "The blog"}
-        sub={settings.blogIntro || "How to wear it, how to layer it, how to make it last — and what we're blending next."}
+        eyebrow="Journal"
+        title={settings.blogHeadline || "From the blog"}
+        sub={settings.blogIntro || "How to wear it, how to layer it and how to make it last."}
       />
       {blog.tags.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
@@ -412,7 +490,7 @@ export function BlogPage({ ctx }) {
         <p style={{ fontSize: 13.5, color: "var(--text-muted)" }}>Opening the blog…</p>
       ) : !posts.length ? (
         <Empty title={tag ? `Nothing filed under “${tag}” yet.` : "The first story is being written."}>
-          <Button variant="primary" onClick={() => (tag ? ctx.setBlogTag("") : ctx.nav("shop"))}>{tag ? "Show everything" : "Browse the collection"}</Button>
+          <Button variant="primary" onClick={() => (tag ? ctx.setBlogTag("") : ctx.nav("shop"))}>{tag ? "Show everything" : "Shop all products"}</Button>
         </Empty>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 20 }}>

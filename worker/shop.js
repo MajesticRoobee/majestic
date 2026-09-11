@@ -1,22 +1,13 @@
 // Public storefront API.
 import { Hono } from "hono";
-import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT } from "./util.js";
+import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT, scopeCats } from "./util.js";
 import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
+import { getReward, rewardRefusal, computeRewardDiscount, claimReward, releaseReward, freeItemName } from "./rewards.js";
 
 export const shop = new Hono();
-
-// Category groups a promo scope applies to.
-// Home fragrance, massage oils and the health drink sit outside these groups, so
-// a promo aimed at them is written Storewide.
-const SCOPE_CATS = {
-  Storewide: null,
-  Fragrances: ["extrait", "designer", "custom-oil", "mist"],
-  "Gift packages": ["fragrance-set", "mist-set", "custom-oil-set", "gift-set"],
-  "Feminine care": ["care", "deo"],
-};
 
 // A promo is live when the house hasn't ended it *and* today falls inside its
 // window. The window is the part that used to be decoration: the dates were
@@ -44,7 +35,7 @@ function findVariant(products, it) {
 
 function computeDiscount(promo, items) {
   // items: [{ cat, lineTotal }]
-  const cats = SCOPE_CATS[promo.scope] ?? null;
+  const cats = scopeCats(promo.scope);
   const eligible = items.filter((i) => !cats || cats.includes(i.cat)).reduce((n, i) => n + i.lineTotal, 0);
   if (promo.kind === "pct") return Math.round((eligible * promo.value) / 100);
   if (promo.kind === "amt") return Math.min(promo.value, eligible);
@@ -272,22 +263,56 @@ shop.post("/leads", async (c) => {
   return c.json({ ok: true, code: "FIRSTTRAIL" });
 });
 
+// One code box on the checkout page, two tables behind it.
+//
+// Sale codes are read first and reward codes second, which is also the order
+// `mintCode` protects: a reward can never be issued with a code the promos
+// table already holds, so nothing minted here is unreachable.
+//
+// `contact` is optional — the shopper may not have typed their email yet — and
+// a reward bound to someone else is only *hard* refused when the order is
+// actually placed. Sending it when it's known means the refusal arrives while
+// there is still something to do about it.
 shop.post("/promos/validate", async (c) => {
-  const { code, items } = await c.req.json();
+  const { code, items, contact = "" } = await c.req.json();
   const db = c.env.DB;
-  const promo = await db.prepare("SELECT * FROM promos WHERE code=?").bind(String(code || "").trim().toUpperCase()).first();
-  // Tell the shopper *why*: "that code has expired" sends them looking for a
-  // current one, where a bare "invalid" reads as the checkout being broken.
-  if (!promoIsActive(promo)) return c.json({ valid: false, reason: promoRefusal(promo) });
+  const clean = String(code || "").trim().toUpperCase();
+
   // Deal pricing first: a percentage code discounts what the shopper is
   // actually being charged today, not yesterday's shelf price.
   const { products } = await storeCatalogue(db, { liveOnly: false });
   const lines = (items || []).map((it) => {
     const hit = findVariant(products, it);
-    return hit ? { cat: hit.product.cat, lineTotal: hit.variant.ngn * (it.qty || 1) } : null;
+    return hit
+      ? { cat: hit.product.cat, unit: hit.variant.ngn, variantId: hit.variant.id, lineTotal: hit.variant.ngn * (it.qty || 1) }
+      : null;
   }).filter(Boolean);
-  const discount = computeDiscount(promo, lines);
-  return c.json({ valid: true, code: promo.code, kind: promo.kind, value: promo.value, scope: promo.scope, desc: promo.descr, discount, freeShip: promo.kind === "ship" });
+  const subtotal = lines.reduce((n, l) => n + l.lineTotal, 0);
+
+  const promo = await db.prepare("SELECT * FROM promos WHERE code=?").bind(clean).first();
+  if (promo) {
+    // Tell the shopper *why*: "that code has expired" sends them looking for a
+    // current one, where a bare "invalid" reads as the checkout being broken.
+    if (!promoIsActive(promo)) return c.json({ valid: false, reason: promoRefusal(promo) });
+    const discount = computeDiscount(promo, lines);
+    return c.json({ valid: true, type: "promo", code: promo.code, kind: promo.kind, value: promo.value, scope: promo.scope, desc: promo.descr, discount, freeShip: promo.kind === "ship" });
+  }
+
+  const reward = await getReward(db, clean);
+  if (reward) {
+    const refusal = rewardRefusal(reward, { contact, subtotal });
+    if (refusal) return c.json({ valid: false, reason: refusal });
+    const { discount, freeShip, reason } = computeRewardDiscount(reward, lines);
+    if (reason) return c.json({ valid: false, reason });
+    return c.json({
+      valid: true, type: "reward", code: reward.code, kind: reward.kind, value: reward.value,
+      scope: reward.scope, desc: reward.descr, minSpend: reward.min_spend,
+      freeVariantId: reward.free_variant_id, freeItem: await freeItemName(db, reward.free_variant_id),
+      expiresAt: reward.expires_at || "", discount, freeShip,
+    });
+  }
+
+  return c.json({ valid: false, reason: "That code isn't recognised." });
 });
 
 // Track abandoned checkouts. Upserts by phone/email.
@@ -363,7 +388,9 @@ async function resolveLines(db, items) {
     const qty = Math.max(1, Math.min(50, Math.round(it.qty || 1)));
     if (!hit) return { error: "An item in your cart is no longer available." };
     const { product: p, variant: v } = hit;
-    lines.push({ product: p, variant: v, qty, cat: p.cat, lineTotal: v.ngn * qty });
+    // `unit` and `variantId` are here for the reward engine: a "one product
+    // free" reward takes off one unit's price, not a whole line.
+    lines.push({ product: p, variant: v, qty, cat: p.cat, unit: v.ngn, variantId: v.id, lineTotal: v.ngn * qty });
   }
   return { lines };
 }
@@ -439,14 +466,33 @@ shop.post("/orders", async (c) => {
 
   const subtotal = lines.reduce((n, l) => n + l.lineTotal, 0);
 
+  // The one code box, resolved the same way the validate endpoint resolves it:
+  // a public sale code first, a personal reward second. The discount is the
+  // server's own arithmetic over the server's own lines — the browser's
+  // preview of it is never read.
   let promo = null;
+  let reward = null;
   let discount = 0;
   let freeShipPromo = false;
+  const contactForReward = (customer.email || "").trim() || (customer.phone || "").trim();
   if (promoCode && String(promoCode).trim()) {
-    promo = await db.prepare("SELECT * FROM promos WHERE code=?").bind(String(promoCode).trim().toUpperCase()).first();
-    if (!promoIsActive(promo)) return c.json({ error: promoRefusal(promo) }, 400);
-    discount = computeDiscount(promo, lines);
-    freeShipPromo = promo.kind === "ship";
+    const clean = String(promoCode).trim().toUpperCase();
+    promo = await db.prepare("SELECT * FROM promos WHERE code=?").bind(clean).first();
+    if (promo) {
+      if (!promoIsActive(promo)) return c.json({ error: promoRefusal(promo) }, 400);
+      discount = computeDiscount(promo, lines);
+      freeShipPromo = promo.kind === "ship";
+    } else {
+      reward = await getReward(db, clean);
+      // A reward is bound to the contact it was issued to, and here — unlike at
+      // validate time — that contact is known, so the check is the real one.
+      const refusal = rewardRefusal(reward, { contact: contactForReward, subtotal });
+      if (refusal) return c.json({ error: refusal }, 400);
+      const worth = computeRewardDiscount(reward, lines);
+      if (worth.reason) return c.json({ error: worth.reason }, 400);
+      discount = worth.discount;
+      freeShipPromo = worth.freeShip;
+    }
   }
 
   // The plan is recomputed here rather than trusted from the client, so the
@@ -486,6 +532,15 @@ shop.post("/orders", async (c) => {
   for (const s of plan.shipments) for (const i of s.items) lineLocation.set(i.variantId, s.locationId);
 
   const no = await nextOrderNo(db);
+
+  // Spend the reward *before* the order is written. The claim is a conditional
+  // UPDATE, so when two checkouts race on one code the database picks the
+  // winner and the loser is refused — rather than both being given a discount
+  // and the second UPDATE quietly changing nothing.
+  if (reward && !(await claimReward(db, reward.code, no))) {
+    return c.json({ error: "That reward has already been used." }, 400);
+  }
+
   const payLabels = PAY_METHODS;
   const method = fulfill === "collect" ? "Click & collect" : "Delivery";
   const now = new Date();
@@ -493,12 +548,13 @@ shop.post("/orders", async (c) => {
   const statements = [
     db.prepare(
       `INSERT INTO orders (no, customer, phone, email, city, address, fulfilled_from, method, pay, pay_status, status,
-        promo_code, subtotal, discount, shipping, total, all_in_city, placed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'Processing', ?, ?, ?, ?, ?, ?, datetime('now'))`
+        promo_code, reward_code, subtotal, discount, shipping, total, all_in_city, placed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'Processing', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
     ).bind(
       no, customer.name.trim(), customer.phone.trim(), (customer.email || "").trim(), city,
       (customer.address || "").trim(), loc, method, payLabels[pay] || "Paystack",
-      promo ? promo.code : null, subtotal, discount, shipping, total, allInCity ? 1 : 0
+      promo ? promo.code : null, reward ? reward.code : null,
+      subtotal, discount, shipping, total, allInCity ? 1 : 0
     ),
   ];
   for (const s of plan.shipments) {
@@ -542,7 +598,15 @@ shop.post("/orders", async (c) => {
   if (contactKey) {
     statements.push(db.prepare("UPDATE abandoned_checkouts SET converted=1, updated_at=datetime('now') WHERE contact_key=?").bind(contactKey));
   }
-  await db.batch(statements);
+  try {
+    await db.batch(statements);
+  } catch (e) {
+    // The code is already spent but the order it was spent on does not exist.
+    // Put it back — scoped to this order number, so a code another checkout
+    // has legitimately taken in the meantime is never resurrected.
+    if (reward) await releaseReward(db, reward.code, no);
+    throw e;
+  }
 
   await emitEvent(c.env, "order_placed", {
     entity: no,
@@ -636,8 +700,16 @@ shop.get("/orders/track", async (c) => {
     `SELECT s.location_id, s.ship_ngn, s.eta FROM order_shipments s WHERE s.order_no=? ORDER BY s.sort, s.id`
   ).bind(no).all()).results;
   const unpaid = order.pay_status === "pending" || order.pay_status === "failed";
+  // A reward this order earned. It exists only once the order is paid for, so
+  // the tracking page is where a bank-transfer customer finds theirs — the
+  // confirmation screen came and went before the money landed.
+  const earned = await db
+    .prepare("SELECT code, descr, expires_at FROM reward_codes WHERE earned_order_no=? AND status='Active'")
+    .bind(no)
+    .first();
   return c.json({
     no: order.no,
+    reward: earned ? { code: earned.code, desc: earned.descr, expiresAt: earned.expires_at || "" } : null,
     status: unpaid && order.status === "Processing" ? "Awaiting payment" : order.status,
     placed: displayDate(new Date(order.placed_at.replace(" ", "T") + "Z")),
     total: order.total,

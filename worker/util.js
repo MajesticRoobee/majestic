@@ -118,6 +118,29 @@ export function otpauthUri(secret, label, issuer = "Majestic Roobee") {
   return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(label)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&period=30&digits=6`;
 }
 
+// The category groups a promo or a reward can be scoped to.
+//
+// One list, shared: a reward must never be able to name a scope a promo can't,
+// or the admin would be offering two different meanings of "Fragrances".
+// Anything outside these groups is written Storewide.
+export const SCOPE_CATS = {
+  Storewide: null,
+  Fragrances: ["perfumes", "perfume-oils", "designer", "custom-oil", "mist"],
+  "Gift packages": ["fragrance-set", "mist-set", "custom-oil-set", "gift-set"],
+  "Feminine care": ["care", "deo"],
+};
+
+/** The category ids a scope covers — null meaning "no category filter". */
+export function scopeCats(scope) {
+  return SCOPE_CATS[scope] ?? null;
+}
+
+/** Is this line (by its category) inside that scope? */
+export function inScope(scope, cat) {
+  const cats = scopeCats(scope);
+  return !cats || cats.includes(cat);
+}
+
 export function normalizeContact(s) {
   return String(s || "").toLowerCase().replace(/[\s\-()]/g, "");
 }

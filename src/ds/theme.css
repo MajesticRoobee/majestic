@@ -134,3 +134,23 @@ a:hover { color: var(--mr-orchid-500); }
 .mr-lift:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
 .mr-bar { transition: background var(--dur-fast) var(--ease-standard); }
 .mr-bar:hover { background: var(--mr-orchid-500) !important; }
+
+/* The announcement bar's scrolling line. The message is laid out twice inside
+   the track, so translating the track exactly half its width loops seamlessly.
+   A shopper who has asked their system for less motion gets the message
+   standing still instead. */
+.mr-marquee { overflow: hidden; }
+.mr-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: mr-marquee 38s linear infinite;
+}
+.mr-marquee:hover .mr-marquee-track { animation-play-state: paused; }
+@keyframes mr-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mr-marquee-track { animation: none; width: 100%; justify-content: center; }
+  .mr-marquee-track > :nth-child(n+2) { display: none; }
+}

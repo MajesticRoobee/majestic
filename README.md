@@ -143,6 +143,65 @@ cascading — move them, or hide it.
 is something they *see*. A deal names its products, carries a badge and runs
 between two dates, so it leaves the storefront by itself when the window closes.
 
+## Reward codes
+
+A **promo** is a public sale: one code, printed on a flyer, used by everybody.
+A **reward** is the opposite — **one code, one person, one use** — so it lives
+in its own table (`reward_codes`) with its own engine (`worker/rewards.js`).
+Checkout has one code box; the server reads the promos table first and rewards
+second, and `mintCode` never issues a reward that collides with a sale code.
+
+A reward can be worth more than a promo can: as well as `pct`, `amt` and `ship`,
+it can be `item` — **one product free**. That is not a zero-priced line on the
+order: the shopper puts the product in their cart and the reward takes its unit
+price off as a discount, so stock, packing and the order total all behave
+normally. A free-product reward either names a size (and is refused, by name,
+if that size isn't in the cart) or names none, in which case it takes the
+cheapest thing its scope covers.
+
+**How a code comes to exist**
+
+| Route | When | Where |
+| --- | --- | --- |
+| Earned | An order is **paid for** — a Paystack settlement or a transfer a manager confirms | `markPaid()` → `issueEarnedReward()` |
+| Issued | A giveaway, an apology, an influencer — one code or up to 200 at a time | Admin → Rewards |
+
+Earning runs off settings, not code, so the rule changes without a deploy:
+`rewardsOn`, `rewardEarnKind`, `rewardEarnValue`, `rewardEarnMinSpend`,
+`rewardEarnScope`, `rewardEarnExpiryDays`, `rewardCodePrefix`. It is issued at
+**payment**, not at checkout, because an order that was placed and never paid
+for has earned nothing — and it is idempotent on the order number, because
+`markPaid` is deliberately racy (the redirect leg and the webhook both call it).
+
+**The three rules, and what enforces them**
+
+- *One code* — `mintCode` draws from an alphabet with no `O/0`, `I/1` or `S/5`,
+  and checks both tables before returning.
+- *One person* — `owner_key` is the normalised contact it was issued to, checked
+  against the contact on the order. A code with no owner is a bearer code, which
+  is what a giveaway wants. The check is soft at validate time (the shopper may
+  not have typed their email yet) and hard when the order is placed.
+- *One use* — the code is claimed with a **conditional UPDATE before the order is
+  written**, so two checkouts racing on one code are settled by the database
+  rather than by whichever request commits last. If the order write then fails,
+  the claim is released — scoped to that order number, so a code another
+  checkout has legitimately taken is never resurrected. (This is why
+  `redeemed_order_no` is deliberately not a foreign key: the claim happens in
+  the instant before the order it names exists.)
+
+**Endpoints**
+
+```
+POST /api/promos/validate      { code, items, contact? }  → promo or reward, with its worth
+POST /api/orders               { ..., promo: "<code>" }    → resolves either, redeems a reward
+GET  /api/orders/track         → the reward that order earned, once it is paid
+GET  /api/account/me           → the signed-in customer's own codes
+GET  /api/admin/rewards        → the ledger, the totals and the earning rule
+POST /api/admin/rewards        → mint (super admin)
+POST /api/admin/rewards/:code/void | /restore
+GET  /api/v1/rewards           → read-only, for a CRM or loyalty dashboard
+```
+
 ## Wishlist, journal, reviews and purchase notes
 
 - **Wishlist** — guest-first. Saving something never demands an account: the
@@ -213,7 +272,8 @@ Behaviour worth knowing:
 
 ```
 migrations/        D1 schema + seed
-worker/            Hono API (shop.js public, admin.js authed, util.js helpers)
+worker/            Hono API (shop.js public, admin.js authed, util.js helpers,
+                   rewards.js reward codes, payments.js Paystack settlement)
 src/ds/            Design system (tokens + components ported from the handoff)
 src/storefront/    Storefront SPA
 src/admin/         Admin SPA

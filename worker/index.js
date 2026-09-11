@@ -64,11 +64,17 @@ app.get("/robots.txt", (c) => {
 
 app.get("/sitemap.xml", async (c) => {
   const origin = new URL(c.req.url).origin;
-  // Every shelf the header links to is a real, indexable page of its own.
+  // Every page the header and footer link to is a real, indexable page of its
+  // own. Category pages are listed from the live tree below.
   const staticUrls = [
     "/", "/shop", "/new-arrivals", "/best-sellers", "/deals", "/gift-sets",
-    "/locations", "/reviews", "/blog", "/about", "/track", "/contact",
+    "/locations", "/reviews", "/blog", "/about", "/faq", "/track", "/contact",
   ];
+  let catUrls = [];
+  try {
+    const rows = (await c.env.DB.prepare("SELECT id FROM categories WHERE live = 1 ORDER BY sort, id").all()).results;
+    catUrls = rows.map((r) => `/shop?category=${encodeURIComponent(r.id)}`);
+  } catch {}
   let productUrls = [];
   try {
     // One entry per variation on products that have a choice, since each
@@ -87,7 +93,7 @@ app.get("/sitemap.xml", async (c) => {
     const rows = (await c.env.DB.prepare("SELECT slug FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC").all()).results;
     postUrls = rows.map((r) => `/blog/${r.slug}`);
   } catch {}
-  const urls = staticUrls.concat(productUrls, postUrls);
+  const urls = staticUrls.concat(catUrls, productUrls, postUrls);
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
@@ -98,7 +104,7 @@ app.get("/sitemap.xml", async (c) => {
 
 app.onError((err, c) => {
   console.error(err);
-  if (c.req.path.startsWith("/api/")) return c.json({ error: "Something went wrong — the house has been notified." }, 500);
+  if (c.req.path.startsWith("/api/")) return c.json({ error: "Something went wrong. We've been notified." }, 500);
   return c.text("Internal error", 500);
 });
 

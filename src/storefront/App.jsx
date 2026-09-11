@@ -4,7 +4,7 @@ import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import {
   HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage,
-  WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage,
+  WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, FaqPage,
 } from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
@@ -13,7 +13,7 @@ import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./a
 
 const SCOPE_CATS = {
   Storewide: null,
-  Fragrances: ["extrait", "designer", "custom-oil", "mist"],
+  Fragrances: ["perfumes", "perfume-oils", "designer", "custom-oil", "mist"],
   "Gift packages": ["fragrance-set", "mist-set", "custom-oil-set", "gift-set"],
   "Feminine care": ["care", "deo"],
 };
@@ -67,7 +67,7 @@ export default function App() {
   const [track, setTrack] = useState({ no: "", contact: "", order: null, err: "" });
   const [cf, setCf] = useState({ name: "", email: "", msg: "" });
   const [contactSent, setContactSent] = useState(false);
-  const [chat, setChat] = useState({ open: false, val: "", inquiryId: null, key: null, msgs: [{ from: "us", text: "Welcome to the house — how can we help today?" }] });
+  const [chat, setChat] = useState({ open: false, val: "", inquiryId: null, key: null, msgs: [{ from: "us", text: "Hi! How can we help you today?" }] });
   const [popup, setPopup] = useState(false);
   const [plEmail, setPlEmail] = useState("");
   const [plDone, setPlDone] = useState(false);
@@ -75,7 +75,7 @@ export default function App() {
   const [cust, setCust] = useState(null);
   // Present only when the shopper arrived from a password-reset email.
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get("reset") || "");
-  const [custData, setCustData] = useState({ addresses: [], wishlist: [], orders: [] });
+  const [custData, setCustData] = useState({ addresses: [], wishlist: [], orders: [], rewards: [] });
   // A shopper can save things long before they make an account, so the wishlist
   // starts in their browser and is handed to the server the moment they sign in.
   const [guestWish, setGuestWish] = useState(() => {
@@ -86,7 +86,7 @@ export default function App() {
   const [post, setPost] = useState(null);
   const [blogTag, setBlogTag] = useState("");
   // Real, paid purchases, shown to the next shopper. Fetched once — this is a
-  // note about what the house has been selling, not a live feed to poll.
+  // note about what the store has been selling, not a live feed to poll.
   const [proof, setProof] = useState({ enabled: false, purchases: [], intervalMs: 14000 });
   const w = useWindowWidth();
   const isMobile = w < 860;
@@ -291,7 +291,7 @@ export default function App() {
   const segments = useMemo(() => (D ? (D.segments || EMPTY_OBJ) : EMPTY_OBJ), [D]);
   const deals = useMemo(() => (D ? (D.deals || EMPTY_ARR) : EMPTY_ARR), [D]);
   // The countdown card at the top of the home page — the server resolves which
-  // piece it is and at what price, having already applied that price to the
+  // product it is and at what price, having already applied that price to the
   // catalogue above, so nothing here re-derives it.
   const dailyDeal = useMemo(() => (D ? (D.dailyDeal || null) : null), [D]);
   const brands = useMemo(() => (D ? (D.brands || EMPTY_ARR) : EMPTY_ARR), [D]);
@@ -437,7 +437,7 @@ export default function App() {
       const inCity = stockAt(v, city) >= c.qty;
       if (!inCity) allInCity = false;
       sub += v.ngn * c.qty;
-      lines.push({ cat: p.cat, lineTotal: v.ngn * c.qty });
+      lines.push({ cat: p.cat, unit: v.ngn, variantId: v.id, lineTotal: v.ngn * c.qty });
       const alt = inCity ? null : bestAlt(v);
       return {
         key: "v" + v.id, id: c.id, variantId: v.id, name: p.name, size: v.size, qty: c.qty,
@@ -459,12 +459,25 @@ export default function App() {
       ship = allInCity ? (L ? L.shipNGN : 2500) : (settings.crossCityShipNGN ?? 4500);
       if (city === (settings.freeShipCity ?? "abuja") && sub >= (settings.freeShipAbujaOver ?? 100000) && allInCity) ship = 0;
     }
+    // A preview of the code's worth, recomputed as the cart changes so the
+    // summary never quotes a discount for a cart that has moved on. The server
+    // does this arithmetic again at checkout and its answer is the one charged.
     let discount = 0;
     if (promoInfo) {
       const cats = SCOPE_CATS[promoInfo.scopeName] ?? null;
-      const eligible = lines.filter((l) => !cats || cats.includes(l.cat)).reduce((n, l) => n + l.lineTotal, 0);
-      if (promoInfo.kind === "pct") discount = Math.round((eligible * promoInfo.value) / 100);
-      else if (promoInfo.kind === "amt") discount = Math.min(promoInfo.value, eligible);
+      const inScope = lines.filter((l) => !cats || cats.includes(l.cat));
+      if (promoInfo.kind === "item") {
+        // A reward for a free product: one unit of the size it names, or of the
+        // cheapest qualifying thing in the cart when it names none.
+        const hit = promoInfo.freeVariantId
+          ? inScope.find((l) => Number(l.variantId) === Number(promoInfo.freeVariantId))
+          : inScope.reduce((a, b) => (!a || b.unit < a.unit ? b : a), null);
+        discount = hit ? hit.unit : 0;
+      } else {
+        const eligible = inScope.reduce((n, l) => n + l.lineTotal, 0);
+        if (promoInfo.kind === "pct") discount = Math.round((eligible * promoInfo.value) / 100);
+        else if (promoInfo.kind === "amt") discount = Math.min(promoInfo.value, eligible);
+      }
       if (promoInfo.freeShip) ship = 0;
     }
     return { items, sub, ship, allInCity, discount, total: sub - discount + ship };
@@ -531,6 +544,7 @@ export default function App() {
     setHead(headFor({
       page, product, variant, settings, categories,
       segment: fSeg,
+      category: page === "shop" && fCat && fCat !== "all" ? fCat : "",
       brand: fBrand ? (brands.find((b) => b.id === fBrand) || { name: fBrand }).name : "",
       post: post && post.post ? post.post : null,
     }));
@@ -539,7 +553,7 @@ export default function App() {
     if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
     if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fBrand, post]);
+  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fCat, fBrand, post]);
 
   // Prefill checkout for a signed-in customer, once per visit to the page.
   const prefilled = useRef(false);
@@ -558,23 +572,36 @@ export default function App() {
     }
   }, [page, cust, custData]);
 
+  // One box, two kinds of code: a public sale code, or a personal reward. The
+  // server decides which it is — and, when it refuses, says why in a sentence
+  // worth repeating, so "that reward was issued to a different email" reaches
+  // the shopper instead of a flat "invalid".
   const applyPromo = useCallback(async () => {
     const code = co.promo.trim().toUpperCase();
     if (!code) return;
     try {
-      const r = await api.post("/api/promos/validate", { code, items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })) });
+      const r = await api.post("/api/promos/validate", {
+        code,
+        // Sent so a reward bound to somebody else is refused now, while the
+        // shopper can still do something about it, rather than at the end.
+        contact: co.email.trim() || co.phone.trim(),
+        items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })),
+      });
       if (r.valid) {
-        setPromoInfo({ code: r.code, kind: r.kind, value: r.value, scopeName: scopeNameOf(r), freeShip: r.freeShip });
-        setPromoMsg(r.code + " applied — " + r.desc + ", quietly.");
+        setPromoInfo({
+          code: r.code, kind: r.kind, value: r.value, scopeName: scopeNameOf(r),
+          freeShip: r.freeShip, freeVariantId: r.freeVariantId || null, type: r.type || "promo",
+        });
+        setPromoMsg(`${r.code} applied — ${r.desc}.`);
       } else {
         setPromoInfo(null);
-        setPromoMsg("That code isn't active right now.");
+        setPromoMsg(r.reason || "That code isn't active right now.");
       }
-    } catch {
+    } catch (e) {
       setPromoInfo(null);
-      setPromoMsg("That code isn't active right now.");
+      setPromoMsg(e.message || "That code isn't active right now.");
     }
-  }, [co.promo, cart]);
+  }, [co.promo, co.email, co.phone, cart]);
 
   // Shoppers can take the promo back off — it is their cart.
   const clearPromo = useCallback(() => {
@@ -712,6 +739,15 @@ export default function App() {
     api.post("/api/leads", { email: plEmail, source: "popup" }).catch(() => {});
   }, [plEmail]);
 
+  // The same list the pop-up feeds, joined from anywhere else on the store —
+  // the newsletter block on the homepage today. The source is recorded so the
+  // house can see which one people actually use.
+  const joinList = useCallback((email, source) => {
+    if (!String(email).includes("@")) return false;
+    api.post("/api/leads", { email, source }).catch(() => {});
+    return true;
+  }, []);
+
   const ctx = {
     D, settings, locations, products, categories, page, nav, isMobile,
     city, cityName, L,
@@ -727,7 +763,7 @@ export default function App() {
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
     blog, blogTag, setBlogTag, post, postSlug,
-    proof,
+    proof, joinList,
     plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
@@ -753,6 +789,7 @@ export default function App() {
     page === "confirm" ? <ConfirmPage ctx={ctx} /> :
     page === "track" ? <TrackPage ctx={ctx} /> :
     page === "contact" ? <ContactPage ctx={ctx} /> :
+    page === "faq" ? <FaqPage ctx={ctx} /> :
     page === "privacy" ? <PrivacyPage ctx={ctx} /> :
     page === "account" ? <AccountPage ctx={ctx} /> :
     page === "wishlist" ? <WishlistPage ctx={ctx} /> :
