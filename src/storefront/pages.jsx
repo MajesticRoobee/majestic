@@ -73,8 +73,8 @@ function CtaBand({ title, lines, cta, onClick, dark = false }) {
 // How the rewards work, in the four steps the client wrote.
 const REWARD_STEPS = [
   { step: "Shop", copy: "Purchase your favourite Majestic Roobee products." },
-  { step: "Earn", copy: "Collect points with every qualifying purchase." },
-  { step: "Redeem", copy: "Turn your points into rewards." },
+  { step: "Earn", copy: "A reward code lands with every qualifying purchase." },
+  { step: "Redeem", copy: "Enter it at checkout on your next order." },
   { step: "Enjoy", copy: "Come back for more of the scents you love." },
 ];
 
@@ -353,11 +353,11 @@ export function HomePage({ ctx }) {
         </div>
       </section>
 
-      {/* Rewards. The points themselves are not built yet — this section says
-          what the programme is, and the button sends people to the shop. */}
+      {/* Rewards. A qualifying purchase earns a single-use code, issued the
+          moment the order is paid for — see `worker/rewards.js`. */}
       <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
         <SectionHead centred eyebrow="Rewards" title="The more you shop, the more you earn"
-          sub="Every qualifying purchase earns you points that you can redeem for rewards on future orders." />
+          sub="Every qualifying purchase earns you a reward code you can spend on your next order." />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 14 }}>
           {REWARD_STEPS.map((r, i) => (
             <div key={r.step} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 22px 24px" }}>
@@ -989,20 +989,20 @@ function OrderSummary({ ctx, showPay }) {
 
       <div style={{ display: "flex", gap: 8 }}>
         <input value={co.promo} onChange={(e) => setCo({ ...co, promo: e.target.value.toUpperCase() })}
-          onKeyDown={(e) => e.key === "Enter" && ctx.applyPromo()} placeholder="Promo code" aria-label="Promo code"
+          onKeyDown={(e) => e.key === "Enter" && ctx.applyPromo()} placeholder="Promo or reward code" aria-label="Promo or reward code"
           style={{ flex: 1, minWidth: 0, fontFamily: "var(--font-sans)", fontSize: 13, padding: "10px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", textTransform: "uppercase", color: "var(--text-strong)", background: "var(--surface-card)" }} />
         <Button variant="secondary" size="sm" onClick={ctx.applyPromo}>Apply</Button>
       </div>
       {ctx.promoMsg && (
         <div style={{ fontSize: 12.5, marginTop: -8, display: "flex", gap: 8, color: ctx.promoInfo ? "var(--accent-gold-ink)" : "#c0587a" }}>
           <span style={{ flex: 1 }}>{ctx.promoMsg}</span>
-          {ctx.promoInfo && <button onClick={ctx.clearPromo} aria-label="Remove promo code" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1 }}>✕</button>}
+          {ctx.promoInfo && <button onClick={ctx.clearPromo} aria-label="Remove this code" style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: 14, lineHeight: 1 }}>✕</button>}
         </div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13.5, borderTop: "1px solid var(--border-hairline)", paddingTop: 15 }}>
         {row("Subtotal", ctx.fmt(cc.sub))}
-        {cc.discount > 0 && row(ctx.promoInfo ? ctx.promoInfo.code : "Promo", "−" + ctx.fmt(cc.discount), "var(--accent-gold-ink)")}
+        {cc.discount > 0 && row(ctx.promoInfo ? ctx.promoInfo.code : "Discount", "−" + ctx.fmt(cc.discount), "var(--accent-gold-ink)")}
         {row(
           co.fulfill === "collect" ? "Collection" : split ? `Delivery (${plan.deliveries.length})` : "Delivery",
           ctx.planning && !plan ? "—" : cc.ship === 0 ? "Free" : ctx.fmt(cc.ship)
@@ -1284,6 +1284,19 @@ export function TrackPage({ ctx }) {
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 22 }}>
             Placed {o.placed} · {ctx.fmt(o.total)}{o.eta ? ` · Arrives ${o.eta}` : ""}
           </div>
+          {/* The reward this purchase earned. It appears here rather than on
+              the confirmation screen because a reward exists only once the
+              money has landed — which, for a transfer, is after the shopper
+              has left the checkout. */}
+          {o.reward && (
+            <div style={{ background: "var(--mr-gold-200)", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-md)", padding: "16px 18px", marginBottom: 22 }}>
+              <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Your reward</div>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--mr-purple-900)", margin: "6px 0 4px", letterSpacing: "0.04em" }}>{o.reward.code}</div>
+              <div style={{ fontSize: 13, color: "var(--mr-gold-600)" }}>
+                {o.reward.desc} on your next order{o.reward.expiresAt ? ` — use it by ${o.reward.expiresAt}` : ""}.
+              </div>
+            </div>
+          )}
           {/* An order that was never paid for is a sale still waiting to happen
               — offer the way to finish it rather than leaving it stranded. */}
           {o.payable && (

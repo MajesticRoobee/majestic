@@ -9,6 +9,8 @@
 // `orders.total` until it comes back, so there is no rounding step in the middle
 // where a naira figure and a kobo figure can drift apart.
 import { emitEvent } from "./events.js";
+import { issueEarnedReward } from "./rewards.js";
+import { getSettings } from "./util.js";
 
 const API = "https://api.paystack.co";
 
@@ -156,11 +158,29 @@ export async function markPaid(env, order, data, source) {
       .bind(order.no)
       .run();
   }
+  // The purchase has earned its reward. Here rather than at checkout, because
+  // an order that was placed and never paid for has earned nothing — and here
+  // rather than in each payment path, because a card settlement and a bank
+  // transfer a manager confirmed both arrive through this one door.
+  //
+  // A reward that cannot be minted must never cost the shop a settlement: the
+  // money is already taken and the order is already paid, so this is logged and
+  // stepped over rather than thrown.
+  let earned = null;
+  try {
+    earned = await issueEarnedReward(db, await getSettings(db), order);
+  } catch (e) {
+    console.error("reward issue failed for " + order.no, e);
+  }
+
   await emitEvent(env, "order_paid", {
     entity: order.no,
     payload: {
       orderNo: order.no, name: order.customer, email: order.email, phone: order.phone,
       contact: order.email || order.phone, total: order.total,
+      // The post-purchase automation can put the code in the email it already
+      // sends, so the customer is told about it without a second message.
+      ...(earned ? { rewardCode: earned.code, rewardDesc: earned.descr, rewardExpires: earned.expiresAt || "" } : {}),
     },
   });
   return true;

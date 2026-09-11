@@ -155,6 +155,32 @@ function Dashboard({ ctx }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Reward codes. Matched on the email and phone this account carries,
+              so a code earned as a guest is here the moment that guest
+              registers with the same address. */}
+          {(custData.rewards || []).length > 0 && (
+            <div style={card}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Your rewards</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 14 }}>Enter one at checkout. Each code works once.</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {custData.rewards.map((r) => (
+                  <div key={r.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "11px 14px", borderRadius: "var(--radius-md)", border: `1px solid ${r.usable ? "var(--mr-gold-400)" : "var(--border-hairline)"}`, background: r.usable ? "var(--mr-gold-200)" : "var(--surface-sunken)", opacity: r.usable ? 1 : 0.7 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: "var(--font-condensed)", fontSize: 15, letterSpacing: "0.06em", color: "var(--mr-purple-900)", wordBreak: "break-all" }}>{r.code}</div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                        {r.desc}
+                        {r.usable && r.expiresAt ? ` · use by ${r.expiresAt}` : ""}
+                        {r.minSpend > 0 && r.usable ? ` · over ${ctx.fmt(r.minSpend)}` : ""}
+                      </div>
+                    </div>
+                    <Badge tone={r.usable ? "gold" : "neutral"}>
+                      {r.status === "Redeemed" ? "Used" : r.status === "Void" ? "Void" : r.expired ? "Expired" : "Ready"}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={card}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 14 }}>Your details</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

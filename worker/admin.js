@@ -10,6 +10,7 @@ import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
 import { putMedia, migrateToR2 } from "./media.js";
+import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -659,6 +660,159 @@ admin.post("/promos/:code/end", async (c) => {
   return c.json({ ok: true });
 });
 
+// ---- Reward codes ----
+//
+// The admin side of `worker/rewards.js`. A promo is a sale; a reward is a
+// single-use code belonging to one person — issued automatically when an order
+// is paid for, or minted here for a giveaway, an apology or an influencer.
+
+admin.get("/rewards", async (c) => {
+  const db = c.env.DB;
+  const q = c.req.query();
+  const where = [];
+  const binds = [];
+  // "Active" here means what a shopper would find: not spent, not voided, and
+  // not past its date. The status column alone would call an expired code
+  // active, which is exactly the confusion this screen exists to avoid.
+  if (q.status === "active") { where.push("status='Active' AND (expires_at IS NULL OR expires_at >= ?)"); binds.push(todayInWAT()); }
+  else if (q.status === "redeemed") where.push("status='Redeemed'");
+  else if (q.status === "void") where.push("status='Void'");
+  else if (q.status === "expired") { where.push("status='Active' AND expires_at IS NOT NULL AND expires_at < ?"); binds.push(todayInWAT()); }
+  if (q.source) { where.push("source=?"); binds.push(String(q.source)); }
+  if (q.owner) { where.push("(owner_key LIKE ? OR owner_email LIKE ? OR owner_name LIKE ?)"); const like = `%${String(q.owner).toLowerCase().trim()}%`; binds.push(like, like, like); }
+  if (q.code) { where.push("code LIKE ?"); binds.push(`%${cleanCode(q.code)}%`); }
+  const limit = Math.min(500, Math.max(1, parseInt(q.limit || "100", 10) || 100));
+  const sql = `SELECT * FROM reward_codes ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY issued_at DESC, rowid DESC LIMIT ${limit}`;
+  const rows = (await db.prepare(sql).bind(...binds).all()).results;
+  const today = todayInWAT();
+
+  const totals = await db.prepare(
+    `SELECT
+       COUNT(*) AS issued,
+       SUM(CASE WHEN status='Active' AND (expires_at IS NULL OR expires_at >= ?) THEN 1 ELSE 0 END) AS active,
+       SUM(CASE WHEN status='Redeemed' THEN 1 ELSE 0 END) AS redeemed,
+       SUM(CASE WHEN status='Active' AND expires_at IS NOT NULL AND expires_at < ? THEN 1 ELSE 0 END) AS expired
+     FROM reward_codes`
+  ).bind(today, today).first();
+
+  // What the rewards have actually cost, which is the number that decides
+  // whether the earning rule is set too generously.
+  const spend = await db.prepare(
+    "SELECT COALESCE(SUM(o.discount), 0) AS n FROM orders o WHERE o.reward_code IS NOT NULL AND o.pay_status='paid'"
+  ).first();
+
+  const settings = await getSettings(c.env.DB);
+  return c.json({
+    rewards: rows.map((r) => rewardOut(r, today)),
+    totals: {
+      issued: totals.issued || 0, active: totals.active || 0,
+      redeemed: totals.redeemed || 0, expired: totals.expired || 0,
+      discountGiven: spend.n || 0,
+    },
+    rule: {
+      on: !!settings.rewardsOn,
+      kind: settings.rewardEarnKind || "pct",
+      value: settings.rewardEarnValue ?? 10,
+      minSpend: settings.rewardEarnMinSpend ?? 0,
+      scope: settings.rewardEarnScope || "Storewide",
+      expiryDays: settings.rewardEarnExpiryDays ?? 90,
+      prefix: settings.rewardCodePrefix || "MR",
+    },
+  });
+});
+
+// Mint one code, or a batch of them for a campaign.
+//
+// `count` exists because a giveaway needs fifty codes that are not fifty
+// separate decisions; it is capped so a typo in the box cannot fill the table.
+admin.post("/rewards", requireSuper, async (c) => {
+  const db = c.env.DB;
+  const b = await c.req.json();
+  const kind = ["pct", "amt", "ship", "item"].includes(b.kind) ? b.kind : "pct";
+  const value = parseInt(b.value, 10) || 0;
+  if ((kind === "pct" || kind === "amt") && value <= 0)
+    return c.json({ error: "A percentage or amount reward needs a value above zero." }, 400);
+  if (kind === "pct" && value > 100) return c.json({ error: "A percentage can't be more than 100." }, 400);
+
+  // A free-product reward may name a size or leave it open ("the cheapest
+  // thing in scope"). What it may not do is name a size that isn't for sale.
+  let freeVariantId = null;
+  if (kind === "item" && b.freeVariantId) {
+    freeVariantId = parseInt(b.freeVariantId, 10) || null;
+    const v = freeVariantId && (await db.prepare("SELECT id FROM variants WHERE id=?").bind(freeVariantId).first());
+    if (!v) return c.json({ error: "That product size no longer exists." }, 400);
+  }
+
+  const count = Math.min(200, Math.max(1, parseInt(b.count, 10) || 1));
+  // One named code is one code by definition — a batch of fifty all called
+  // THANKYOU would collide on the primary key at the second row.
+  if (b.code && count > 1) return c.json({ error: "Naming the code means issuing exactly one." }, 400);
+
+  const who = c.get("admin");
+  const issuedBy = who.name || who.username || `admin #${who.uid}`;
+  const settings = await getSettings(db);
+  const expiresAt = b.expiresAt && /^\d{4}-\d{2}-\d{2}$/.test(b.expiresAt)
+    ? b.expiresAt
+    : expiryFromNow(b.expiryDays ?? settings.rewardEarnExpiryDays ?? 90);
+
+  const base = {
+    kind, value, freeVariantId, scope: b.scope || "Storewide", minSpend: parseInt(b.minSpend, 10) || 0,
+    ownerContact: (b.ownerContact || "").trim(), ownerEmail: (b.ownerEmail || b.ownerContact || "").trim(),
+    ownerName: (b.ownerName || "").trim(), source: "manual", earnedOrderNo: b.orderNo || null,
+    issuedBy, expiresAt, note: (b.note || "").trim(), prefix: b.prefix || settings.rewardCodePrefix || "MR",
+  };
+
+  const issued = [];
+  try {
+    for (let i = 0; i < count; i++) {
+      issued.push(await issueReward(db, { ...base, code: b.code ? cleanCode(b.code) : null }));
+    }
+  } catch (e) {
+    // A named code that is already taken is the common case, and a shrug of a
+    // 500 would leave the admin guessing at why nothing appeared.
+    if (issued.length) return c.json({ ok: true, issued, warning: `Stopped after ${issued.length} — ${String(e.message || e)}` });
+    return c.json({ error: String(e.message || e).includes("UNIQUE") ? "That code is already in use." : "Could not issue the reward." }, 400);
+  }
+  return c.json({ ok: true, issued });
+});
+
+// Withdraw a code that hasn't been spent. A redeemed one is history and stays
+// as it is — rewriting it would make the order that used it unexplainable.
+admin.post("/rewards/:code/void", requireSuper, async (c) => {
+  const code = cleanCode(c.req.param("code"));
+  const r = await c.env.DB
+    .prepare("UPDATE reward_codes SET status='Void' WHERE code=? AND status='Active'")
+    .bind(code)
+    .run();
+  if (!r.meta.changes) {
+    const existing = await getReward(c.env.DB, code);
+    if (!existing) return c.json({ error: "No such reward code." }, 404);
+    return c.json({ error: existing.status === "Redeemed" ? "That reward has already been used." : "That reward is already void." }, 400);
+  }
+  return c.json({ ok: true });
+});
+
+// Put a voided code back into circulation — the undo for the button above.
+admin.post("/rewards/:code/restore", requireSuper, async (c) => {
+  const r = await c.env.DB
+    .prepare("UPDATE reward_codes SET status='Active' WHERE code=? AND status='Void'")
+    .bind(cleanCode(c.req.param("code")))
+    .run();
+  if (!r.meta.changes) return c.json({ error: "Only a voided reward can be restored." }, 400);
+  return c.json({ ok: true });
+});
+
+// The sizes a free-product reward can name, for the picker on the form.
+admin.get("/rewards/variants", async (c) => {
+  const rows = (await c.env.DB.prepare(
+    `SELECT v.id, v.size, v.price_ngn, p.name, p.cat
+       FROM variants v JOIN products p ON p.id = v.product_id
+      WHERE p.live = 1 AND v.active = 1
+      ORDER BY p.name, v.sort, v.id`
+  ).all()).results;
+  return c.json({ variants: rows.map((v) => ({ id: v.id, label: `${v.name} — ${v.size}`, ngn: v.price_ngn, cat: v.cat })) });
+});
+
 admin.get("/campaigns", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT * FROM campaigns ORDER BY created_at DESC").all()).results;
   return c.json({ campaigns: rows.map((x) => ({ id: x.id, name: x.name, type: x.kind, audience: x.audience, status: x.status, stat: x.stat })) });
@@ -800,6 +954,9 @@ admin.put("/settings", async (c) => {
     "promoTileDeals", "promoTileNew", "promoTileSets",
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
+    // Rewards: whether a paid order earns a code, and what that code is worth.
+    "rewardsOn", "rewardEarnKind", "rewardEarnValue", "rewardEarnMinSpend", "rewardEarnScope",
+    "rewardEarnExpiryDays", "rewardCodePrefix",
   ];
   const patch = {};
   for (const k of allowed) if (settings && settings[k] !== undefined) patch[k] = settings[k];
@@ -1682,7 +1839,7 @@ const DEMO_PURGE = {
   orders: ["DELETE FROM orders WHERE seeded = 1"], // order_items / order_events cascade
   inquiries: ["DELETE FROM inquiries WHERE seeded = 1"], // inquiry_messages cascade
   checkouts: ["DELETE FROM abandoned_checkouts WHERE seeded = 1"],
-  marketing: ["DELETE FROM promos WHERE seeded = 1", "DELETE FROM campaigns WHERE seeded = 1"],
+  marketing: ["DELETE FROM promos WHERE seeded = 1", "DELETE FROM campaigns WHERE seeded = 1", "DELETE FROM reward_codes WHERE seeded = 1"],
   products: [
     "DELETE FROM wishlists WHERE product_id IN (SELECT id FROM products WHERE seeded = 1)",
     "DELETE FROM products WHERE seeded = 1", // variants -> stock cascade
@@ -1693,6 +1850,10 @@ const REAL_PURGE = {
   customers: ["DELETE FROM wishlists", "DELETE FROM customer_addresses", "DELETE FROM customers"],
   leads: ["DELETE FROM leads"],
   activity: ["DELETE FROM automation_runs", "DELETE FROM events", "DELETE FROM stock_waitlist"],
+  // Reward codes issued while testing. The orders that spent them let go of
+  // them first — an order carries the code it used as a real reference, and a
+  // delete that left one dangling would fail rather than clear anything.
+  rewards: ["UPDATE orders SET reward_code = NULL", "DELETE FROM reward_codes"],
 };
 
 const PURGE = { ...DEMO_PURGE, ...REAL_PURGE };
@@ -1706,7 +1867,7 @@ admin.get("/data-counts", requireSuper, async (c) => {
       orders: await q("SELECT COUNT(*) AS n FROM orders WHERE seeded = 1"),
       inquiries: await q("SELECT COUNT(*) AS n FROM inquiries WHERE seeded = 1"),
       checkouts: await q("SELECT COUNT(*) AS n FROM abandoned_checkouts WHERE seeded = 1"),
-      marketing: await q("SELECT (SELECT COUNT(*) FROM promos WHERE seeded=1)+(SELECT COUNT(*) FROM campaigns WHERE seeded=1) AS n"),
+      marketing: await q("SELECT (SELECT COUNT(*) FROM promos WHERE seeded=1)+(SELECT COUNT(*) FROM campaigns WHERE seeded=1)+(SELECT COUNT(*) FROM reward_codes WHERE seeded=1) AS n"),
       products: await q("SELECT COUNT(*) AS n FROM products WHERE seeded = 1"),
     },
     real: {
@@ -1714,6 +1875,7 @@ admin.get("/data-counts", requireSuper, async (c) => {
       inquiries: await q("SELECT COUNT(*) AS n FROM inquiries WHERE seeded = 0"),
       checkouts: await q("SELECT COUNT(*) AS n FROM abandoned_checkouts WHERE seeded = 0"),
       marketing: await q("SELECT (SELECT COUNT(*) FROM promos WHERE seeded=0)+(SELECT COUNT(*) FROM campaigns WHERE seeded=0) AS n"),
+      rewards: await q("SELECT COUNT(*) AS n FROM reward_codes"),
       products: await q("SELECT COUNT(*) AS n FROM products WHERE seeded = 0"),
       customers: await q("SELECT COUNT(*) AS n FROM customers"),
       leads: await q("SELECT COUNT(*) AS n FROM leads"),

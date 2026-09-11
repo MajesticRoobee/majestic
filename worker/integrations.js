@@ -2,7 +2,8 @@
 // and an MCP-compatible JSON-RPC endpoint (/api/mcp) exposing store data as
 // tools to AI agents and external automation.
 import { Hono } from "hono";
-import { sha256hex, loadProducts, displayDate, optionLabel, makeSku, locationIds } from "./util.js";
+import { sha256hex, loadProducts, displayDate, optionLabel, makeSku, locationIds, todayInWAT } from "./util.js";
+import { rewardOut } from "./rewards.js";
 
 // ---- shared API-key auth ----
 async function authKey(env, req, ctx) {
@@ -335,6 +336,19 @@ v1.get("/orders/:no", async (c) => { const o = await readOrder(c.env, c.req.para
 v1.get("/customers", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT id, email, name, phone, city, created_at FROM customers ORDER BY created_at DESC LIMIT 100").all()).results;
   return c.json({ customers: rows });
+});
+
+// Reward codes, for a CRM or a loyalty dashboard that wants to see what has
+// been issued and what has been spent. Read-only: minting belongs to the admin,
+// where there is a person to attribute it to.
+v1.get("/rewards", async (c) => {
+  const limit = Math.min(500, Math.max(1, parseInt(c.req.query("limit") || "100", 10) || 100));
+  const status = c.req.query("status");
+  const where = status ? "WHERE status=?" : "";
+  const st = c.env.DB.prepare(`SELECT * FROM reward_codes ${where} ORDER BY issued_at DESC LIMIT ${limit}`);
+  const rows = (await (status ? st.bind(status) : st).all()).results;
+  const today = todayInWAT();
+  return c.json({ rewards: rows.map((r) => rewardOut(r, today)) });
 });
 
 // ---- MCP tools ----

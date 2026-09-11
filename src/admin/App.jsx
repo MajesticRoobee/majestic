@@ -4,7 +4,7 @@ import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue, CollectionsPage } from "./pages-ops.jsx";
 import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage } from "./pages-content.jsx";
 import { DailyDealsPage } from "./daily-deals.jsx";
-import { Sales, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
+import { Sales, Rewards, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
 import { GoLivePage } from "./golive.jsx";
@@ -51,6 +51,7 @@ const PAGES = [
   { id: "blog", label: "Blog", title: "The blog" },
   { id: "reviews", label: "Reviews", title: "Reviews & testimonials" },
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
+  { id: "rewards", label: "Rewards", title: "Reward codes" },
   { id: "notif", label: "Notifications", title: "Notifications & pop-ups" },
   { id: "inq", label: "Customer Service", title: "Customer service" },
   { id: "integrations", label: "Integrations", title: "Integrations & automations", super: true },
@@ -362,6 +363,7 @@ export default function App() {
         {activePage === "blog" && <BlogPage ctx={ctx} />}
         {activePage === "reviews" && <TestimonialsPage ctx={ctx} />}
         {activePage === "sales" && <Sales ctx={ctx} />}
+        {activePage === "rewards" && <Rewards ctx={ctx} />}
         {activePage === "notif" && <Notifications ctx={ctx} />}
         {activePage === "inq" && <Inquiries ctx={ctx} />}
         {activePage === "integrations" && <IntegrationsPage ctx={ctx} />}

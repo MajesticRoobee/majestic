@@ -22,6 +22,7 @@ const REAL_SCOPES = [
   { id: "customers", label: "Customer accounts", desc: "Real accounts, saved addresses and wishlists." },
   { id: "leads", label: "Email list", desc: "Real newsletter and marketing sign-ups." },
   { id: "activity", label: "Activity & automation runs", desc: "Event log, queued automation messages, back-in-stock waitlists." },
+  { id: "rewards", label: "Reward codes", desc: "Every reward code issued so far, earned or minted. Orders keep their totals; they simply stop naming the code." },
 ];
 
 export function GoLivePage({ ctx }) {

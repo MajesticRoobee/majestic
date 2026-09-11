@@ -75,7 +75,7 @@ export default function App() {
   const [cust, setCust] = useState(null);
   // Present only when the shopper arrived from a password-reset email.
   const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.search).get("reset") || "");
-  const [custData, setCustData] = useState({ addresses: [], wishlist: [], orders: [] });
+  const [custData, setCustData] = useState({ addresses: [], wishlist: [], orders: [], rewards: [] });
   // A shopper can save things long before they make an account, so the wishlist
   // starts in their browser and is handed to the server the moment they sign in.
   const [guestWish, setGuestWish] = useState(() => {
@@ -437,7 +437,7 @@ export default function App() {
       const inCity = stockAt(v, city) >= c.qty;
       if (!inCity) allInCity = false;
       sub += v.ngn * c.qty;
-      lines.push({ cat: p.cat, lineTotal: v.ngn * c.qty });
+      lines.push({ cat: p.cat, unit: v.ngn, variantId: v.id, lineTotal: v.ngn * c.qty });
       const alt = inCity ? null : bestAlt(v);
       return {
         key: "v" + v.id, id: c.id, variantId: v.id, name: p.name, size: v.size, qty: c.qty,
@@ -459,12 +459,25 @@ export default function App() {
       ship = allInCity ? (L ? L.shipNGN : 2500) : (settings.crossCityShipNGN ?? 4500);
       if (city === (settings.freeShipCity ?? "abuja") && sub >= (settings.freeShipAbujaOver ?? 100000) && allInCity) ship = 0;
     }
+    // A preview of the code's worth, recomputed as the cart changes so the
+    // summary never quotes a discount for a cart that has moved on. The server
+    // does this arithmetic again at checkout and its answer is the one charged.
     let discount = 0;
     if (promoInfo) {
       const cats = SCOPE_CATS[promoInfo.scopeName] ?? null;
-      const eligible = lines.filter((l) => !cats || cats.includes(l.cat)).reduce((n, l) => n + l.lineTotal, 0);
-      if (promoInfo.kind === "pct") discount = Math.round((eligible * promoInfo.value) / 100);
-      else if (promoInfo.kind === "amt") discount = Math.min(promoInfo.value, eligible);
+      const inScope = lines.filter((l) => !cats || cats.includes(l.cat));
+      if (promoInfo.kind === "item") {
+        // A reward for a free product: one unit of the size it names, or of the
+        // cheapest qualifying thing in the cart when it names none.
+        const hit = promoInfo.freeVariantId
+          ? inScope.find((l) => Number(l.variantId) === Number(promoInfo.freeVariantId))
+          : inScope.reduce((a, b) => (!a || b.unit < a.unit ? b : a), null);
+        discount = hit ? hit.unit : 0;
+      } else {
+        const eligible = inScope.reduce((n, l) => n + l.lineTotal, 0);
+        if (promoInfo.kind === "pct") discount = Math.round((eligible * promoInfo.value) / 100);
+        else if (promoInfo.kind === "amt") discount = Math.min(promoInfo.value, eligible);
+      }
       if (promoInfo.freeShip) ship = 0;
     }
     return { items, sub, ship, allInCity, discount, total: sub - discount + ship };
@@ -559,23 +572,36 @@ export default function App() {
     }
   }, [page, cust, custData]);
 
+  // One box, two kinds of code: a public sale code, or a personal reward. The
+  // server decides which it is — and, when it refuses, says why in a sentence
+  // worth repeating, so "that reward was issued to a different email" reaches
+  // the shopper instead of a flat "invalid".
   const applyPromo = useCallback(async () => {
     const code = co.promo.trim().toUpperCase();
     if (!code) return;
     try {
-      const r = await api.post("/api/promos/validate", { code, items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })) });
+      const r = await api.post("/api/promos/validate", {
+        code,
+        // Sent so a reward bound to somebody else is refused now, while the
+        // shopper can still do something about it, rather than at the end.
+        contact: co.email.trim() || co.phone.trim(),
+        items: cart.map((c) => ({ productId: c.id, variantId: c.variantId, sku: c.sku, size: c.size, qty: c.qty })),
+      });
       if (r.valid) {
-        setPromoInfo({ code: r.code, kind: r.kind, value: r.value, scopeName: scopeNameOf(r), freeShip: r.freeShip });
-        setPromoMsg(r.code + " applied — " + r.desc + ", quietly.");
+        setPromoInfo({
+          code: r.code, kind: r.kind, value: r.value, scopeName: scopeNameOf(r),
+          freeShip: r.freeShip, freeVariantId: r.freeVariantId || null, type: r.type || "promo",
+        });
+        setPromoMsg(`${r.code} applied — ${r.desc}.`);
       } else {
         setPromoInfo(null);
-        setPromoMsg("That code isn't active right now.");
+        setPromoMsg(r.reason || "That code isn't active right now.");
       }
-    } catch {
+    } catch (e) {
       setPromoInfo(null);
-      setPromoMsg("That code isn't active right now.");
+      setPromoMsg(e.message || "That code isn't active right now.");
     }
-  }, [co.promo, cart]);
+  }, [co.promo, co.email, co.phone, cart]);
 
   // Shoppers can take the promo back off — it is their cart.
   const clearPromo = useCallback(() => {

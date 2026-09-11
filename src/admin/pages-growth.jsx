@@ -1,5 +1,5 @@
-// Admin — Sales & promos, Notifications, Customer service, Settings.
-import React, { useEffect, useRef, useState } from "react";
+// Admin — Sales & promos, Rewards, Notifications, Customer service, Settings.
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
 import { fmtN, statusBadge } from "./App.jsx";
@@ -103,6 +103,293 @@ export function Sales({ ctx }) {
                   <div style={{ ...cell, padding: "11px 22px 11px 14px" }}>
                     {!ended && (
                       <button onClick={() => endPromo(p.code)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0 }}>End now</button>
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+// ---- Rewards -------------------------------------------------------------
+//
+// A sale is a code everybody uses; a reward is a code one person uses once.
+// This screen owns the second kind: the rule that decides what a purchase
+// earns, a form for minting codes by hand, and the ledger of what has been
+// issued and spent.
+
+const REWARD_SCOPES = [
+  { id: "Storewide", label: "Storewide" },
+  { id: "Fragrances", label: "All fragrances" },
+  { id: "Gift packages", label: "Gift packages" },
+  { id: "Feminine care", label: "Feminine care" },
+];
+
+const BLANK_MINT = {
+  kind: "pct", value: "10", freeVariantId: "", scope: "Storewide", minSpend: "",
+  ownerContact: "", ownerName: "", expiryDays: "90", count: "1", code: "", note: "",
+};
+
+export function Rewards({ ctx }) {
+  const [data, setData] = useState(null);
+  const [variants, setVariants] = useState([]);
+  const [rule, setRule] = useState(null);
+  const [mint, setMint] = useState(BLANK_MINT);
+  const [filter, setFilter] = useState({ status: "", source: "", owner: "" });
+  const [err, setErr] = useState("");
+  const [issued, setIssued] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const qs = new URLSearchParams(Object.entries(filter).filter(([, v]) => v)).toString();
+      const r = await api.get(`/api/admin/rewards${qs ? "?" + qs : ""}`, ctx.token);
+      setData(r);
+      // The rule form is only seeded once: re-seeding it on every refresh would
+      // throw away an edit in progress the moment the table reloaded.
+      setRule((cur) => cur || r.rule);
+    } catch (e) { ctx.authFail(e); }
+  }, [ctx, filter]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    api.get("/api/admin/rewards/variants", ctx.token).then((r) => setVariants(r.variants)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const saveRule = async () => {
+    setBusy(true);
+    try {
+      await api.put("/api/admin/settings", {
+        settings: {
+          rewardsOn: !!rule.on,
+          rewardEarnKind: rule.kind,
+          rewardEarnValue: parseInt(rule.value, 10) || 0,
+          rewardEarnMinSpend: parseInt(rule.minSpend, 10) || 0,
+          rewardEarnScope: rule.scope,
+          rewardEarnExpiryDays: parseInt(rule.expiryDays, 10) || 0,
+          rewardCodePrefix: (rule.prefix || "MR").toUpperCase(),
+        },
+      }, ctx.token);
+      ctx.flash("Rewards rule saved");
+      ctx.loadSettings();
+    } catch (e) { ctx.authFail(e); setErr(e.message); }
+    setBusy(false);
+  };
+
+  const create = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const r = await api.post("/api/admin/rewards", {
+        kind: mint.kind,
+        value: parseInt(mint.value, 10) || 0,
+        freeVariantId: mint.kind === "item" ? mint.freeVariantId || null : null,
+        scope: mint.scope,
+        minSpend: parseInt(mint.minSpend, 10) || 0,
+        ownerContact: mint.ownerContact,
+        ownerName: mint.ownerName,
+        expiryDays: parseInt(mint.expiryDays, 10) || 0,
+        count: parseInt(mint.count, 10) || 1,
+        code: mint.code || null,
+        note: mint.note,
+      }, ctx.token);
+      // The codes stay on screen after the form resets: a minted code that is
+      // only in the database is a code nobody can give to anybody.
+      setIssued(r.issued || []);
+      if (r.warning) setErr(r.warning);
+      setMint({ ...BLANK_MINT, kind: mint.kind, scope: mint.scope });
+      ctx.flash(`${(r.issued || []).length} reward code${(r.issued || []).length === 1 ? "" : "s"} issued`);
+      load();
+    } catch (e) { ctx.authFail(e); setErr(e.message); }
+    setBusy(false);
+  };
+
+  const act = async (code, what) => {
+    try {
+      await api.post(`/api/admin/rewards/${encodeURIComponent(code)}/${what}`, {}, ctx.token);
+      load();
+    } catch (e) { ctx.authFail(e); setErr(e.message); }
+  };
+
+  if (!data || !rule) return <main style={{ padding: "26px 28px" }}><div style={{ fontSize: 13, color: "var(--text-muted)" }}>Loading rewards…</div></main>;
+
+  const t = data.totals;
+  const stat = (label, n, note) => (
+    <div key={label} style={{ ...card, padding: "16px 18px" }}>
+      <div style={{ fontSize: 11, letterSpacing: "0.06em", color: "var(--text-muted)", fontWeight: 600 }}>{label.toUpperCase()}</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 26, color: "var(--text-strong)", marginTop: 4 }}>{n}</div>
+      {note && <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>{note}</div>}
+    </div>
+  );
+  const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)" };
+
+  return (
+    <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 14 }}>
+        {stat("Issued", t.issued)}
+        {stat("Ready to use", t.active)}
+        {stat("Redeemed", t.redeemed)}
+        {stat("Expired unused", t.expired)}
+        {stat("Given away", fmtN(t.discountGiven), "Discount on paid orders")}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
+        {/* What a purchase earns */}
+        <div style={{ ...card, padding: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>What a purchase earns</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>
+            Applied when an order is <strong>paid for</strong> — a card that settles, or a transfer someone confirms.
+            An order that is placed and never paid earns nothing.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Switch label="Give a reward for every qualifying purchase" checked={!!rule.on}
+              onChange={(e) => setRule({ ...rule, on: e.target.checked })} />
+            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -6 }}>
+              Off means no new codes are earned. Codes already issued keep working until they are spent or expire.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Select label="Reward" value={rule.kind} onChange={(e) => setRule({ ...rule, kind: e.target.value })}>
+                <option value="pct">% off next order</option>
+                <option value="amt">₦ off next order</option>
+                <option value="ship">Free delivery</option>
+              </Select>
+              <Input label="Value" value={rule.value} onChange={(e) => setRule({ ...rule, value: e.target.value })}
+                disabled={rule.kind === "ship"} placeholder="10" />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="Qualifying spend (₦)" value={rule.minSpend} onChange={(e) => setRule({ ...rule, minSpend: e.target.value })}
+                placeholder="0" hint="Goods only, before delivery. 0 means every order." />
+              <Input label="Expires after (days)" value={rule.expiryDays} onChange={(e) => setRule({ ...rule, expiryDays: e.target.value })}
+                placeholder="90" hint="0 means it never expires." />
+            </div>
+            <Select label="Spendable on" value={rule.scope} onChange={(e) => setRule({ ...rule, scope: e.target.value })}>
+              {REWARD_SCOPES.map((sc) => <option key={sc.id} value={sc.id}>{sc.label}</option>)}
+            </Select>
+            <Input label="Code prefix" value={rule.prefix} onChange={(e) => setRule({ ...rule, prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
+              placeholder="MR" hint="Codes look like MR-K4Q7BX." />
+            <Button variant="primary" block disabled={busy} onClick={saveRule}>Save rule</Button>
+          </div>
+        </div>
+
+        {/* Minting by hand */}
+        <div style={{ ...card, padding: 24 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Issue reward codes</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>
+            For a giveaway, an apology, or an influencer. Leave the customer blank and anyone who types the code can use it — once.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Select label="Reward" value={mint.kind} onChange={(e) => setMint({ ...mint, kind: e.target.value })}>
+                <option value="pct">% off</option>
+                <option value="amt">₦ off</option>
+                <option value="ship">Free delivery</option>
+                <option value="item">A product free</option>
+              </Select>
+              {mint.kind === "pct" || mint.kind === "amt"
+                ? <Input label="Value" value={mint.value} onChange={(e) => setMint({ ...mint, value: e.target.value })} placeholder="10" />
+                : <div />}
+            </div>
+            {mint.kind === "item" && (
+              <Select label="Which product" value={mint.freeVariantId} onChange={(e) => setMint({ ...mint, freeVariantId: e.target.value })}
+                hint="Leave on 'cheapest in scope' and the reward takes the price off whatever qualifying item costs least in their cart.">
+                <option value="">Cheapest qualifying item in the cart</option>
+                {variants.map((v) => <option key={v.id} value={v.id}>{v.label} — {fmtN(v.ngn)}</option>)}
+              </Select>
+            )}
+            <Select label="Spendable on" value={mint.scope} onChange={(e) => setMint({ ...mint, scope: e.target.value })}>
+              {REWARD_SCOPES.map((sc) => <option key={sc.id} value={sc.id}>{sc.label}</option>)}
+            </Select>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="Minimum spend (₦)" value={mint.minSpend} onChange={(e) => setMint({ ...mint, minSpend: e.target.value })} placeholder="0" />
+              <Input label="Expires after (days)" value={mint.expiryDays} onChange={(e) => setMint({ ...mint, expiryDays: e.target.value })} placeholder="90" />
+            </div>
+            <Input label="Customer email or phone (optional)" value={mint.ownerContact} onChange={(e) => setMint({ ...mint, ownerContact: e.target.value })}
+              placeholder="ada@email.com" hint="Set it and only that customer can use the code at checkout." />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="Their name (optional)" value={mint.ownerName} onChange={(e) => setMint({ ...mint, ownerName: e.target.value })} placeholder="Ada Nwosu" />
+              <Input label="How many" value={mint.count} onChange={(e) => setMint({ ...mint, count: e.target.value })} placeholder="1" hint="Up to 200 at a time." />
+            </div>
+            <Input label="Name the code (optional)" value={mint.code} onChange={(e) => setMint({ ...mint, code: e.target.value.toUpperCase().replace(/\s/g, "") })}
+              placeholder="SORRYADA" hint="Leave empty and one is generated. Naming it means issuing exactly one." />
+            <Input label="Note (optional)" value={mint.note} onChange={(e) => setMint({ ...mint, note: e.target.value })} placeholder="Late delivery, order MR-10412" />
+            <Button variant="gold" block disabled={busy} onClick={create}>Issue</Button>
+            {err && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{err}</div>}
+            {issued.length > 0 && (
+              <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: "14px 16px" }}>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.06em", marginBottom: 8 }}>JUST ISSUED — COPY THESE</div>
+                <div style={{ fontFamily: "var(--font-condensed)", fontSize: 13.5, color: "var(--mr-purple-900)", lineHeight: 1.9, wordBreak: "break-all" }}>
+                  {issued.map((i) => i.code).join("  ·  ")}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...card, overflow: "hidden" }}>
+        <div style={{ padding: "18px 22px", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", flex: 1 }}>Reward codes</div>
+          <Select value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
+            <option value="">All statuses</option>
+            <option value="active">Ready to use</option>
+            <option value="redeemed">Redeemed</option>
+            <option value="expired">Expired</option>
+            <option value="void">Void</option>
+          </Select>
+          <Select value={filter.source} onChange={(e) => setFilter({ ...filter, source: e.target.value })}>
+            <option value="">Earned & issued</option>
+            <option value="purchase">Earned by a purchase</option>
+            <option value="manual">Issued by hand</option>
+          </Select>
+          <Input value={filter.owner} onChange={(e) => setFilter({ ...filter, owner: e.target.value })} placeholder="Find a customer" />
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 900, display: "grid", gridTemplateColumns: "150px 1.3fr 1.4fr 1fr 110px 110px 90px", fontSize: 12.5 }}>
+            <div style={{ ...th, paddingLeft: 22 }}>CODE</div>
+            <div style={th}>WORTH</div>
+            <div style={th}>WHO</div>
+            <div style={th}>WHERE IT CAME FROM</div>
+            <div style={th}>EXPIRES</div>
+            <div style={th}>STATUS</div>
+            <div style={{ ...th, paddingRight: 22 }}></div>
+            {!data.rewards.length && (
+              <EmptyRow span={7}>
+                No reward codes match. Paid orders earn one automatically while the rule above is on — or issue some by hand.
+              </EmptyRow>
+            )}
+            {data.rewards.map((r) => {
+              const state = r.status === "Redeemed" ? "Redeemed" : r.status === "Void" ? "Void" : r.expired ? "Expired" : "Ready";
+              const tone = state === "Ready" ? "good" : state === "Redeemed" ? "mute" : state === "Expired" ? "warn" : "mute";
+              return (
+                <React.Fragment key={r.code}>
+                  <div style={{ ...cell, paddingLeft: 22, fontWeight: 600, color: "var(--mr-purple-800)", letterSpacing: "0.04em", wordBreak: "break-all" }}>{r.code}</div>
+                  <div style={{ ...cell, color: "var(--text-strong)" }}>
+                    {r.desc}
+                    <span style={{ color: "var(--text-muted)" }}> · {r.scope}</span>
+                    {r.minSpend > 0 && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Over {fmtN(r.minSpend)}</div>}
+                  </div>
+                  <div style={{ ...cell, color: "var(--text-body)" }}>
+                    {r.owner ? <>{r.ownerName || r.owner}{r.ownerName && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{r.owner}</div>}</>
+                      : <span style={{ color: "var(--text-muted)" }}>Anyone with the code</span>}
+                  </div>
+                  <div style={{ ...cell, color: "var(--text-muted)", fontSize: 12 }}>
+                    {r.source === "purchase" ? `Earned on ${r.earnedOn}` : `Issued by ${r.issuedBy || "the team"}`}
+                    {r.redeemedOn && <div>Spent on {r.redeemedOn}</div>}
+                    {r.note && !r.redeemedOn && <div>{r.note}</div>}
+                  </div>
+                  <div style={{ ...cell, color: "var(--text-muted)" }}>{r.expiresAt || "Never"}</div>
+                  <div style={{ ...cell, padding: "11px 14px" }}><StBadge tone={tone}>{state}</StBadge></div>
+                  <div style={{ ...cell, padding: "11px 22px 11px 14px" }}>
+                    {r.status === "Active" && (
+                      <button onClick={() => act(r.code, "void")} style={storeLink}>Void</button>
+                    )}
+                    {r.status === "Void" && (
+                      <button onClick={() => act(r.code, "restore")} style={storeLink}>Restore</button>
                     )}
                   </div>
                 </React.Fragment>

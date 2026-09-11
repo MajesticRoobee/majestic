@@ -1,7 +1,8 @@
 // Phase 1 (F1) — customer accounts. Guest-first and optional. Tokens are
 // namespaced with typ:"cust" so they can never authenticate against admin.
 import { Hono } from "hono";
-import { issueToken, verifyToken, hashPassword, verifyPassword, displayDate, fmtNaira, sha256hex } from "./util.js";
+import { issueToken, verifyToken, hashPassword, verifyPassword, displayDate, fmtNaira, sha256hex, normalizeContact, todayInWAT } from "./util.js";
+import { rewardOut } from "./rewards.js";
 import { emitEvent, sendTransactional } from "./events.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 
@@ -177,8 +178,28 @@ account.get("/me", async (c) => {
     addresses: addresses.map((a) => ({ ...a, is_default: !!a.is_default })),
     wishlist,
     orders: orders.map((o) => ({ no: o.no, status: o.status, paid: o.pay_status === "paid", total: o.total, totalLabel: fmtNaira(o.total), placed: displayDate(new Date(o.placed_at.replace(" ", "T") + "Z")) })),
+    rewards: await ownRewards(db, u),
   });
 });
+
+/**
+ * The reward codes this customer can spend, and the ones they have spent.
+ *
+ * Matched on the contact the reward was issued to rather than on a customer id:
+ * a reward is earned by *a purchase*, and most purchases here are made as a
+ * guest. Registering later with the same email should find the codes that
+ * purchase earned, not start from nothing.
+ */
+async function ownRewards(db, u) {
+  const keys = [normalizeContact(u.email), normalizeContact(u.phone)].filter(Boolean);
+  if (!keys.length) return [];
+  const rows = (await db.prepare(
+    `SELECT * FROM reward_codes WHERE owner_key IN (${keys.map(() => "?").join(",")})
+      ORDER BY CASE status WHEN 'Active' THEN 0 ELSE 1 END, issued_at DESC LIMIT 50`
+  ).bind(...keys).all()).results;
+  const today = todayInWAT();
+  return rows.map((r) => rewardOut(r, today));
+}
 
 account.patch("/me", async (c) => {
   const { name, phone, city, marketingOptIn, birthday } = await c.req.json();

@@ -129,6 +129,15 @@ These cannot be done from the code, and several unblock work that is already bui
 
 ## Change log
 
+- **11 Sep 2026** — Reward codes shipped (`worker/rewards.js`, migration 0017).
+  A reward is one code, one person, one use — earned when an order is *paid
+  for*, or minted by hand from Admin → Rewards for a giveaway or an apology. It
+  can be a percentage, an amount, free delivery, or one product free. Guests use
+  them in the same checkout box as a sale code. The earning rule (on/off, worth,
+  qualifying spend, expiry) is settings, not code. 46 assertions in
+  `scripts/rewards.test.mjs`, plus an end-to-end run against a local Worker that
+  caught a foreign key blocking the claim-before-write that makes single use
+  safe.
 - **11 Sep 2026** — The client's website copy applied across the storefront. The
   category tree was reorganised to the one her copy sheet names (Perfumes,
   Perfume Oils, Body Mists, Feminine Care, Home Fragrance, Wellness Products,
