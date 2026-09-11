@@ -169,8 +169,13 @@ export default function App() {
     setPage(p);
     setMnav(false);
     setCartOpen(false);
-    if (extra.fCat !== undefined) { setFCat(extra.fCat); setFCol(null); }
-    if (extra.fCol !== undefined) { setFCol(extra.fCol); setFCat("all"); }
+    // A category and a collection are two ways of narrowing the same grid, so
+    // naming one clears the other. The order matters: `fCol: null` means "no
+    // collection", and reading it as "a collection was chosen" is what used to
+    // reset the category to "all" on every click in the header's category menu
+    // — the URL changed, the grid didn't.
+    if (extra.fCat !== undefined) { setFCat(extra.fCat); setFCol(extra.fCol ?? null); }
+    else if (extra.fCol !== undefined) { setFCol(extra.fCol); setFCat("all"); }
     // Leaving the shop grid by any route that doesn't name a shelf or a brand
     // clears both, so "/shop" never quietly keeps yesterday's filter on it.
     if (p === "shop") {

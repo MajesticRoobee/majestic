@@ -25,6 +25,12 @@ const PROMO_TILES = [
 // The founder's story, exactly as the client wrote it. The About page runs it
 // in full; the homepage shows the opening paragraph and links through.
 const STORY_TITLE = "How I never set out to build a fragrance brand";
+// The founder's portrait ships with the build, so the story is never wordless
+// while someone finds a photograph. Admin → Settings replaces it without a
+// deploy, the same way the logo works.
+const FOUNDER_PHOTO = "/founder.jpg";
+const FOUNDER_NAME = "Peace Ijeoma Jonathan";
+const FOUNDER_ROLE = "Founder, Majestic Roobee";
 const STORY = [
   "My name is Peace Ijeoma Jonathan, founder of Majesticroobee. Most people assume this story began with perfume. It didn't. It began with a woman waiting to become a mother. There was a season in my life when I was trusting God for a child. It was a quiet season filled with prayers, hope, questions and waiting. Someone once told me that if I was to believe in God for children, I should spend more time around children. I held on to those words and moved straight to get a job in a school. At the time, I thought I was simply giving my heart something meaningful to do while I waited on God. I had no idea that the place I entered because I was waiting would become the place where He was quietly preparing me for work I never imagined I would one day do.",
   "The children quickly became part of my heart, but so did their mothers. Every conversation, every school run and every interaction reminded me that every woman was carrying something, even when she smiled. Somewhere in the middle of that season, one of my colleagues introduced me to someone who brought attars into Nigeria. At the time, hardly anyone knew what they were. I was fascinated. I had always loved beautiful scents, but this was different. It opened a world I couldn't stop exploring. I learnt, I practised, I asked questions, and I kept learning. What started as curiosity slowly became purpose, and over the years that journey led me to become an internationally certified natural perfumer. Looking back now, I realise that what felt like an ordinary introduction was one of the quiet miracles hidden inside my season of waiting.",
@@ -99,6 +105,55 @@ function NewsletterSignup({ ctx }) {
               type="email" aria-label="Your email address" placeholder="Enter your email address"
               style={{ flex: "1 1 220px", minWidth: 0, fontFamily: "var(--font-sans)", fontSize: 14, padding: "12px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
             <Button variant="primary" onClick={join}>Join the list</Button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// A category sold by showing it: the copy on one side, real products from that
+// category on the other, each a link straight to the thing itself.
+//
+// The products are read from the live catalogue rather than named here — a
+// hand-picked list would be wrong the first time one of them sold out. Photos
+// come first, because a band whose whole job is to look good should lead with
+// the pieces that have a photograph; the rest follow so it is never empty while
+// the store is still uploading.
+function ProductBand({ ctx, catId, eyebrow, title, lines, cta, count = 3 }) {
+  const fam = catFamily(ctx.categories, catId);
+  const picks = ctx.listings
+    .filter((e) => fam && fam.has(e.product.cat))
+    .map(ctx.card)
+    .filter(Boolean)
+    .sort((a, b) => (b.imageUrl ? 1 : 0) - (a.imageUrl ? 1 : 0))
+    .slice(0, count);
+  const open = () => ctx.nav("shop", { fCat: catId, fSeg: null, fBrand: "", fCol: null });
+  return (
+    <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
+      <div style={{ background: "var(--royal-wash)", borderRadius: "var(--radius-lg)", overflow: "hidden", display: "grid", gridTemplateColumns: picks.length ? "repeat(auto-fit, minmax(min(320px, 100%), 1fr))" : "1fr", gap: "clamp(20px, 3vw, 40px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
+        <div style={{ maxWidth: "44ch" }}>
+          <Eyebrow tone="light">{eyebrow}</Eyebrow>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--mr-cream)", letterSpacing: "var(--ls-heading)", margin: "12px 0 0" }}>{title}</h2>
+          {lines.map((l) => (
+            <p key={l} style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--text-on-dark-muted)", margin: "10px 0 0" }}>{l}</p>
+          ))}
+          <div style={{ marginTop: 22 }}>
+            <Button variant="gold" size="lg" onClick={open}>{cta}</Button>
+          </div>
+        </div>
+        {picks.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(picks.length, 3)}, minmax(0, 1fr))`, gap: "clamp(10px, 1.4vw, 16px)" }}>
+            {picks.map((p) => (
+              <a key={p.key} href={p.href} onClick={(e) => { e.preventDefault(); p.open(); }} className="mr-lift"
+                style={{ background: "var(--surface-card)", borderRadius: "var(--radius-md)", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-sm)" }}>
+                <ImageSlot src={p.imageUrl} name={p.name} sizes="(max-width: 860px) 30vw, 200px" style={{ width: "100%", aspectRatio: "4 / 5" }} />
+                <span style={{ padding: "10px 12px 12px", display: "block" }}>
+                  <span style={{ display: "block", fontFamily: "var(--font-display)", fontSize: 14.5, color: "var(--text-strong)", lineHeight: 1.25 }}>{p.name}</span>
+                  <span style={{ display: "block", fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{p.priceLabel}</span>
+                </span>
+              </a>
+            ))}
           </div>
         )}
       </div>
@@ -269,11 +324,13 @@ export function HomePage({ ctx }) {
         </div>
       </section>
 
-      <CtaBand
+      <ProductBand
+        ctx={ctx}
+        catId="care"
+        eyebrow="Feminine care"
         title="The products your intimate area needs"
         lines={["Looking for a safe product for your intimate area?", "Shop our plant-based and non-toxic intimate care."]}
         cta="Shop feminine care"
-        onClick={() => ctx.nav("shop", { fCat: "care", fSeg: null, fBrand: "", fCol: null })}
       />
 
       {/* Best sellers — the server decides what has actually sold, so this is
@@ -341,15 +398,28 @@ export function HomePage({ ctx }) {
         onClick={() => ctx.nav("shop", { fCat: "home", fSeg: null, fBrand: "", fCol: null })}
       />
 
-      {/* The founder's story. The opening paragraph stands here and the rest is
-          on the About page, so the homepage introduces it rather than running
-          two thousand words before the shopper reaches the reviews. */}
+      {/* The founder's story. Her portrait, the opening paragraph, and the way
+          through to the rest — the whole thing here would run two thousand
+          words before the shopper reached the reviews. */}
       <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
-        <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "clamp(26px, 4vw, 48px)" }}>
-          <Eyebrow>Our story</Eyebrow>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{STORY_TITLE}</h2>
-          <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", maxWidth: "72ch", margin: "0 0 20px" }}>{STORY[0]}</p>
-          <Button variant="secondary" onClick={() => ctx.nav("about")}>Read our story</Button>
+        <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 320px) minmax(0, 1fr)", gap: "clamp(22px, 3vw, 44px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
+          <div style={{ position: "relative" }}>
+            {/* A gold frame offset behind the photograph, the same gesture the
+                editorial hero uses, so the two read as one house style. */}
+            <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
+            <ImageSlot src={settings.founderImage || FOUNDER_PHOTO} shape="rounded" radius={14} name={FOUNDER_NAME}
+              sizes="(max-width: 860px) 92vw, 420px" label={`${FOUNDER_NAME} — ${FOUNDER_ROLE}`}
+              style={{ width: "100%", aspectRatio: "3 / 4", position: "relative" }} />
+          </div>
+          <div>
+            <Eyebrow>Our story</Eyebrow>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{STORY_TITLE}</h2>
+            <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 8px" }}>{STORY[0]}</p>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 20px" }}>
+              <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{FOUNDER_NAME}</strong> — {FOUNDER_ROLE}
+            </div>
+            <Button variant="secondary" onClick={() => ctx.nav("about")}>Read our story</Button>
+          </div>
         </div>
       </section>
 
@@ -868,12 +938,30 @@ export function AboutPage({ ctx }) {
         <p style={para}>Our vision is to grow into one of Africa&apos;s leading fragrance houses while creating intentional products you can enjoy, trust and make part of your everyday routine.</p>
       </section>
 
-      {/* The founder's story, in full and in her own words. */}
-      <section style={{ maxWidth: 860, margin: "0 auto", padding: `clamp(32px, 5vw, 48px) ${PAD} 0` }}>
-        <GildedRule style={{ margin: "0 0 30px" }} />
-        <Eyebrow>Our story</Eyebrow>
-        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3.4vw, 38px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 22px" }}>{STORY_TITLE}</h2>
-        {STORY.map((par, i) => <p key={i} style={para}>{par}</p>)}
+      {/* The founder's story, in full and in her own words — with her
+          photograph at the head of it, so it reads as one woman's account
+          rather than a page of copy. */}
+      <section style={{ maxWidth: 980, margin: "0 auto", padding: `clamp(32px, 5vw, 48px) ${PAD} 0` }}>
+        <GildedRule style={{ margin: "0 0 34px" }} />
+        <div style={{ display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 340px) minmax(0, 1fr)", gap: "clamp(24px, 4vw, 48px)", alignItems: "center", marginBottom: "clamp(28px, 4vw, 40px)" }}>
+          <div style={{ position: "relative" }}>
+            <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
+            <ImageSlot src={ctx.settings.founderImage || FOUNDER_PHOTO} shape="rounded" radius={14} name={FOUNDER_NAME} eager
+              sizes="(max-width: 860px) 92vw, 440px" label={`${FOUNDER_NAME} — ${FOUNDER_ROLE}`}
+              style={{ width: "100%", aspectRatio: "2 / 3", position: "relative" }} />
+          </div>
+          <div>
+            <Eyebrow>Our story</Eyebrow>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3.4vw, 38px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 14px" }}>{STORY_TITLE}</h2>
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+              <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{FOUNDER_NAME}</strong>
+              <br />{FOUNDER_ROLE}
+            </div>
+          </div>
+        </div>
+        <div style={{ maxWidth: "72ch" }}>
+          {STORY.map((par, i) => <p key={i} style={para}>{par}</p>)}
+        </div>
       </section>
 
       <section style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(40px, 6vw, 64px) ${PAD} 0` }}>
