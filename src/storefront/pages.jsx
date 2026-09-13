@@ -352,6 +352,11 @@ export function HomePage({ ctx }) {
         </section>
       )}
 
+      {/* Whatever this shopper was last looking at, before the page's own
+          merchandising — the strongest thing the shop can put in front of
+          somebody is the thing they had already chosen to look at. */}
+      <RecentlyViewed ctx={ctx} />
+
       {flow.map((b) => (
         <HomeBlock key={b.id} block={b} ctx={ctx} vars={vars} runningDeal={runningDeal}
           perk={perk} iconStyle={iconStyle} categories={categories} products={products}
@@ -575,6 +580,36 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
     default:
       return null;
   }
+}
+
+// What this shopper was looking at last time, or five minutes ago.
+//
+// Read from their own browser rather than fetched back from the server: it is
+// theirs, it is instant, and — the point — it works for the anonymous visitor
+// who is most of the traffic. Nothing here needs an account.
+export function RecentlyViewed({ ctx, exclude = null, title = "Pick up where you left off" }) {
+  const ids = (ctx.recentIds || []).filter((id) => id !== exclude);
+  const picks = ids
+    .map((id) => ctx.listings.find((e) => e.product.id === id))
+    .filter(Boolean)
+    .map(ctx.card)
+    .filter(Boolean)
+    .slice(0, 4);
+  if (ctx.settings.recentlyViewedOn === false || picks.length < 2) return null;
+  return (
+    <section style={{ maxWidth: 1280, margin: "clamp(36px, 6vw, 64px) auto 0", padding: `0 ${PAD}` }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
+        <div>
+          <Eyebrow>Recently viewed</Eyebrow>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
+        </div>
+        <button onClick={ctx.clearRecent} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-muted)" }}>Clear</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
+        {picks.map((p) => <ProductCard key={p.key} p={p} />)}
+      </div>
+    </section>
+  );
 }
 
 // A search is recorded once it has settled, not on every keystroke — otherwise
@@ -890,13 +925,24 @@ export function ProductPage({ ctx }) {
     window.history.replaceState({}, "", `/product/${encodeURIComponent(pr.id)}${v.sku ? `?variant=${encodeURIComponent(v.sku)}` : ""}`);
   };
 
+  // "You may also like" was filed by category: it recommended whatever happened
+  // to sit near this piece on a shelf. The shop's own shoppers answer it better
+  // — what did people open in the same visit as this — so that comes first, and
+  // the category is what fills in while the graph is still thin.
+  //
   // Only products that still have something to sell — `card` reads the default
   // variation's price and photo, so an empty one has nothing to render.
-  const related = ctx.products
-    .filter((p) => p.id !== pr.id && p.cat === pr.cat && p.variants && p.variants.length)
+  const sellableNow = (p) => p && p.id !== pr.id && p.variants && p.variants.length;
+  const alsoIds = (ctx.alsoViewed[pr.id] || []).slice(0, 6);
+  const seenIds = new Set();
+  const related = alsoIds
+    .map((id) => ctx.products.find((p) => p.id === id))
+    .concat(ctx.products.filter((p) => p.cat === pr.cat))
+    .filter((p) => sellableNow(p) && !seenIds.has(p.id) && seenIds.add(p.id))
     .slice(0, 3)
     .map(ctx.card)
     .filter(Boolean);
+  const relatedFromShoppers = alsoIds.length > 0;
   return (
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>
       <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to shop</button>
@@ -998,8 +1044,9 @@ export function ProductPage({ ctx }) {
           </div>
         </div>
       </div>
+      <RecentlyViewed ctx={ctx} exclude={pr.id} />
       <section style={{ marginTop: "clamp(40px, 6vw, 64px)" }}>
-        <Eyebrow>You may also like</Eyebrow>
+        <Eyebrow>{relatedFromShoppers ? "Often opened together" : "You may also like"}</Eyebrow>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20, marginTop: 18 }}>
           {related.map((p) => (
             <div key={p.key} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>

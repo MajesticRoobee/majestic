@@ -10,7 +10,7 @@ import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
 import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
-import { startTracking, record as mrRecord, setCity as mrSetCity, optedOut, setOptOut, visitorId } from "./track.js";
+import { startTracking, record as mrRecord, setCity as mrSetCity, optedOut, setOptOut, visitorId, noteViewed, recentlyViewed, clearRecent } from "./track.js";
 
 const SCOPE_CATS = {
   Storewide: null,
@@ -70,6 +70,7 @@ export default function App() {
   const [contactSent, setContactSent] = useState(false);
   const [chat, setChat] = useState({ open: false, val: "", inquiryId: null, key: null, msgs: [{ from: "us", text: "Hi! How can we help you today?" }] });
   const [popup, setPopup] = useState(false);
+  const [nudge, setNudge] = useState(false);
   const [plEmail, setPlEmail] = useState("");
   const [plDone, setPlDone] = useState(false);
   const [custToken, setCustToken] = useState(() => localStorage.getItem("mr-cust-token") || "");
@@ -129,14 +130,43 @@ export default function App() {
     api.get("/api/store").then((d) => { dataRef.current = d; setD(d); }).catch(() => {});
   }, []);
 
-  // Promo popup timer
+  // The first-order pop-up.
+  //
+  // It has shown to everybody since it was built, which means a first-time
+  // browser meets an interruption before they have seen a single bottle. It can
+  // now wait for somebody who has been in before and not bought — which is who
+  // a first-order offer was always for. Whose visit this is, is something the
+  // browser already knows: it has been here before if it has a visit behind it.
   useEffect(() => {
     if (!D) return;
-    if ((D.settings.promoPopup ?? true) && !localStorage.getItem("mr-popup-seen")) {
-      const t = setTimeout(() => setPopup(true), 1800);
-      return () => clearTimeout(t);
+    if (!(D.settings.promoPopup ?? true)) return;
+    // Never over a cart. Somebody with something in their basket is past the
+    // question a first-order offer asks, and somebody arriving on a recovery
+    // link has been sent here on purpose — meeting either with an interruption
+    // is how a nudge becomes an obstacle.
+    if (cart.length) return;
+    if (new URLSearchParams(window.location.search).has("recover")) return;
+    try { if (localStorage.getItem("mr-popup-seen")) return; } catch { return; }
+    const when = D.settings.promoPopupWhen || "everyone";
+    if (when === "returning") {
+      let visits = 0;
+      try { visits = parseInt(localStorage.getItem("mr-visits") || "0", 10) || 0; } catch { visits = 0; }
+      if (visits < 2) return;
     }
-  }, [D]);
+    const t = setTimeout(() => setPopup(true), 1800);
+    return () => clearTimeout(t);
+  }, [D, cart.length]);
+
+  // How many visits this browser has made. Counted once a visit, in the
+  // browser's own storage — it is what the pop-up targeting reads, and it never
+  // leaves the page.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("mr-visit-counted")) return;
+      sessionStorage.setItem("mr-visit-counted", "1");
+      localStorage.setItem("mr-visits", String((parseInt(localStorage.getItem("mr-visits") || "0", 10) || 0) + 1));
+    } catch { /* private windows simply never look like returning visitors */ }
+  }, []);
 
   // Back from Paystack: /?psorder=MR-xxxxx
   //
@@ -493,12 +523,19 @@ export default function App() {
     // order pays per parcel, and only the server knows how it splits. Until
     // then this is an estimate so the summary is never blank.
     let ship;
+    const freeOver = settings.freeShipAbujaOver ?? 100000;
+    const freeHere = city === (settings.freeShipCity ?? "abuja") && allInCity;
     if (co.fulfill === "collect") ship = 0;
     else if (plan && plan.mode !== "unavailable") ship = plan.shipTotal;
     else {
       ship = allInCity ? (L ? L.shipNGN : 2500) : (settings.crossCityShipNGN ?? 4500);
-      if (city === (settings.freeShipCity ?? "abuja") && sub >= (settings.freeShipAbujaOver ?? 100000) && allInCity) ship = 0;
+      if (freeHere && sub >= freeOver) ship = 0;
     }
+    // Free delivery has been enforced since the beginning and never once shown
+    // to the person it would move. How much more, and how far along they are.
+    const freeShip = freeHere && freeOver > 0 && co.fulfill !== "collect"
+      ? { over: freeOver, remaining: Math.max(0, freeOver - sub), pct: Math.min(100, Math.round((sub / freeOver) * 100)) }
+      : null;
     // A preview of the code's worth, recomputed as the cart changes so the
     // summary never quotes a discount for a cart that has moved on. The server
     // does this arithmetic again at checkout and its answer is the one charged.
@@ -520,7 +557,7 @@ export default function App() {
       }
       if (promoInfo.freeShip) ship = 0;
     }
-    return { items, sub, ship, allInCity, discount, total: sub - discount + ship };
+    return { items, sub, ship, allInCity, discount, freeShip, total: sub - discount + ship };
   }, [D, cart, city, co.fulfill, promoInfo, products, L, settings, fmt, cityName, bestAlt, plan]);
 
   // Ask the server where this cart ships from. Runs on the checkout page, and
@@ -583,6 +620,60 @@ export default function App() {
     return () => { live = false; };
   }, [page, pageSlug, infoPage]);
 
+  // The leave-behind nudge.
+  //
+  // Exit intent on a desktop (the pointer leaving for the tab bar), and on a
+  // phone — which has no such gesture — a long pause with a cart that has been
+  // sitting there. It only ever fires for somebody who *has* a cart and has not
+  // reached the confirmation page, it is capped to once every few days, and it
+  // ships switched off until the house has written its own words.
+  useEffect(() => {
+    const st = D && D.settings;
+    if (!st || !st.nudgeOn) return;
+    if (!cart.length || page === "checkout" || page === "confirm") return;
+    let last = 0;
+    try { last = parseInt(localStorage.getItem("mr-nudge-at") || "0", 10) || 0; } catch { return; }
+    const every = Math.max(1, parseInt(st.nudgeEveryDays, 10) || 7) * 86400000;
+    if (Date.now() - last < every) return;
+
+    let done = false;
+    const fire = () => {
+      if (done) return;
+      done = true;
+      setNudge(true);
+      mrRecord("nudge_shown", {});
+    };
+    const onOut = (e) => { if (e.clientY <= 0) fire(); };
+    // 45 seconds of a cart sitting untouched is the phone's version of turning
+    // to leave.
+    const idle = setTimeout(fire, 45000);
+    document.addEventListener("mouseout", onOut);
+    return () => { clearTimeout(idle); document.removeEventListener("mouseout", onOut); };
+  }, [D, cart.length, page]);
+
+  // A recovery link: ?recover=<token> puts the cart back and takes the shopper
+  // to it. Done once, and the token is taken off the address bar immediately so
+  // it is not shared onward or left in a browser's history.
+  const recovered = useRef(false);
+  useEffect(() => {
+    if (recovered.current) return;
+    const token = new URLSearchParams(window.location.search).get("recover");
+    if (!token) return;
+    recovered.current = true;
+    api.get(`/api/cart/recover?t=${encodeURIComponent(token)}`)
+      .then((r) => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("recover");
+        window.history.replaceState({}, "", url.pathname + url.search);
+        if (!r.items || !r.items.length) return;
+        setCart(r.items.map((i) => ({ id: i.id, variantId: i.variantId, sku: i.sku, size: i.size, qty: i.qty })));
+        if (r.city) setCity(r.city);
+        setCartOpen(true);
+        mrRecord("nudge_clicked", { path: "/recover" });
+      })
+      .catch(() => {});
+  }, []);
+
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
   useEffect(() => { if (D && consent === "granted") startAnalytics(D.settings); }, [D, consent]);
@@ -610,6 +701,7 @@ export default function App() {
     if (product && variant) {
       trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
       mrRecord("view_item", { productId: product.id, variantId: variant.id, value: variant.ngn });
+      noteViewed(product.id);
     }
     if (page === "shop" && fCat && fCat !== "all") mrRecord("view_category", { cat: fCat });
     if (page === "checkout" && cc.items.length) {
@@ -694,10 +786,13 @@ export default function App() {
       const stage = co.address.trim() || co.fulfill === "collect" ? "Payment" : "Delivery details";
       api.post("/api/checkouts/activity", {
         name: co.name.trim(), phone: co.phone.trim(), email: co.email.trim(), city: cityName, value: cc.total, stage,
+        // What was in it, so the chase can put it back rather than only
+        // mentioning that there was something.
+        items: cart.map((c) => ({ variantId: c.variantId, qty: c.qty })),
       }).catch(() => {});
     }, 1500);
     return () => clearTimeout(abandonTimer.current);
-  }, [page, co, cc.total, cc.items.length, cityName]);
+  }, [page, co, cc.total, cc.items.length, cityName, cart]);
 
   const placeOrder = useCallback(async () => {
     if (!co.name.trim()) return setCoErr("Enter your name.");
@@ -836,6 +931,11 @@ export default function App() {
     // than flashing a page in the wrong order.
     homeBlocks: D ? (D.homeBlocks || []) : [],
     proof, joinList,
+    // The two rails off the stream: what this shopper was looking at, and what
+    // other shoppers opened alongside it.
+    recentIds: recentlyViewed(),
+    clearRecent: () => { clearRecent(); setMeasureTick((n) => n + 1); },
+    alsoViewed: D ? (D.alsoViewed || {}) : {},
     plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
@@ -843,6 +943,13 @@ export default function App() {
     cf, setCf, contactSent, sendContact,
     chat, setChat, sendChat,
     popup, setPopup, plEmail, setPlEmail, plDone, submitLead,
+    nudge, dismissNudge: () => { setNudge(false); try { localStorage.setItem("mr-nudge-at", String(Date.now())); } catch {} },
+    takeNudge: () => {
+      setNudge(false);
+      try { localStorage.setItem("mr-nudge-at", String(Date.now())); } catch {}
+      mrRecord("nudge_clicked", {});
+      setCartOpen(true);
+    },
     closePopup: () => { try { localStorage.setItem("mr-popup-seen", "1"); } catch {} setPopup(false); },
     consent, showConsent: !consent,
     // Anyone can stop being counted, and no means no measurement at all rather

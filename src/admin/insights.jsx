@@ -147,7 +147,11 @@ export function InsightsPage({ ctx }) {
 
   const rollNow = async () => {
     setBusy(true);
-    try { const r = await api.post("/api/admin/insights/rollup", {}, ctx.token); ctx.flash(`Folded ${r.folded} day(s)`); load(); }
+    try {
+      const r = await api.post("/api/admin/insights/rollup", {}, ctx.token);
+      ctx.flash(`Folded ${r.folded} day(s) · ${r.pairs} product pairings from ${r.sessions} visits`);
+      load();
+    }
     catch (e) { ctx.authFail(e); } finally { setBusy(false); }
   };
 
@@ -168,7 +172,7 @@ export function InsightsPage({ ctx }) {
             Measuring is switched off in Settings → Insights — nothing new is being recorded.
           </span>
         )}
-        <Button variant="ghost" size="sm" disabled={busy} onClick={rollNow}>{busy ? "Folding…" : "Fold today's numbers in"}</Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={rollNow}>{busy ? "Catching up…" : "Catch the numbers up now"}</Button>
       </div>
 
       {d.warming && (

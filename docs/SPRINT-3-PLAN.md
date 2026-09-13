@@ -418,7 +418,7 @@ nothing the other track touches.
 | **3.2 — The home page becomes data** ✅ | `home_blocks` + admin screen (§4) · curated Best sellers and Ready at your store (§4.2) · editable tiles and bands, seeded to today's exact layout | The merchandising ask, done once instead of six times. **Shipped** — and the padding rule earned its keep: a shelf that makes a claim about its products (deals, gift sets, ready-at-your-store) is never topped up |
 | **3.3 — F4, the stream** ✅ | sessions, events, `/api/track`, stitching, bot filter, rollups, retention, the opt-out and the privacy copy that describes it (§1) | Nothing visible ships this stage. Everything after it depends on it |
 | **3.4 — Insights** ✅ | Admin → Insights: funnel, conversion, segments, product intelligence, sources, zero-result searches, sold-out demand (§2.1) | The first stage where the client *sees* their data |
-| **3.5 — Smart shopping** | Recovery links, abandonment nudge, pick-up-where-you-left-off, low-stock urgency, free-delivery bar, also-viewed, demand board, targeted pop-up, search actions, cross-sell (§2) | The conversion features, in lift order |
+| **3.5 — Smart shopping** ✅ | Recovery links, abandonment nudge, pick-up-where-you-left-off, low-stock urgency, free-delivery bar, also-viewed, demand board, targeted pop-up, search actions, cross-sell (§2) | The conversion features, in lift order |
 
 ### Track B — ERPNext
 
@@ -437,6 +437,22 @@ filtering, rollup correctness, retention), `homeblocks.test.mjs` (block ordering
 manual-vs-auto sourcing, the availability filter on a curated shelf),
 `erp.test.mjs` (ERPNext payload mapping, warehouse mapping, idempotency on
 re-sync, and the empty-feed guard refusing to empty the shop).
+
+---
+
+## 8b. Track A — what shipped, and what did not
+
+Everything in §8's Track A is done. Two items from §2's list of ten did not
+land as their own feature, and are worth naming rather than leaving to be
+discovered:
+
+| Planned | What happened |
+|---|---|
+| §2.9 Zero-result search → action | The *list* shipped — every term a shopper searched for and found nothing, on the Insights screen, ranked. The one-click "create this product" / "point it at that one" beside each row did not. The list is what makes the decision; the shortcut is convenience, and it wants the redirect table it does not have yet |
+| §2.10 Post-add cross-sell | The co-view graph it would read from is live and already drives "often opened together" on the product page. Putting a second suggestion inside the cart drawer at the moment of adding is a deliberate hold: the drawer is the one surface in the shop where an interruption costs a sale outright, and it is worth watching the product-page rail earn its place first |
+
+Neither is blocked. Both are a small amount of work on foundations that now
+exist, which is the point.
 
 ---
 

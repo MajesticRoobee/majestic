@@ -4,6 +4,8 @@
 // enqueues any matching automations into the outbox. A scheduled (cron) handler
 // drains time-based automations (abandoned carts, birthdays) and the outbox.
 
+import { getSettings } from "./util.js";
+
 const te = new TextEncoder();
 
 async function hmacHex(secret, msg) {
@@ -50,6 +52,10 @@ function renderRun(automation, payload) {
   body = `Hi ${name}, ${body}`;
   if (payload.orderNo) body += `\n\nOrder: ${payload.orderNo}${payload.total ? ` — ₦${Number(payload.total).toLocaleString("en-US")}` : ""}`;
   if (payload.productName) body += `\n\n${payload.productName} is ready at ${payload.city || "your store"}.`;
+  // The link that makes an abandoned-cart message worth sending: one tap and
+  // the cart is back, rather than the home page and a second search for the
+  // thing they had already chosen.
+  if (payload.recoverUrl) body += `\n\nPick up where you left off: ${payload.recoverUrl}`;
   return { recipient, subject, body };
 }
 
@@ -149,12 +155,18 @@ export async function runScheduled(env) {
   // Abandoned-cart recovery — one chase per cart, after its delay.
   const cartAuto = await env.DB.prepare("SELECT * FROM automations WHERE id='abandoned_cart' AND enabled=1").first();
   if (cartAuto) {
+    // The cron has no request to take an origin from, so the shop's own address
+    // is a setting — which also means moving to the custom domain is a save
+    // rather than a deploy.
+    const site = String((await getSettings(env.DB)).siteUrl || env.SITE_URL || "").replace(/\/$/, "");
     const stale = (await env.DB.prepare(
       "SELECT * FROM abandoned_checkouts WHERE converted=0 AND reminded=0 AND updated_at <= datetime('now', ?)"
     ).bind(`-${cartAuto.delay_minutes} minutes`).all()).results;
     for (const c of stale) {
-      const eventId = await emitEvent(env, "checkout_abandoned", { entity: c.contact_key, payload: { name: c.name, email: c.email, phone: c.phone, contact: c.email || c.phone, city: c.city, total: c.value_ngn } });
-      await enqueue(env, cartAuto, eventId, { name: c.name, email: c.email, contact: c.email || c.phone, city: c.city, total: c.value_ngn });
+      const recoverUrl = c.token && site ? `${site}/?recover=${c.token}` : "";
+      const payload = { name: c.name, email: c.email, phone: c.phone, contact: c.email || c.phone, city: c.city, total: c.value_ngn, recoverUrl };
+      const eventId = await emitEvent(env, "checkout_abandoned", { entity: c.contact_key, payload });
+      await enqueue(env, cartAuto, eventId, payload);
       await env.DB.prepare("UPDATE abandoned_checkouts SET reminded=1 WHERE id=?").bind(c.id).run();
     }
   }

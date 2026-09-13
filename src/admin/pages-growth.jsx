@@ -667,10 +667,12 @@ const SECTION_KEYS = {
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
   inventory: ["lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays", "lowStockAlerts", "lowStockOnStorefront"],
   insights: ["insightsOn", "insightsRetainDays", "abandonAfterMins"],
+  convert: ["nudgeOn", "nudgeTitle", "nudgeBody", "nudgeCta", "nudgeCode", "nudgeEveryDays",
+    "promoPopupWhen", "recentlyViewedOn", "alsoViewedOn"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
   contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
   footer: ["footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl"],
-  seo: ["siteName", "metaDescription", "ogImage"],
+  seo: ["siteName", "siteUrl", "metaDescription", "ogImage"],
   analytics: ["ga4Id", "clarityId", "googleAdsId", "googleAdsPurchaseLabel", "metaPixelId", "tiktokPixelId", "gscVerification"],
 };
 
@@ -795,6 +797,47 @@ export function SettingsPage({ ctx }) {
         {sectionSave("insights")}
       </div>
       <div style={section}>
+        {sectionHead("Winning the sale", "The quiet nudges that turn a full cart into an order.")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Switch label="Show shoppers what they were looking at" checked={form.recentlyViewedOn ?? true} onChange={(e) => touch({ recentlyViewedOn: e.target.checked })} />
+          <Switch label="Show &ldquo;often opened together&rdquo; on a product" checked={form.alsoViewedOn ?? true} onChange={(e) => touch({ alsoViewedOn: e.target.checked })} />
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          The first is read from the shopper&apos;s own browser, so it works for someone who has never signed in. The second is built
+          overnight from what real shoppers open in the same visit — it fills out as the shop gets traffic, and falls back to the
+          category until it has enough to say anything.
+        </div>
+        <Select label="Who sees the first-order pop-up" value={form.promoPopupWhen || "everyone"} onChange={set("promoPopupWhen")}>
+          <option value="everyone">Everyone (as it has always been)</option>
+          <option value="returning">Only someone who has been here before and not bought</option>
+        </Select>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          A first-order offer is for somebody deciding whether to start, not for a stranger three seconds into their first look.
+        </div>
+        <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 14 }}>
+          <Switch label="Say something when a shopper with a full cart is about to leave" checked={form.nudgeOn ?? false} onChange={(e) => touch({ nudgeOn: e.target.checked })} />
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.6 }}>
+            A small card in the corner — never for an empty cart, never at checkout, and never twice inside the window below.
+            Off until you have written what it should say.
+          </div>
+        </div>
+        {(form.nudgeOn ?? false) && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="Heading" value={form.nudgeTitle || ""} onChange={set("nudgeTitle")} placeholder="Still deciding?" />
+              <Input label="Button" value={form.nudgeCta || ""} onChange={set("nudgeCta")} placeholder="Back to my cart" />
+            </div>
+            <Textarea label="What it says" value={form.nudgeBody || ""} onChange={set("nudgeBody")} rows={2} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="Offer a code (optional)" value={form.nudgeCode || ""} onChange={set("nudgeCode")} placeholder="COMEBACK10"
+                hint="Create it under Sales & Promos first — this only names it." />
+              <Input label="Not again for (days)" value={form.nudgeEveryDays ?? ""} onChange={set("nudgeEveryDays")} placeholder="7" />
+            </div>
+          </>
+        )}
+        {sectionSave("convert")}
+      </div>
+      <div style={section}>
         {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Blog heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="The blog" />
@@ -835,6 +878,8 @@ export function SettingsPage({ ctx }) {
       <div style={section}>
         {sectionHead("SEO", "How the store appears in search results and when shared. Product pages generate their own tags automatically.")}
         <Input label="Site name" value={form.siteName || ""} onChange={set("siteName")} placeholder="Majestic Roobee" />
+        <Input label="The shop's web address" value={form.siteUrl || ""} onChange={set("siteUrl")} placeholder="https://majesticroobee.com"
+          hint="Used in the links we email — a cart-recovery link has no request to take the address from. Set this before switching on the abandoned-cart chase, or those messages go out without their link." />
         <Textarea label="Default meta description" value={form.metaDescription || ""} onChange={set("metaDescription")} rows={2} hint="Used on the homepage and as a fallback (aim for 150–160 characters)." />
         <ImagePicker ctx={ctx} label="Social share image (optional)" value={form.ogImage || ""} onChange={(url) => touch({ ogImage: url })}
           hint="Shown when a link is shared on WhatsApp, Instagram, X, etc. 1200×630 is the shape they all crop to." />

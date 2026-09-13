@@ -564,6 +564,20 @@ function CartDrawer({ ctx }) {
           ))}
         </div>
         <div style={{ padding: "20px 24px", borderTop: "1px solid var(--border-hairline)" }}>
+          {/* Free delivery has been enforced since the shop opened and never
+              once shown to the person it would move. */}
+          {cc.items.length > 0 && cc.freeShip && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12.5, color: cc.freeShip.remaining ? "var(--text-body)" : "#3f6b45", fontWeight: 500, marginBottom: 6 }}>
+                {cc.freeShip.remaining
+                  ? <>Add {ctx.fmt(cc.freeShip.remaining)} more for free delivery</>
+                  : <>Free delivery unlocked</>}
+              </div>
+              <div style={{ height: 6, borderRadius: "var(--radius-pill)", background: "var(--surface-sunken)", overflow: "hidden" }}>
+                <div style={{ width: `${cc.freeShip.pct}%`, height: "100%", background: cc.freeShip.remaining ? "var(--mr-gold-500)" : "#8fd694", transition: "width .3s" }} />
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 600, color: "var(--text-strong)", marginBottom: 6 }}>
             <span>Subtotal</span><span>{ctx.fmt(cc.sub)}</span>
           </div>
@@ -572,6 +586,41 @@ function CartDrawer({ ctx }) {
         </div>
       </aside>
     </>
+  );
+}
+
+// One quiet word to somebody with a full cart who is about to leave.
+//
+// Everything about it is deliberately restrained: it is off until the house
+// writes its own copy, it never appears for a shopper with an empty cart or one
+// already at checkout, it takes no for an answer for days at a time, and it is
+// a card in the corner rather than a sheet over the shop. A pop-up is the
+// easiest thing in this sprint to make a shop worse with.
+function LeaveNudge({ ctx }) {
+  if (!ctx.nudge) return null;
+  const st = ctx.settings || {};
+  const n = ctx.cart.reduce((a, c) => a + c.qty, 0);
+  // The consent banner owns the bottom of the screen until it is answered, and
+  // two cards stacked on the same 16px would sit on top of each other.
+  const bottom = ctx.showConsent ? 128 : 16;
+  return (
+    <div role="dialog" aria-label={st.nudgeTitle || "Still deciding?"}
+      style={{ position: "fixed", left: 16, right: 16, bottom, zIndex: 175, maxWidth: 400, margin: "0 auto", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "18px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--text-strong)" }}>{st.nudgeTitle || "Still deciding?"}</div>
+        <button onClick={ctx.dismissNudge} aria-label="Close" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--text-muted)", lineHeight: 1 }}>✕</button>
+      </div>
+      <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--text-body)", margin: "8px 0 0" }}>{st.nudgeBody}</p>
+      {st.nudgeCode && (
+        <div style={{ marginTop: 10, fontSize: 13, color: "var(--mr-purple-900)" }}>
+          Use <strong style={{ fontFamily: "var(--font-condensed)", letterSpacing: "0.08em" }}>{st.nudgeCode}</strong> at checkout.
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
+        <Button variant="primary" onClick={ctx.takeNudge}>{st.nudgeCta || "Back to my cart"}</Button>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{n} item{n === 1 ? "" : "s"} waiting</span>
+      </div>
+    </div>
   );
 }
 
@@ -822,6 +871,7 @@ export function Chrome({ ctx, children }) {
       <Header ctx={ctx} />
       {children}
       <CartDrawer ctx={ctx} />
+      <LeaveNudge ctx={ctx} />
       <PurchaseProof ctx={ctx} />
       <ChatWidget ctx={ctx} />
       <Footer ctx={ctx} />

@@ -7,6 +7,7 @@ import { runScheduled } from "./events.js";
 import { releaseExpiredOrders } from "./payments.js";
 import { sweepStock } from "./inventory.js";
 import { rollup } from "./insights.js";
+import { rebuildAffinity } from "./affinity.js";
 import { resolveMedia, readMedia } from "./media.js";
 
 const app = new Hono();
@@ -132,6 +133,11 @@ async function cron(env) {
   // Fold yesterday into the rollups the admin reads, and prune raw events past
   // the window. Last, because it is the only job here nobody is waiting on.
   try { await rollup(env); } catch (e) { console.error("insight rollup failed", e); }
+  // "Other people also opened…". Rebuilt whole, and only once an hour — it only
+  // has to be right daily, and a rebuild cannot drift the way a counter can.
+  if (new Date().getUTCMinutes() < 15) {
+    try { await rebuildAffinity(env); } catch (e) { console.error("affinity rebuild failed", e); }
+  }
 }
 
 export default {

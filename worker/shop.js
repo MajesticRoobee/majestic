@@ -5,6 +5,7 @@ import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_AR
 import { lowStockLines } from "./inventory.js";
 import { loadHomeBlocks, resolveHomeBlocks } from "./home.js";
 import { ingest, stitchVisitor } from "./insights.js";
+import { loadAffinity } from "./affinity.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -154,6 +155,11 @@ shop.get("/store", async (c) => {
     sellable: new Set(products.filter((p) => (p.variants || []).length).map((p) => p.id)),
   });
 
+  // "Other people also opened…" — the shop's own shoppers, not a guess from the
+  // category tree. Small enough to ride with the catalogue; empty until the
+  // graph has been built and while there is too little traffic to mean anything.
+  const alsoViewed = settings.alsoViewedOn === false ? {} : await loadAffinity(db);
+
   // The information pages that are published, so the footer links to what
   // actually exists rather than to a list kept in the markup. Titles only —
   // the body is fetched when someone opens one.
@@ -161,7 +167,7 @@ shop.get("/store", async (c) => {
     "SELECT slug, title FROM content_pages WHERE live=1 AND in_footer=1 ORDER BY sort, slug"
   ).all()).results.map((r) => ({ slug: r.slug, title: r.title }));
 
-  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog, pages, homeBlocks });
+  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog, pages, homeBlocks, alsoViewed });
 });
 
 // Units sold per product over the best-seller window. Only orders that were
@@ -387,20 +393,70 @@ shop.post("/track", async (c) => {
 });
 
 // Track abandoned checkouts. Upserts by phone/email.
+//
+// It now keeps *what was in the cart*, and a token that puts it back. The
+// automation has been enqueuing "you left something" since Phase 1 and could
+// only ever drop the shopper on the home page to find it again; most do not.
+// The token is random, names one row, and carries nothing — the row is already
+// keyed on a contact the shopper typed into our own checkout.
 shop.post("/checkouts/activity", async (c) => {
-  const { name, phone, email, city, value, stage } = await c.req.json();
+  const { name, phone, email, city, value, stage, items } = await c.req.json();
   const key = normalizeContact(email || phone);
   if (!key) return c.json({ ok: false });
-  await c.env.DB
+  const db = c.env.DB;
+  const lines = JSON.stringify(
+    (Array.isArray(items) ? items : []).slice(0, 30).map((i) => ({
+      variantId: parseInt(i.variantId, 10) || null,
+      qty: Math.max(1, Math.min(50, parseInt(i.qty, 10) || 1)),
+    })).filter((i) => i.variantId)
+  );
+  const existing = await db.prepare("SELECT token FROM abandoned_checkouts WHERE contact_key=?").bind(key).first();
+  const token = (existing && existing.token) || crypto.randomUUID().replace(/-/g, "");
+  await db
     .prepare(
-      `INSERT INTO abandoned_checkouts (contact_key, name, phone, email, city, value_ngn, stage, converted, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
+      `INSERT INTO abandoned_checkouts (contact_key, name, phone, email, city, value_ngn, stage, converted, updated_at, token, items)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), ?, ?)
        ON CONFLICT(contact_key) DO UPDATE SET name=excluded.name, phone=excluded.phone, email=excluded.email,
-         city=excluded.city, value_ngn=excluded.value_ngn, stage=excluded.stage, converted=0, updated_at=datetime('now')`
+         city=excluded.city, value_ngn=excluded.value_ngn, stage=excluded.stage, converted=0,
+         updated_at=datetime('now'), token=COALESCE(abandoned_checkouts.token, excluded.token), items=excluded.items`
     )
-    .bind(key, name || "", phone || "", email || "", city || "", Math.round(value || 0), stage || "Cart")
+    .bind(key, name || "", phone || "", email || "", city || "", Math.round(value || 0), stage || "Cart", token, lines)
     .run();
   return c.json({ ok: true });
+});
+
+// One tap back into the cart someone left.
+//
+// The link answers with the lines only — never the name, the address or the
+// contact it is keyed on. A recovery link that leaked a customer's details to
+// whoever it was forwarded to would be a worse bargain than the sale it wins.
+shop.get("/cart/recover", async (c) => {
+  const token = String(c.req.query("t") || "").trim();
+  if (!/^[a-f0-9]{16,64}$/i.test(token)) return c.json({ items: [] });
+  const db = c.env.DB;
+  const row = await db.prepare("SELECT * FROM abandoned_checkouts WHERE token=? AND converted=0").bind(token).first();
+  if (!row) return c.json({ items: [] });
+  let lines = [];
+  try { lines = JSON.parse(row.items || "[]"); } catch { lines = []; }
+  if (!lines.length) return c.json({ items: [] });
+
+  // Only what can still actually be bought — the shopper is being sent back to
+  // a cart, and a cart that prices something withdrawn is a dead end at the
+  // last step rather than at the first.
+  const ids = lines.map((l) => l.variantId);
+  const live = (await db.prepare(
+    `SELECT v.id, v.product_id, v.sku, v.size FROM variants v JOIN products p ON p.id = v.product_id
+      WHERE v.active = 1 AND p.live = 1 AND v.id IN (${ids.map(() => "?").join(",")})`
+  ).bind(...ids).all()).results;
+  const byId = new Map(live.map((v) => [v.id, v]));
+  const items = lines
+    .filter((l) => byId.has(l.variantId))
+    .map((l) => {
+      const v = byId.get(l.variantId);
+      return { id: v.product_id, variantId: v.id, sku: v.sku, size: v.size, qty: l.qty };
+    });
+  await db.prepare("UPDATE abandoned_checkouts SET recovered_at=datetime('now') WHERE token=?").bind(token).run();
+  return c.json({ items, city: row.city || "" });
 });
 
 shop.post("/inquiries", async (c) => {

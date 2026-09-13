@@ -9,6 +9,7 @@ import { emitEvent } from "./events.js";
 import { stockHealth, sweepStock } from "./inventory.js";
 import { loadHomeBlocks, SOURCES } from "./home.js";
 import { overview as insightOverview, segmentCounts, segmentRows, soldOutDemand, rollup, insightsConfig } from "./insights.js";
+import { rebuildAffinity } from "./affinity.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
@@ -962,8 +963,12 @@ admin.put("/settings", async (c) => {
     // The behavioural stream: whether it runs, how long a raw event is kept,
     // and how long a cart sits before it counts as abandoned.
     "insightsOn", "insightsRetainDays", "abandonAfterMins",
+    // Smart shopping: the leave-behind nudge, who the first-order pop-up is
+    // for, and the two rails read off the stream.
+    "nudgeOn", "nudgeTitle", "nudgeBody", "nudgeCta", "nudgeCode", "nudgeEveryDays",
+    "promoPopupWhen", "recentlyViewedOn", "alsoViewedOn",
     // SEO
-    "siteName", "metaDescription", "ogImage",
+    "siteName", "siteUrl", "metaDescription", "ogImage",
     // Marketing & analytics tags
     "ga4Id", "metaPixelId", "tiktokPixelId", "googleAdsId", "googleAdsPurchaseLabel", "clarityId", "gscVerification",
     // The house's mark: the logo in the header, and a light version for the
@@ -1556,9 +1561,16 @@ admin.get("/insights/segments/:id", async (c) => {
   return r ? c.json(r) : c.json({ error: "No such segment." }, 404);
 });
 
-// Fold now rather than waiting for the cron — for the moment after switching
-// the stream on, when an empty screen is indistinguishable from a broken one.
-admin.post("/insights/rollup", async (c) => c.json(await rollup(c.env)));
+// Catch the derived data up now rather than waiting for the cron — for the
+// moment after switching the stream on, when an empty screen is
+// indistinguishable from a broken one. Both jobs, because both are "fold what
+// has happened into what the shop reads", and two buttons would only ever be
+// pressed together.
+admin.post("/insights/rollup", async (c) => {
+  const folded = await rollup(c.env);
+  const graph = await rebuildAffinity(c.env);
+  return c.json({ ...folded, ...graph });
+});
 
 // ---- The home page ----
 //

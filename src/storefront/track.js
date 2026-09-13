@@ -129,3 +129,28 @@ export function startTracking({ on = true } = {}) {
 
 /** Everything still queued, now — used before a hard navigation. */
 export function flushNow() { if (started) send(true); }
+
+// ---- What this shopper was looking at -------------------------------------
+//
+// Kept in their own browser rather than fetched back from the server: it is
+// theirs, it is instant, and it works for the anonymous visitor who is most of
+// the traffic. The server's copy of the same thing is for the house's numbers;
+// this is for the shopper's own convenience.
+
+const RECENT_KEY = "mr-recent";
+const RECENT_MAX = 12;
+
+export function noteViewed(productId) {
+  if (!productId || optedOut()) return;
+  safe(() => {
+    const prev = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter((x) => x !== productId);
+    localStorage.setItem(RECENT_KEY, JSON.stringify([productId, ...prev].slice(0, RECENT_MAX)));
+  });
+}
+
+export function recentlyViewed(exclude = null) {
+  const list = safe(() => JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"), []) || [];
+  return list.filter((id) => id !== exclude);
+}
+
+export function clearRecent() { safe(() => localStorage.removeItem(RECENT_KEY)); }
