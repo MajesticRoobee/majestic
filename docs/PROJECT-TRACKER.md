@@ -70,6 +70,28 @@ reach the storefront.
 
 ---
 
+## Sprint 3 — Smart shopping, insights & the ERP link (13 Sep 2026) — 🔄 planned
+
+The client's next round: first-party shopper insight and the conversion features
+that ride it, a curatable home page, the ERPNext link, and the settings the house
+still has to ask us to change. Planned in full — scope, schema, sequence and the
+seven questions the ERP work is blocked on — in
+[`SPRINT-3-PLAN.md`](./SPRINT-3-PLAN.md).
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Low-stock threshold: control, per-variation override, real alerts | ⬜ | The setting already exists and is already saveable; nothing renders it, and nobody is notified when stock runs low. [§3](./SPRINT-3-PLAN.md) |
+| 2 | Legal pages become content (privacy, terms, returns, shipping) | ⬜ | `PrivacyPage` is hardcoded JSX down to its "last updated" date. Reuses the blog's plain-text renderer. [§5.1](./SPRINT-3-PLAN.md) |
+| 3 | About Us → Blog in the header | ⬜ | Nav swap; `/about` stays live as "Our story" in the footer. One decision open. [§6](./SPRINT-3-PLAN.md) |
+| 4 | Home Fragrance band gains its picture and products | ⬜ | Today a plain `CtaBand`; becomes the picture band Feminine Care uses. [§4.4](./SPRINT-3-PLAN.md) |
+| 5 | The home page becomes data — `home_blocks` + admin screen | ⬜ | Reorder, rename, re-photograph and **create** bands and banners; curate Best sellers and Ready at your store. [§4](./SPRINT-3-PLAN.md) |
+| 6 | **F4 — the behavioural stream** | ⬜ | sessions + events + `/api/track` + rollups + retention + opt-out. The foundation the whole insight ask rides on; nothing records a *visit* today. [§1](./SPRINT-3-PLAN.md) |
+| 7 | Admin → Insights | ⬜ | Funnel, conversion, segments, view-to-cart rate, traffic sources, zero-result searches, sold-out demand. [§2.1](./SPRINT-3-PLAN.md) |
+| 8 | Smart shopping conversion features | ⬜ | Cart-recovery links, abandonment nudge, pick-up-where-you-left-off, low-stock urgency, free-delivery bar, also-viewed, demand board, targeted pop-up. [§2](./SPRINT-3-PLAN.md) |
+| 9 | ERPNext connector | 🔑 | Pull (Item / Item Price / Bin), webhook push, order write-back. Runs in parallel with everything above. Blocked on the seven answers in [§7.4](./SPRINT-3-PLAN.md) — reachability first |
+
+---
+
 ## Next up — the audit's "this month"
 
 | Item | Status | Notes |
