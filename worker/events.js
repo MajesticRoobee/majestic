@@ -28,6 +28,19 @@ async function deliverWebhooks(env, type, event) {
 }
 
 function renderRun(automation, payload) {
+  // An alert addressed to the house rather than to a shopper. It is not a
+  // greeting and it is not personal — it is a list of work, sent to whoever the
+  // store's contact address is. "Hi there, a size is running low" would be the
+  // wrong register and the wrong recipient.
+  if (payload.internal) {
+    const lines = Array.isArray(payload.lines) ? payload.lines : [];
+    const extra = payload.more > 0 ? `\n\n…and ${payload.more} more.` : "";
+    return {
+      recipient: payload.to || "",
+      subject: payload.subject || automation.template_title,
+      body: `${automation.template_body}${lines.length ? `\n\n${lines.join("\n")}` : ""}${extra}`,
+    };
+  }
   // recipient + a lightly personalised subject/body from the event payload
   const recipient = payload.email || payload.contact || payload.phone || "";
   const name = (payload.name || payload.customer || "").split(" ")[0] || "there";

@@ -875,7 +875,11 @@ function InventorySection({ ctx, form, touch, set, section, sectionHead, section
     setSweeping("…");
     try {
       const r = await api.post("/api/admin/stock/sweep", {}, ctx.token);
-      setSweeping(r.changed ? `${r.changed} shelf/shelves changed state — ${r.alerted} alert(s) raised` : "Nothing crossed the line");
+      const parts = [];
+      if (r.out) parts.push(`${r.out} sold out`);
+      if (r.low) parts.push(`${r.low} running low`);
+      if (r.recovered) parts.push(`${r.recovered} back above the line`);
+      setSweeping(parts.length ? parts.join(", ") + (r.alerted ? " — alert sent" : "") : "Nothing crossed the line");
       ctx.loadStockHealth();
     } catch (e) { ctx.authFail(e); setSweeping(""); }
   };

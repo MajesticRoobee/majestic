@@ -13,6 +13,11 @@ const sample = (store.products || [])[0];
 // Same reasoning as the product page below: pull a published post from whatever
 // is actually live rather than naming a slug that could be renamed or deleted.
 const post = (await fetch(base + "/api/blog").then((r) => r.json()).catch(() => ({})).then((d) => (d.posts || [])[0])) || null;
+// The information pages the house has published — privacy, terms, returns and
+// whatever else it has written. Read from the store rather than listed here,
+// for the same reason as the product and the post: this file must not quietly
+// start testing a 404 because someone renamed a page.
+const infoPages = (store.pages || []).map((p) => p.slug);
 
 // Every page the header links to. Each of these is a distinct route through the
 // SPA, and a white screen on any of them is a white screen a shopper reaches
@@ -32,12 +37,14 @@ const targets = [
   { path: "/about", needsRoot: true },
   { path: "/faq", needsRoot: true },
   { path: "/contact", needsRoot: true },
+  ...infoPages.map((slug) => ({ path: "/" + slug, needsRoot: true })),
   ...(post ? [{ path: "/blog/" + post.slug, needsRoot: true }] : []),
   ...(sample ? [{ path: "/product/" + sample.id, needsRoot: true }] : []),
   { path: "/admin/", needsRoot: true },
 ];
 if (!sample) console.log("• catalogue is empty — skipping the product-page check");
 if (!post) console.log("• no published posts yet — skipping the blog-post check");
+if (!infoPages.length) console.log("• no information pages published — skipping those");
 
 // CHROME_PATH lets this run against a preinstalled browser (handy locally);
 // CI leaves it unset so Playwright resolves its own download.

@@ -3,7 +3,7 @@ import { api } from "../lib/api.js";
 import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import {
-  HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage,
+  HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, InfoPage,
   WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, FaqPage,
 } from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
@@ -82,6 +82,11 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("mr-wishlist") || "[]"); } catch { return []; }
   });
   const [postSlug, setPostSlug] = useState(initialRoute.postSlug || null);
+  // Privacy, terms, returns — whatever the house has written. Fetched by name,
+  // because the list lives on the server and this component is built before any
+  // of it has arrived.
+  const [pageSlug, setPageSlug] = useState(initialRoute.pageSlug || null);
+  const [infoPage, setInfoPage] = useState(null);
   const [blog, setBlog] = useState({ posts: [], tags: [], loaded: false });
   const [post, setPost] = useState(null);
   const [blogTag, setBlogTag] = useState("");
@@ -184,6 +189,7 @@ export default function App() {
       if (extra.fSeg !== undefined && extra.fCat === undefined) setFCat("all");
     }
     if (extra.postSlug !== undefined) setPostSlug(extra.postSlug);
+    if (extra.pageSlug !== undefined) setPageSlug(extra.pageSlug);
     if (extra.productId !== undefined) {
       setProductId(extra.productId);
       setPrVariantId(extra.prVariantId ?? null);
@@ -206,6 +212,7 @@ export default function App() {
       setFSeg(r.fSeg || null);
       setFBrand(r.fBrand || "");
       setPostSlug(r.postSlug || null);
+      setPageSlug(r.pageSlug || null);
       setMnav(false);
       setCartOpen(false);
       window.scrollTo(0, 0);
@@ -554,6 +561,17 @@ export default function App() {
     return () => { live = false; };
   }, [page, postSlug, post]);
 
+  useEffect(() => {
+    if (page !== "info" || !pageSlug) return;
+    if (infoPage && infoPage.slug === pageSlug) return;
+    setInfoPage(null);
+    let live = true;
+    api.get(`/api/pages/${encodeURIComponent(pageSlug)}`)
+      .then((r) => { if (live) setInfoPage({ slug: pageSlug, page: r.page }); })
+      .catch((e) => { if (live) setInfoPage({ slug: pageSlug, error: e.message }); });
+    return () => { live = false; };
+  }, [page, pageSlug, infoPage]);
+
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
   useEffect(() => { if (D && consent === "granted") startAnalytics(D.settings); }, [D, consent]);
@@ -569,13 +587,14 @@ export default function App() {
       category: page === "shop" && fCat && fCat !== "all" ? fCat : "",
       brand: fBrand ? (brands.find((b) => b.id === fBrand) || { name: fBrand }).name : "",
       post: post && post.post ? post.post : null,
+      infoPage: infoPage && infoPage.page ? infoPage.page : null,
     }));
     trackEvent("page_view");
     if (product && variant) trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
     if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
     if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fCat, fBrand, post]);
+  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fCat, fBrand, post, infoPage]);
 
   // Prefill checkout for a signed-in customer, once per visit to the page.
   const prefilled = useRef(false);
@@ -784,7 +803,7 @@ export default function App() {
     collections, segments, deals, dailyDeal, brands, testimonials, latestPosts, refreshStore,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
-    blog, blogTag, setBlogTag, post, postSlug,
+    blog, blogTag, setBlogTag, post, postSlug, pageSlug, infoPage, pages: D ? (D.pages || []) : [],
     proof, joinList,
     plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
@@ -812,7 +831,7 @@ export default function App() {
     page === "track" ? <TrackPage ctx={ctx} /> :
     page === "contact" ? <ContactPage ctx={ctx} /> :
     page === "faq" ? <FaqPage ctx={ctx} /> :
-    page === "privacy" ? <PrivacyPage ctx={ctx} /> :
+    page === "info" ? <InfoPage ctx={ctx} /> :
     page === "account" ? <AccountPage ctx={ctx} /> :
     page === "wishlist" ? <WishlistPage ctx={ctx} /> :
     page === "locations" ? <LocationsPage ctx={ctx} /> :

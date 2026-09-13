@@ -30,13 +30,19 @@ CREATE TABLE stock_alerts (
 );
 CREATE INDEX idx_stock_alerts_state ON stock_alerts(state);
 
--- Two automations against the two new events. They open enabled because an
--- alert nobody switched on is not an alert; with no email provider they queue
--- in the outbox and are readable from Admin → Integrations, exactly like every
--- other automation here does today.
+-- One automation, on the digest rather than on the individual crossings.
+--
+-- The sweep emits an event per shelf that crossed — the log and any registered
+-- webhook want the SKU — but a single sweep after someone raises the threshold
+-- can find six hundred of them at once, and six hundred emails is not an alert;
+-- it is a reason to switch alerts off. So the message is one list, once.
+--
+-- It opens enabled because an alert nobody switched on is not an alert. With no
+-- email provider it queues in the outbox and is readable from Admin →
+-- Integrations, exactly as every other automation here does today.
 INSERT INTO automations (id, name, trigger, action, template_title, template_body, delay_minutes, enabled) VALUES
-  ('inventory_low', 'Low stock alert', 'inventory_low', 'email', 'Running low', 'A size is down to its last few at one of the stores.', 0, 1),
-  ('inventory_out', 'Out of stock alert', 'inventory_out', 'email', 'Sold out', 'A size has just sold out at one of the stores.', 0, 1);
+  ('inventory_alert', 'Low & out of stock alert', 'inventory_digest', 'email', 'Stock needs attention',
+   'These shelves crossed their low-stock line since the last check:', 0, 1);
 
 -- How the line is drawn. `flat` is the number as it has always been; `cover`
 -- reads it off recent sales — alert when the shelf holds less than N days of

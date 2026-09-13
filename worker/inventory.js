@@ -18,6 +18,16 @@ import { emitEvent } from "./events.js";
 import { daysBefore } from "./merch.js";
 import { getSettings } from "./util.js";
 
+// How many individual crossings one sweep will put in the event log. A steady
+// week produces a handful; the first sweep after someone raises the threshold
+// produces one for every shelf in the shop, and each of those fans out to every
+// registered webhook. The log stays useful either way because the digest below
+// always carries the true totals.
+export const EVENT_CAP = 100;
+// ...and how many get named in the message itself. A list of six hundred is not
+// a list anybody reads.
+export const DIGEST_LINES = 25;
+
 export const DEFAULT_THRESHOLD = 5;
 export const DEFAULT_COVER_DAYS = 14;
 export const DEFAULT_VELOCITY_DAYS = 30;
@@ -149,7 +159,8 @@ export async function sweepStock(env, { settings = null, emit = true } = {}) {
       .map((r) => [`${r.variant_id}:${r.location_id}`, r.state])
   );
 
-  const changed = [];
+  const crossed = [];   // shelves that got worse — the only ones worth a message
+  let recovered = 0;    // ...and the ones that came back, recorded so they can be heard again
   const writes = [];
   for (const s of states) {
     const key = `${s.variantId}:${s.locationId}`;
@@ -163,23 +174,58 @@ export async function sweepStock(env, { settings = null, emit = true } = {}) {
            state=excluded.state, qty=excluded.qty, threshold=excluded.threshold, changed_at=excluded.changed_at`
       ).bind(s.variantId, s.locationId, s.state, s.qty, s.threshold)
     );
-    if (worsened(before, s.state)) changed.push({ ...s, before });
+    if (worsened(before, s.state)) crossed.push({ ...s, before });
+    else recovered++;
   }
   // D1 caps a batch; the sweep touches every shelf in the shop on its first run.
   for (let i = 0; i < writes.length; i += 50) await db.batch(writes.slice(i, i + 50));
 
-  if (emit && cfg.alerts) {
-    for (const s of changed) {
-      await emitEvent(env, s.state === "out" ? "inventory_out" : "inventory_low", {
-        entity: s.sku || String(s.variantId),
-        payload: {
-          productId: s.productId, productName: s.productName, size: s.size, sku: s.sku,
-          city: s.locationId, qty: s.qty, threshold: s.threshold,
-        },
-      });
-    }
+  if (!emit || !cfg.alerts || !crossed.length) {
+    return { scanned: states.length, crossed: crossed.length, recovered, alerted: 0, low: 0, out: 0 };
   }
-  return { scanned: states.length, changed: changed.length, alerted: emit && cfg.alerts ? changed.length : 0 };
+
+  // Two shapes, for two audiences.
+  //
+  // One event per crossing, for the log, the partner API and any webhook an ERP
+  // or a warehouse system has registered — those want the SKU, and they want
+  // every one of them. Capped, because a sweep that finds six hundred crossings
+  // at once is not six hundred pieces of news; it is a threshold someone just
+  // changed, and fanning that out to every subscriber helps nobody.
+  const byStore = new Map();
+  for (const s of crossed.slice(0, EVENT_CAP)) {
+    await emitEvent(env, s.state === "out" ? "inventory_out" : "inventory_low", {
+      entity: s.sku || String(s.variantId),
+      payload: {
+        productId: s.productId, productName: s.productName, size: s.size, sku: s.sku,
+        city: s.locationId, qty: s.qty, threshold: s.threshold,
+      },
+    });
+  }
+  for (const s of crossed) byStore.set(s.locationId, (byStore.get(s.locationId) || 0) + 1);
+
+  // ...and exactly one message to the house, whatever the sweep found. Six
+  // hundred emails is not an alert; it is a reason to switch alerts off.
+  const out = crossed.filter((s) => s.state === "out");
+  const low = crossed.filter((s) => s.state === "low");
+  const line = (s) => `${s.productName} — ${s.size} · ${s.locationId}: ${s.qty === 0 ? "sold out" : `${s.qty} left`} (warn at ${s.threshold})`;
+  const named = [...out, ...low].slice(0, DIGEST_LINES);
+  const subject = out.length
+    ? `${out.length} sold out${low.length ? `, ${low.length} running low` : ""}`
+    : `${low.length} running low`;
+  await emitEvent(env, "inventory_digest", {
+    entity: "stock",
+    payload: {
+      internal: true,
+      to: (settings && settings.contactEmail) || (await getSettings(db)).contactEmail || "",
+      subject,
+      lines: named.map(line),
+      more: Math.max(0, crossed.length - named.length),
+      low: low.length, out: out.length,
+      byStore: Object.fromEntries(byStore),
+    },
+  });
+
+  return { scanned: states.length, crossed: crossed.length, recovered, alerted: 1, low: low.length, out: out.length };
 }
 
 /**

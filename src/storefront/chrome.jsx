@@ -141,7 +141,11 @@ const NAV_TABS = [
   { label: "New arrivals", page: "shop", extra: { fSeg: "new-arrivals" } },
   { label: "Deals", page: "shop", extra: { fSeg: "deals" }, hot: true },
   { label: "Best sellers", page: "shop", extra: { fSeg: "best-sellers" } },
-  { label: "About", page: "about", from: 1000 },
+  // The blog takes the band's last tab. The house writes it weekly and it is
+  // what brings people back; the story does not change and does not need a slot
+  // at the top of every page. /about is still there — the menu below names it,
+  // the footer links it, and the home page still runs its opening paragraph.
+  { label: "Blog", page: "blog", from: 1000 },
 ];
 
 // Below this the search box leaves the band and takes its old place in the top
@@ -154,7 +158,7 @@ const RAIL_FOOTER = [
   { label: "All products", extra: { fCat: "all", fSeg: null, fBrand: "", fCol: null } },
   { label: "Our stores", page: "locations" },
   { label: "Blog", page: "blog" },
-  { label: "About", page: "about" },
+  { label: "Our story", page: "about" },
   { label: "FAQs", page: "faq" },
 ];
 
@@ -483,7 +487,9 @@ function Header({ ctx }) {
       {ctx.mnav && ctx.isMobile && (
         <nav style={{ display: "flex", flexDirection: "column", borderTop: "1px solid var(--border-hairline)", background: "var(--mr-cream)", padding: "8px 0", maxHeight: "70vh", overflowY: "auto" }}>
           <div style={{ margin: "8px 24px 12px" }}>{searchBox(false)}</div>
-          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }]).map((t) => (
+          {/* The drawer has room the band has not, so the story keeps its place
+              here rather than disappearing with the header tab. */}
+          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Our story", page: "about" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }]).map((t) => (
             <a key={t.label} href={routeToPath(t.page, t.extra)} onClick={(e) => { e.preventDefault(); ctx.nav(t.page, t.extra || {}); }} style={{ padding: "12px 24px", fontSize: 15, fontWeight: 500 }}>{t.label}</a>
           ))}
           <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "8px 0", paddingTop: 8 }}>
@@ -682,7 +688,13 @@ function Footer({ ctx }) {
             {link("Your wishlist", "wishlist")}
             {faqLink("Shipping & delivery", "shipping")}
             {faqLink("Returns & exchanges", "returns")}
-            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy policy</a>
+            {/* The pages the house has actually published, in the order it put
+                them in — rather than a list kept here that promises a returns
+                policy nobody has written. */}
+            {ctx.pages.map((pg) => (
+              <a key={pg.slug} href={`/${pg.slug}`} onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: pg.slug }); }}
+                style={{ color: "var(--text-on-dark-muted)" }}>{pg.title}</a>
+            ))}
           </div>
         </div>
       </div>
@@ -691,7 +703,7 @@ function Footer({ ctx }) {
           <span>© {new Date().getFullYear()} Majestic Roobee. All rights reserved.</span>
           <span style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             <span style={{ fontFamily: "var(--font-condensed)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--mr-gold-400)" }}>Elevate Your Smellgame</span>
-            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
+            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
             <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff portal</a>
           </span>
         </div>
@@ -709,7 +721,7 @@ function ConsentBanner({ ctx }) {
     <div style={{ position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 180, maxWidth: 720, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span style={{ fontSize: 13, lineHeight: 1.5, flex: 1, minWidth: 220 }}>
         We use cookies to run the store and, if you accept, to measure and improve it.
-        {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--mr-gold-400)" }}>Privacy policy</a>
+        {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--mr-gold-400)" }}>Privacy policy</a>
       </span>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Button variant="gold" size="sm" onClick={ctx.grantConsent}>Accept</Button>

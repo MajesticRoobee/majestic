@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue, CollectionsPage } from "./pages-ops.jsx";
-import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage } from "./pages-content.jsx";
+import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage, PagesPage } from "./pages-content.jsx";
 import { DailyDealsPage } from "./daily-deals.jsx";
 import { Sales, Rewards, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
@@ -49,6 +49,7 @@ const PAGES = [
   { id: "deals", label: "Deals", title: "Deals & hot offers" },
   { id: "daily-deals", label: "Daily Deals", title: "Daily deals & countdown" },
   { id: "blog", label: "Blog", title: "The blog" },
+  { id: "pages", label: "Pages", title: "Information & legal pages" },
   { id: "reviews", label: "Reviews", title: "Reviews & testimonials" },
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
   { id: "rewards", label: "Rewards", title: "Reward codes" },
@@ -156,6 +157,7 @@ export default function App() {
   const [deals, setDeals] = useState([]);
   const [posts, setPosts] = useState([]);
   const [testimonials, setTestimonials] = useState([]);
+  const [pages, setPages] = useState([]);
   const [settingsData, setSettingsData] = useState(null);
   // Where the low-stock line sits for every shelf, as the server draws it — an
   // override on a variation, and in days-of-cover mode a line that differs per
@@ -233,6 +235,10 @@ export default function App() {
     if (!token) return;
     api.get("/api/admin/settings", token).then(setSettingsData).catch(authFail);
   }, [token, authFail]);
+  const loadPages = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/pages", token).then((r) => setPages(r.pages)).catch(authFail);
+  }, [token, authFail]);
   const loadStockHealth = useCallback(() => {
     if (!token) return;
     api.get("/api/admin/stock/health", token).then(setStockHealth).catch(authFail);
@@ -253,6 +259,7 @@ export default function App() {
     loadPosts();
     loadTestimonials();
     loadStockHealth();
+    loadPages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -290,7 +297,7 @@ export default function App() {
   const ctx = {
     token, page, setPage: goPage, scope, setScope, scopeLabel, TH, lowLine, stockHealth, loadStockHealth, me, loadMe, isSuper,
     overview, products, promos, campaigns, inquiries, settingsData,
-    locations, openStores, collections, inqCounts, showArchived, setShowArchived,
+    locations, openStores, collections, inqCounts, showArchived, setShowArchived, pages, loadPages,
     categories, deals, posts, testimonials,
     // Category labels come from the live table; CAT_LABELS is only the fallback
     // for the moment before it has loaded.
@@ -379,6 +386,7 @@ export default function App() {
         {activePage === "deals" && <DealsPage ctx={ctx} />}
         {activePage === "daily-deals" && <DailyDealsPage ctx={ctx} />}
         {activePage === "blog" && <BlogPage ctx={ctx} />}
+        {activePage === "pages" && <PagesPage ctx={ctx} />}
         {activePage === "reviews" && <TestimonialsPage ctx={ctx} />}
         {activePage === "sales" && <Sales ctx={ctx} />}
         {activePage === "rewards" && <Rewards ctx={ctx} />}

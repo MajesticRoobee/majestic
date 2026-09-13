@@ -1,7 +1,7 @@
 // Path-based routing for the storefront so every page (and every product) has a
 // real, crawlable URL. The Worker serves the SPA shell for all these paths.
 
-const STATIC = ["home", "shop", "about", "faq", "track", "contact", "checkout", "confirm", "privacy", "account", "wishlist", "locations", "reviews"];
+const STATIC = ["home", "shop", "about", "faq", "track", "contact", "checkout", "confirm", "account", "wishlist", "locations", "reviews"];
 
 // The header's merchandising tabs are the shop grid with one filter already
 // applied, so they share its implementation — but each gets its own short URL,
@@ -60,6 +60,12 @@ export function pathToRoute(pathname = window.location.pathname, search = window
     };
   }
   if (STATIC.includes(parts[0])) return { page: parts[0] };
+  // Anything else with a single segment is an information page — privacy,
+  // terms, returns, or whatever else the house has written. The server owns
+  // that list, and this runs before any of it has loaded, so the page is
+  // fetched by name and a slug nobody has written becomes a plain "no such
+  // page" rather than a silent bounce to the home page.
+  if (parts.length === 1) return { page: "info", pageSlug: decodeURIComponent(parts[0]) };
   return { page: "home" };
 }
 
@@ -70,6 +76,7 @@ export function routeToPath(page, extra = {}) {
     return extra.prSku ? `${base}?variant=${encodeURIComponent(extra.prSku)}` : base;
   }
   if (page === "post" && extra.postSlug) return `/blog/${encodeURIComponent(extra.postSlug)}`;
+  if (page === "info") return extra.pageSlug ? `/${encodeURIComponent(extra.pageSlug)}` : "/";
   if (page === "post") return "/blog";
   if (page === "shop") {
     // A segment owns the path; a category alongside it rides as a query, so

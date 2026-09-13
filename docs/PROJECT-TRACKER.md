@@ -70,7 +70,7 @@ reach the storefront.
 
 ---
 
-## Sprint 3 — Smart shopping, insights & the ERP link (13 Sep 2026) — 🔄 planned
+## Sprint 3 — Smart shopping, insights & the ERP link (13 Sep 2026) — 🔄 in progress
 
 The client's next round: first-party shopper insight and the conversion features
 that ride it, a curatable home page, the ERPNext link, and the settings the house
@@ -80,15 +80,15 @@ seven questions the ERP work is blocked on — in
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 1 | Low-stock threshold: control, per-variation override, real alerts | ⬜ | The setting already exists and is already saveable; nothing renders it, and nobody is notified when stock runs low. [§3](./SPRINT-3-PLAN.md) |
-| 2 | Legal pages become content (privacy, terms, returns, shipping) | ⬜ | `PrivacyPage` is hardcoded JSX down to its "last updated" date. Reuses the blog's plain-text renderer. [§5.1](./SPRINT-3-PLAN.md) |
-| 3 | About Us → Blog in the header | ⬜ | Nav swap; `/about` stays live as "Our story" in the footer. One decision open. [§6](./SPRINT-3-PLAN.md) |
-| 4 | Home Fragrance band gains its picture and products | ⬜ | Today a plain `CtaBand`; becomes the picture band Feminine Care uses. [§4.4](./SPRINT-3-PLAN.md) |
+| 1 | Low-stock threshold: control, per-variation override, real alerts | ✅ | Settings → Inventory draws the line, a variation can carry its own, and days-of-cover reads it off recent sales per store with the flat figure as the floor. A crossing emits `inventory_low`/`inventory_out` per SKU for the log and any webhook, and **one** digest to the house — six hundred emails is not an alert. The sweep runs on the cron, off the checkout path. One resolver feeds the dashboard, the cell colours, the alert and the storefront's "only 2 left", which also removed the hardcoded 5 that had drifted from the setting. 33 assertions in `scripts/inventory.test.mjs`. |
+| 2 | Legal pages become content (privacy, terms, returns, shipping) | ✅ | `content_pages` + Admin → Pages. Privacy seeded word for word from the JSX it replaced; terms, returns and delivery seeded as drafts, because a returns policy nobody has written is worse than a missing link. Written in the blog's plain-text format and rendered by the blog's own `PostBody`. Footer and sitemap read the published list; the "last updated" line is stamped on save; a page cannot claim an address the shop already answers on, and privacy can be unpublished but not deleted. |
+| 3 | About Us → Blog in the header | ✅ | The band's last tab is the blog. `/about` is untouched and still reached from the menu, the footer, the mobile drawer and the home page's story band. |
+| 4 | Home Fragrance band gains its picture and products | ✅ | Was a bare `CtaBand` — a heading, a sentence and a button. Now the same picture-and-products band Feminine Care uses. |
 | 5 | The home page becomes data — `home_blocks` + admin screen | ⬜ | Reorder, rename, re-photograph and **create** bands and banners; curate Best sellers and Ready at your store. [§4](./SPRINT-3-PLAN.md) |
 | 6 | **F4 — the behavioural stream** | ⬜ | sessions + events + `/api/track` + rollups + retention + opt-out. The foundation the whole insight ask rides on; nothing records a *visit* today. [§1](./SPRINT-3-PLAN.md) |
 | 7 | Admin → Insights | ⬜ | Funnel, conversion, segments, view-to-cart rate, traffic sources, zero-result searches, sold-out demand. [§2.1](./SPRINT-3-PLAN.md) |
 | 8 | Smart shopping conversion features | ⬜ | Cart-recovery links, abandonment nudge, pick-up-where-you-left-off, low-stock urgency, free-delivery bar, also-viewed, demand board, targeted pop-up. [§2](./SPRINT-3-PLAN.md) |
-| 9 | ERPNext connector | 🔑 | Pull (Item / Item Price / Bin), webhook push, order write-back. Runs in parallel with everything above. Blocked on the seven answers in [§7.4](./SPRINT-3-PLAN.md) — reachability first |
+| 9 | ERPNext connector | 🔑 | Pull (Item / Item Price / Bin), webhook push, order write-back. Runs in parallel with everything above. Blocked on the seven answers in [§7.4](./SPRINT-3-PLAN.md) — reachability first. Client is obtaining access; build proceeds on Track A meanwhile |
 
 ---
 

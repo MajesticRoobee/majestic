@@ -138,7 +138,14 @@ shop.get("/store", async (c) => {
     "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).all()).results.map(blogCard);
 
-  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog });
+  // The information pages that are published, so the footer links to what
+  // actually exists rather than to a list kept in the markup. Titles only —
+  // the body is fetched when someone opens one.
+  const pages = (await db.prepare(
+    "SELECT slug, title FROM content_pages WHERE live=1 AND in_footer=1 ORDER BY sort, slug"
+  ).all()).results.map((r) => ({ slug: r.slug, title: r.title }));
+
+  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog, pages });
 });
 
 // Units sold per product over the best-seller window. Only orders that were
@@ -215,6 +222,20 @@ shop.get("/blog/:slug", async (c) => {
     "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' AND slug<>? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).bind(row.slug).all()).results.map(blogCard);
   return c.json({ post: { ...blogCard(row), body: row.body }, more });
+});
+
+// One information page. Unpublished reads as missing, so a draft is never
+// reachable by guessing its address.
+shop.get("/pages/:slug", async (c) => {
+  const row = await c.env.DB.prepare("SELECT * FROM content_pages WHERE slug=? AND live=1").bind(c.req.param("slug")).first();
+  if (!row) return c.json({ error: "No such page." }, 404);
+  return c.json({
+    page: {
+      slug: row.slug, title: row.title, eyebrow: row.eyebrow || "", body: row.body || "",
+      seoTitle: row.seo_title || "", seoDesc: row.seo_desc || "",
+      updatedAt: row.updated_at,
+    },
+  });
 });
 
 // ---- Purchase proof -------------------------------------------------------

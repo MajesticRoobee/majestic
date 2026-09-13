@@ -308,12 +308,12 @@ paragraphs the client wrote, and it carries the brand. Three options:
 
 | | What happens to `/about` |
 |---|---|
-| **A — recommended** | The header tab becomes **Blog**. `/about` stays live, linked from the footer as "Our story" and from the story band on the home page. Nothing is lost; the blog gets the slot it was asked to get |
+| **A — chosen** | The header tab becomes **Blog**. `/about` stays live, linked from the footer as "Our story", from the menu, from the mobile drawer and from the story band on the home page. Nothing is lost; the blog gets the slot it was asked to get |
 | B | The story moves into a pinned blog post and `/about` redirects to it. One fewer page, story preserved, old links land somewhere sensible |
-| C | `/about` is deleted outright | 
+| C | `/about` is deleted outright |
 
-Building **A** unless told otherwise — it is the only one of the three that is
-reversible.
+**A**, confirmed by the client on 13 Sep: don't delete About Us, just take it
+off the header. Shipped.
 
 While the blog holds a primary slot it should look like it deserves one: a
 featured post at the top of `/blog`, pagination (it currently renders every post
@@ -444,8 +444,8 @@ re-sync, and the empty-feed guard refusing to empty the shop).
 
 | # | Decision | Recommendation |
 |---|---|---|
-| 1 | About Us — nav swap only, story→post, or delete (§6) | **Nav swap only.** Reversible; loses nothing |
-| 2 | ERPNext reachability, credentials, warehouses, price list, write-back (§7.4) | Blocks Track B entirely. Worth an email today |
+| 1 | ~~About Us — nav swap only, story→post, or delete (§6)~~ | **Settled 13 Sep: nav swap only.** Shipped |
+| 2 | ERPNext reachability, credentials, warehouses, price list, write-back (§7.4) | Client is obtaining access. Track B starts when it lands; Track A proceeds meanwhile |
 | 3 | Behavioural analytics retention window | 90 days raw, rollups kept. It is a setting, so this is only a default |
 | 4 | The abandonment nudge's offer and copy | Ships switched off with no copy. The house writes it, then turns it on |
 | 5 | Is "ERPrev" ERPNext? | Confirm before 3.6b. The adapter is generic, but the transport is written against one API |

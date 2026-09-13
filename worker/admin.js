@@ -1518,6 +1518,99 @@ async function resolveVariant(db, productId, variantId) {
   return rows.length ? rows[0].id : null;
 }
 
+// ---- Information & legal pages ----
+//
+// The privacy notice used to be JSX, down to a "last updated" date only a
+// deploy could move — which is how a shop ends up publishing a policy nobody in
+// the house can correct. It is content now, written the way the blog is written:
+// plain text, `## ` for a heading, `> ` for a quote, rendered by the same
+// PostBody. Nothing user-written is ever handed to dangerouslySetInnerHTML.
+//
+// The slug is the URL. It is fixed at creation for the four pages that ship, so
+// /privacy stays /privacy however the title is reworded.
+
+const pageOut = (r) => ({
+  slug: r.slug, title: r.title, eyebrow: r.eyebrow || "", body: r.body || "",
+  seoTitle: r.seo_title || "", seoDesc: r.seo_desc || "",
+  inFooter: !!r.in_footer, live: !!r.live, sort: r.sort, updatedAt: r.updated_at,
+});
+
+async function freePageSlug(db, want) {
+  const base = String(want || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "page";
+  for (let n = 0; n < 50; n++) {
+    const candidate = n ? `${base}-${n + 1}` : base;
+    if (!(await db.prepare("SELECT slug FROM content_pages WHERE slug=?").bind(candidate).first())) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+// Paths the storefront already answers for itself. A page may not claim one, or
+// it would shadow the shop and never be reachable.
+const RESERVED_SLUGS = new Set([
+  "shop", "product", "blog", "about", "faq", "track", "contact", "checkout", "confirm",
+  "account", "wishlist", "locations", "reviews", "brand", "brands", "admin", "api", "images",
+  "new-arrivals", "best-sellers", "deals", "gift-sets", "robots.txt", "sitemap.xml",
+]);
+
+admin.get("/pages", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT * FROM content_pages ORDER BY sort, slug").all()).results;
+  return c.json({ pages: rows.map(pageOut) });
+});
+
+admin.post("/pages", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const title = String(b.title || "").trim();
+  if (!title) return c.json({ error: "Give the page a title." }, 400);
+  const wanted = String(b.slug || title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (RESERVED_SLUGS.has(wanted)) return c.json({ error: `"/${wanted}" is already a page of the shop — choose another address.` }, 400);
+  const slug = await freePageSlug(db, wanted);
+  const next = await db.prepare("SELECT COALESCE(MAX(sort), 0) + 10 AS n FROM content_pages").first();
+  await db.prepare(
+    "INSERT INTO content_pages (slug, title, eyebrow, body, seo_title, seo_desc, in_footer, live, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    slug, title, String(b.eyebrow || "").trim(), String(b.body || ""),
+    String(b.seoTitle || "").trim(), String(b.seoDesc || "").trim(),
+    b.inFooter === false ? 0 : 1, b.live ? 1 : 0, next.n
+  ).run();
+  return c.json({ ok: true, slug });
+});
+
+admin.patch("/pages/:slug", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const slug = c.req.param("slug");
+  const row = await db.prepare("SELECT * FROM content_pages WHERE slug=?").bind(slug).first();
+  if (!row) return c.json({ error: "No such page." }, 404);
+  const sets = ["updated_at=datetime('now')"], vals = [];
+  const put = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.title !== undefined) {
+    const t = String(b.title).trim();
+    if (!t) return c.json({ error: "A page needs a title." }, 400);
+    put("title", t);
+  }
+  if (b.eyebrow !== undefined) put("eyebrow", String(b.eyebrow).trim());
+  if (b.body !== undefined) put("body", String(b.body));
+  if (b.seoTitle !== undefined) put("seo_title", String(b.seoTitle).trim());
+  if (b.seoDesc !== undefined) put("seo_desc", String(b.seoDesc).trim());
+  if (b.inFooter !== undefined) put("in_footer", b.inFooter ? 1 : 0);
+  if (b.live !== undefined) put("live", b.live ? 1 : 0);
+  if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
+  vals.push(slug);
+  await db.prepare(`UPDATE content_pages SET ${sets.join(", ")} WHERE slug=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/pages/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  // Privacy is linked from the consent banner and the footer, and a shop that
+  // takes payments has to have one. Hiding it is a decision; deleting it by
+  // accident should not be possible.
+  if (slug === "privacy") return c.json({ error: "The privacy notice can be unpublished, but not deleted." }, 400);
+  await c.env.DB.prepare("DELETE FROM content_pages WHERE slug=?").bind(slug).run();
+  return c.json({ ok: true });
+});
+
 // ---- The blog ----
 //
 // The slug is the URL, so it is derived from the title once and then only ever

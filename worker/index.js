@@ -89,12 +89,17 @@ app.get("/sitemap.xml", async (c) => {
     productUrls = rows.map((r) => (r.n > 1 && r.sku ? `/product/${r.pid}?variant=${encodeURIComponent(r.sku)}` : `/product/${r.pid}`));
     productUrls = [...new Set(productUrls)];
   } catch {}
+  let pageUrls = [];
+  try {
+    const rows = (await c.env.DB.prepare("SELECT slug FROM content_pages WHERE live=1 ORDER BY sort, slug").all()).results;
+    pageUrls = rows.map((r) => `/${r.slug}`);
+  } catch {}
   let postUrls = [];
   try {
     const rows = (await c.env.DB.prepare("SELECT slug FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC").all()).results;
     postUrls = rows.map((r) => `/blog/${r.slug}`);
   } catch {}
-  const urls = staticUrls.concat(catUrls, productUrls, postUrls);
+  const urls = staticUrls.concat(catUrls, pageUrls, productUrls, postUrls);
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
