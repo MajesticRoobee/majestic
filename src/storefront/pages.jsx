@@ -1,11 +1,12 @@
 // Storefront pages — ported from "Majestic Roobee Storefront.dc.html".
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "../ds/components.jsx";
 import { ProductCard } from "./product-card.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { EmbedCard, TestimonialCarousel, PostBody } from "./pages-content.jsx";
 import { DailyDealCard } from "./daily-deal.jsx";
 import { catFamily, catPath, countIn } from "../lib/categories.js";
+import { record } from "./track.js";
 
 export { ProductCard };
 export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage } from "./pages-content.jsx";
@@ -576,6 +577,22 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
   }
 }
 
+// A search is recorded once it has settled, not on every keystroke — otherwise
+// "vanilla" arrives as v, va, van, vani… and the list of terms nobody found is
+// mostly prefixes of terms somebody did.
+function useSearchRecord(term, found) {
+  const foundRef = useRef(found);
+  foundRef.current = found;
+  useEffect(() => {
+    const q = String(term || "").trim();
+    if (q.length < 2) return;
+    const t = setTimeout(() => {
+      record(foundRef.current ? "search" : "search_no_results", { q, value: foundRef.current });
+    }, 900);
+    return () => clearTimeout(t);
+  }, [term]);
+}
+
 // The shop grid, and every page in the header that leads to it.
 //
 // "New arrivals", "Best sellers", "Deals" and "Gift sets" are this same grid
@@ -666,6 +683,10 @@ export function ShopPage({ ctx }) {
     const at = (e) => (rank.has(e.product.id) ? rank.get(e.product.id) : ids.length);
     return (a, b) => at(a) - at(b);
   };
+  // What people searched for, and — the useful half — what they searched for
+  // and the shop had nothing to show. That second list is a buying brief and an
+  // SEO brief at once, written by customers.
+  useSearchRecord(ctx.search, list.length);
   if (ctx.fSort === "new") list = list.slice().sort(rankBy("new-arrivals"));
   else if (ctx.fSort === "best") list = list.slice().sort(rankBy("best-sellers"));
   else if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
@@ -1585,7 +1606,36 @@ export function InfoPage({ ctx }) {
       )}
       <GildedRule style={{ margin: "18px 0 26px" }} />
       <PostBody body={page.body} />
+      {/* The privacy page is the one place a promise about measurement is worth
+          making, so it is also the place the switch lives — a policy that says
+          "you can ask us to stop" and gives you no way to is not a policy. */}
+      {slug === "privacy" && <MeasureSwitch ctx={ctx} />}
     </main>
+  );
+}
+
+function MeasureSwitch({ ctx }) {
+  const on = ctx.measuring;
+  return (
+    <div style={{ marginTop: 32, background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "20px 22px" }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>Counting your visit</div>
+      <p style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--text-body)", margin: "8px 0 14px" }}>
+        We keep a count of what is looked at in our own shop, on our own site, so we know which
+        products people open and which ones they never find. It is not shared with anyone, it carries
+        no name, email or address, and it is not the advertising cookies above — those you turn on or
+        off from the banner. If you would rather not be counted at all, switch it off here.
+      </p>
+      <button
+        onClick={() => ctx.setMeasuring(!on)}
+        style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, padding: "10px 18px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border-strong)", background: on ? "var(--surface-card)" : "var(--mr-purple-900)", color: on ? "var(--mr-purple-800)" : "var(--mr-cream)" }}>
+        {on ? "Stop counting my visits" : "Counting is off — turn it back on"}
+      </button>
+      <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 10 }}>
+        {on
+          ? "Your browser's Do Not Track or Global Privacy Control setting also turns this off on its own."
+          : "Nothing about your visits is being recorded."}
+      </div>
+    </div>
   );
 }
 

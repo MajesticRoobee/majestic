@@ -4,6 +4,7 @@ import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, dis
 import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
 import { lowStockLines } from "./inventory.js";
 import { loadHomeBlocks, resolveHomeBlocks } from "./home.js";
+import { ingest, stitchVisitor } from "./insights.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -360,6 +361,31 @@ shop.post("/promos/validate", async (c) => {
   return c.json({ valid: false, reason: "That code isn't recognised." });
 });
 
+// The behavioural stream (F4). One batch of events from one visit.
+//
+// Deliberately the least interesting endpoint in the Worker: it answers 204 to
+// everything, because it is called by `sendBeacon` on a page that is already
+// closing and nothing may ever be shown to a shopper on account of it. A
+// refusal is silent and the visit carries on.
+//
+// What bounds it is a ceiling on what can be *stored*, not on how often it may
+// be called: forty events to a request, six hundred to a session, and a session
+// id that has to look like one. Past that a request costs one UPDATE and
+// writes nothing, however many arrive. The login throttle is deliberately not
+// reused here — that is a security table counting failures, and pouring ordinary
+// traffic through it would both pollute it and throttle real shoppers. The outer
+// layer for this endpoint is a Cloudflare rate-limiting rule (BUILD-MAP §6).
+shop.post("/track", async (c) => {
+  try {
+    await ingest(c.env, await c.req.json(), {
+      ua: c.req.header("user-agent") || "",
+      country: c.req.header("cf-ipcountry") || "",
+      cfVerifiedBot: !!(c.req.raw.cf && c.req.raw.cf.verifiedBotCategory),
+    });
+  } catch { /* measurement never surfaces to a shopper */ }
+  return c.body(null, 204);
+});
+
 // Track abandoned checkouts. Upserts by phone/email.
 shop.post("/checkouts/activity", async (c) => {
   const { name, phone, email, city, value, stage } = await c.req.json();
@@ -651,6 +677,16 @@ shop.post("/orders", async (c) => {
     // has legitimately taken in the meantime is never resurrected.
     if (reward) await releaseReward(db, reward.code, no);
     throw e;
+  }
+
+  // An order is an identification too: a guest who has never signed in still
+  // just told the shop who they are. Their earlier visits are attached to that
+  // record, which is what makes "how many times did they look before they
+  // bought" answerable at all.
+  const guestEmail = (customer.email || "").trim().toLowerCase();
+  if (guestEmail) {
+    const cust = await db.prepare("SELECT id FROM customers WHERE email=?").bind(guestEmail).first();
+    if (cust) await stitchVisitor(c.env, c.req.header("x-mr-visitor"), cust.id);
   }
 
   await emitEvent(c.env, "order_placed", {

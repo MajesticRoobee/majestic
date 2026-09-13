@@ -6,6 +6,7 @@ import { v1, handleMcp } from "./integrations.js";
 import { runScheduled } from "./events.js";
 import { releaseExpiredOrders } from "./payments.js";
 import { sweepStock } from "./inventory.js";
+import { rollup } from "./insights.js";
 import { resolveMedia, readMedia } from "./media.js";
 
 const app = new Hono();
@@ -128,6 +129,9 @@ async function cron(env) {
   // next one.
   try { await sweepStock(env); } catch (e) { console.error("stock sweep failed", e); }
   try { await runScheduled(env); } catch (e) { console.error("automation run failed", e); }
+  // Fold yesterday into the rollups the admin reads, and prune raw events past
+  // the window. Last, because it is the only job here nobody is waiting on.
+  try { await rollup(env); } catch (e) { console.error("insight rollup failed", e); }
 }
 
 export default {

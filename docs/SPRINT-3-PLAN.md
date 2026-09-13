@@ -416,7 +416,7 @@ nothing the other track touches.
 |---|---|---|
 | **3.1 — Quick wins** ✅ | Low-stock control, override and alerts (§3) · content pages + privacy editor (§5.1) · About→Blog (§6) · Home Fragrance band gains its picture and products (§4.4, as a direct fix) | Every one of these is small, visible, and unblocks the client's team from waiting on us for copy changes |
 | **3.2 — The home page becomes data** ✅ | `home_blocks` + admin screen (§4) · curated Best sellers and Ready at your store (§4.2) · editable tiles and bands, seeded to today's exact layout | The merchandising ask, done once instead of six times. **Shipped** — and the padding rule earned its keep: a shelf that makes a claim about its products (deals, gift sets, ready-at-your-store) is never topped up |
-| **3.3 — F4, the stream** | sessions, events, `/api/track`, stitching, bot filter, rollups, retention, the opt-out and the privacy copy that describes it (§1) | Nothing visible ships this stage. Everything after it depends on it |
+| **3.3 — F4, the stream** ✅ | sessions, events, `/api/track`, stitching, bot filter, rollups, retention, the opt-out and the privacy copy that describes it (§1) | Nothing visible ships this stage. Everything after it depends on it |
 | **3.4 — Insights** | Admin → Insights: funnel, conversion, segments, product intelligence, sources, zero-result searches, sold-out demand (§2.1) | The first stage where the client *sees* their data |
 | **3.5 — Smart shopping** | Recovery links, abandonment nudge, pick-up-where-you-left-off, low-stock urgency, free-delivery bar, also-viewed, demand board, targeted pop-up, search actions, cross-sell (§2) | The conversion features, in lift order |
 

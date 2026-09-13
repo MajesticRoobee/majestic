@@ -10,6 +10,7 @@ import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
 import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
+import { startTracking, record as mrRecord, setCity as mrSetCity, optedOut, setOptOut, visitorId } from "./track.js";
 
 const SCOPE_CATS = {
   Storewide: null,
@@ -90,6 +91,9 @@ export default function App() {
   const [blog, setBlog] = useState({ posts: [], tags: [], loaded: false });
   const [post, setPost] = useState(null);
   const [blogTag, setBlogTag] = useState("");
+  // The opt-out lives in localStorage, which React cannot see change; this is
+  // what makes the switch on the privacy page redraw when it is flipped.
+  const [, setMeasureTick] = useState(0);
   // Real, paid purchases, shown to the next shopper. Fetched once — this is a
   // note about what the store has been selling, not a live feed to poll.
   const [proof, setProof] = useState({ enabled: false, purchases: [], intervalMs: 14000 });
@@ -382,6 +386,7 @@ export default function App() {
     const D0 = dataRef.current;
     const p = D0 && D0.products.find((x) => x.id === productId);
     if (p) trackEvent("add_to_cart", { id: variant.sku || productId, name: `${p.name} ${variant.size}`.trim(), value: variant.ngn * qty, items: [{ id: variant.sku || productId, name: p.name, price: variant.ngn, qty }] });
+    mrRecord("add_to_cart", { productId, variantId: variant.id, value: variant.ngn * qty });
   }, []);
 
   // One entry per card in the grid. A product normally contributes a single
@@ -475,7 +480,13 @@ export default function App() {
         availNote: inCity ? "In " + cityName : alt ? "Ships from " + alt.city : "Backorder",
         inc: () => setCart((s) => s.map((x, i) => (i === idx ? { ...x, qty: x.qty + 1 } : x))),
         dec: () => setCart((s) => s.map((x, i) => (i === idx ? { ...x, qty: Math.max(1, x.qty - 1) } : x))),
-        remove: () => setCart((s) => s.filter((_, i) => i !== idx)),
+        // A cart emptied on purpose is not an abandoned cart, so the stream
+        // hears about it and the running value follows the shopper down.
+        remove: () => setCart((s) => {
+          const next = s.filter((_, i) => i !== idx);
+          mrRecord("remove_from_cart", { productId: c.id, variantId: v.id, value: Math.max(0, sub - v.ngn * c.qty) });
+          return next;
+        }),
       };
     }).filter(Boolean);
     // Delivery is the server's number once the fulfilment quote lands — a split
@@ -575,6 +586,11 @@ export default function App() {
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
   useEffect(() => { if (D && consent === "granted") startAnalytics(D.settings); }, [D, consent]);
+  // The house's own measurement. Not gated on the cookie banner — it is the
+  // shop counting its own shop, sets no third-party cookie and shares nothing —
+  // but switched off entirely by the setting, or by anyone who says no.
+  useEffect(() => { if (D) startTracking({ on: D.settings.insightsOn !== false }); }, [D]);
+  useEffect(() => { mrSetCity(city); }, [city]);
   useEffect(() => {
     if (!D) return;
     const product = page === "product" ? products.find((p) => p.id === productId) : null;
@@ -590,9 +606,20 @@ export default function App() {
       infoPage: infoPage && infoPage.page ? infoPage.page : null,
     }));
     trackEvent("page_view");
-    if (product && variant) trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
-    if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
-    if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
+    mrRecord("page_view", { path: window.location.pathname });
+    if (product && variant) {
+      trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
+      mrRecord("view_item", { productId: product.id, variantId: variant.id, value: variant.ngn });
+    }
+    if (page === "shop" && fCat && fCat !== "all") mrRecord("view_category", { cat: fCat });
+    if (page === "checkout" && cc.items.length) {
+      trackEvent("begin_checkout", { value: cc.total });
+      mrRecord("begin_checkout", { value: cc.total });
+    }
+    if (page === "confirm" && placed) {
+      trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
+      mrRecord("purchase", { value: placed.total || 0 });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, productId, prVariantId, prSku, D, consent, fSeg, fCat, fBrand, post, infoPage]);
 
@@ -818,6 +845,11 @@ export default function App() {
     popup, setPopup, plEmail, setPlEmail, plDone, submitLead,
     closePopup: () => { try { localStorage.setItem("mr-popup-seen", "1"); } catch {} setPopup(false); },
     consent, showConsent: !consent,
+    // Anyone can stop being counted, and no means no measurement at all rather
+    // than "measure anyway and mark the row". The privacy page points here.
+    measuring: !optedOut(),
+    setMeasuring: (on) => { setOptOut(!on); setMeasureTick((n) => n + 1); },
+    visitorId,
     grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
     denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
     cust, custData, custRegister, custLogin, custLogout, updateProfile, addAddress, removeAddress, toggleWishlist, joinWaitlist,
