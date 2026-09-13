@@ -3,13 +3,14 @@ import { api } from "../lib/api.js";
 import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import {
-  HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, PrivacyPage,
+  HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, InfoPage,
   WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, FaqPage,
 } from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
 import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
+import { startTracking, record as mrRecord, setCity as mrSetCity, optedOut, setOptOut, visitorId, noteViewed, recentlyViewed, clearRecent } from "./track.js";
 
 const SCOPE_CATS = {
   Storewide: null,
@@ -69,6 +70,7 @@ export default function App() {
   const [contactSent, setContactSent] = useState(false);
   const [chat, setChat] = useState({ open: false, val: "", inquiryId: null, key: null, msgs: [{ from: "us", text: "Hi! How can we help you today?" }] });
   const [popup, setPopup] = useState(false);
+  const [nudge, setNudge] = useState(false);
   const [plEmail, setPlEmail] = useState("");
   const [plDone, setPlDone] = useState(false);
   const [custToken, setCustToken] = useState(() => localStorage.getItem("mr-cust-token") || "");
@@ -82,9 +84,17 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem("mr-wishlist") || "[]"); } catch { return []; }
   });
   const [postSlug, setPostSlug] = useState(initialRoute.postSlug || null);
+  // Privacy, terms, returns — whatever the house has written. Fetched by name,
+  // because the list lives on the server and this component is built before any
+  // of it has arrived.
+  const [pageSlug, setPageSlug] = useState(initialRoute.pageSlug || null);
+  const [infoPage, setInfoPage] = useState(null);
   const [blog, setBlog] = useState({ posts: [], tags: [], loaded: false });
   const [post, setPost] = useState(null);
   const [blogTag, setBlogTag] = useState("");
+  // The opt-out lives in localStorage, which React cannot see change; this is
+  // what makes the switch on the privacy page redraw when it is flipped.
+  const [, setMeasureTick] = useState(0);
   // Real, paid purchases, shown to the next shopper. Fetched once — this is a
   // note about what the store has been selling, not a live feed to poll.
   const [proof, setProof] = useState({ enabled: false, purchases: [], intervalMs: 14000 });
@@ -120,14 +130,43 @@ export default function App() {
     api.get("/api/store").then((d) => { dataRef.current = d; setD(d); }).catch(() => {});
   }, []);
 
-  // Promo popup timer
+  // The first-order pop-up.
+  //
+  // It has shown to everybody since it was built, which means a first-time
+  // browser meets an interruption before they have seen a single bottle. It can
+  // now wait for somebody who has been in before and not bought — which is who
+  // a first-order offer was always for. Whose visit this is, is something the
+  // browser already knows: it has been here before if it has a visit behind it.
   useEffect(() => {
     if (!D) return;
-    if ((D.settings.promoPopup ?? true) && !localStorage.getItem("mr-popup-seen")) {
-      const t = setTimeout(() => setPopup(true), 1800);
-      return () => clearTimeout(t);
+    if (!(D.settings.promoPopup ?? true)) return;
+    // Never over a cart. Somebody with something in their basket is past the
+    // question a first-order offer asks, and somebody arriving on a recovery
+    // link has been sent here on purpose — meeting either with an interruption
+    // is how a nudge becomes an obstacle.
+    if (cart.length) return;
+    if (new URLSearchParams(window.location.search).has("recover")) return;
+    try { if (localStorage.getItem("mr-popup-seen")) return; } catch { return; }
+    const when = D.settings.promoPopupWhen || "everyone";
+    if (when === "returning") {
+      let visits = 0;
+      try { visits = parseInt(localStorage.getItem("mr-visits") || "0", 10) || 0; } catch { visits = 0; }
+      if (visits < 2) return;
     }
-  }, [D]);
+    const t = setTimeout(() => setPopup(true), 1800);
+    return () => clearTimeout(t);
+  }, [D, cart.length]);
+
+  // How many visits this browser has made. Counted once a visit, in the
+  // browser's own storage — it is what the pop-up targeting reads, and it never
+  // leaves the page.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("mr-visit-counted")) return;
+      sessionStorage.setItem("mr-visit-counted", "1");
+      localStorage.setItem("mr-visits", String((parseInt(localStorage.getItem("mr-visits") || "0", 10) || 0) + 1));
+    } catch { /* private windows simply never look like returning visitors */ }
+  }, []);
 
   // Back from Paystack: /?psorder=MR-xxxxx
   //
@@ -184,6 +223,7 @@ export default function App() {
       if (extra.fSeg !== undefined && extra.fCat === undefined) setFCat("all");
     }
     if (extra.postSlug !== undefined) setPostSlug(extra.postSlug);
+    if (extra.pageSlug !== undefined) setPageSlug(extra.pageSlug);
     if (extra.productId !== undefined) {
       setProductId(extra.productId);
       setPrVariantId(extra.prVariantId ?? null);
@@ -206,6 +246,7 @@ export default function App() {
       setFSeg(r.fSeg || null);
       setFBrand(r.fBrand || "");
       setPostSlug(r.postSlug || null);
+      setPageSlug(r.pageSlug || null);
       setMnav(false);
       setCartOpen(false);
       window.scrollTo(0, 0);
@@ -344,6 +385,23 @@ export default function App() {
 
   const availInfo = useCallback((p) => variantAvail(defaultVariant(p.variants)), [variantAvail, defaultVariant]);
 
+  // How few is "nearly gone" for this variation at this store. The server sends
+  // the line it drew itself — per store, honouring any override on the piece —
+  // so the shop and the back office never disagree about what "low" means. With
+  // the setting off the lines are simply absent, and nothing is claimed.
+  const lowLine = useCallback((v, locationId) => {
+    const lines = v && v.lowAt;
+    return lines && lines[locationId] !== undefined ? lines[locationId] : null;
+  }, []);
+  // "Only 2 left" — for the shopper's own city, and only when it is true and
+  // there is something left to buy.
+  const scarcity = useCallback((v) => {
+    const line = lowLine(v, city);
+    if (line === null) return null;
+    const n = stockAt(v, city);
+    return n > 0 && n <= line ? n : null;
+  }, [lowLine, city]);
+
   const addToCart = useCallback((productId, variant, qty) => {
     setCart((cur) => {
       const next = cur.slice();
@@ -358,6 +416,7 @@ export default function App() {
     const D0 = dataRef.current;
     const p = D0 && D0.products.find((x) => x.id === productId);
     if (p) trackEvent("add_to_cart", { id: variant.sku || productId, name: `${p.name} ${variant.size}`.trim(), value: variant.ngn * qty, items: [{ id: variant.sku || productId, name: p.name, price: variant.ngn, qty }] });
+    mrRecord("add_to_cart", { productId, variantId: variant.id, value: variant.ngn * qty });
   }, []);
 
   // One entry per card in the grid. A product normally contributes a single
@@ -451,19 +510,32 @@ export default function App() {
         availNote: inCity ? "In " + cityName : alt ? "Ships from " + alt.city : "Backorder",
         inc: () => setCart((s) => s.map((x, i) => (i === idx ? { ...x, qty: x.qty + 1 } : x))),
         dec: () => setCart((s) => s.map((x, i) => (i === idx ? { ...x, qty: Math.max(1, x.qty - 1) } : x))),
-        remove: () => setCart((s) => s.filter((_, i) => i !== idx)),
+        // A cart emptied on purpose is not an abandoned cart, so the stream
+        // hears about it and the running value follows the shopper down.
+        remove: () => setCart((s) => {
+          const next = s.filter((_, i) => i !== idx);
+          mrRecord("remove_from_cart", { productId: c.id, variantId: v.id, value: Math.max(0, sub - v.ngn * c.qty) });
+          return next;
+        }),
       };
     }).filter(Boolean);
     // Delivery is the server's number once the fulfilment quote lands — a split
     // order pays per parcel, and only the server knows how it splits. Until
     // then this is an estimate so the summary is never blank.
     let ship;
+    const freeOver = settings.freeShipAbujaOver ?? 100000;
+    const freeHere = city === (settings.freeShipCity ?? "abuja") && allInCity;
     if (co.fulfill === "collect") ship = 0;
     else if (plan && plan.mode !== "unavailable") ship = plan.shipTotal;
     else {
       ship = allInCity ? (L ? L.shipNGN : 2500) : (settings.crossCityShipNGN ?? 4500);
-      if (city === (settings.freeShipCity ?? "abuja") && sub >= (settings.freeShipAbujaOver ?? 100000) && allInCity) ship = 0;
+      if (freeHere && sub >= freeOver) ship = 0;
     }
+    // Free delivery has been enforced since the beginning and never once shown
+    // to the person it would move. How much more, and how far along they are.
+    const freeShip = freeHere && freeOver > 0 && co.fulfill !== "collect"
+      ? { over: freeOver, remaining: Math.max(0, freeOver - sub), pct: Math.min(100, Math.round((sub / freeOver) * 100)) }
+      : null;
     // A preview of the code's worth, recomputed as the cart changes so the
     // summary never quotes a discount for a cart that has moved on. The server
     // does this arithmetic again at checkout and its answer is the one charged.
@@ -485,7 +557,7 @@ export default function App() {
       }
       if (promoInfo.freeShip) ship = 0;
     }
-    return { items, sub, ship, allInCity, discount, total: sub - discount + ship };
+    return { items, sub, ship, allInCity, discount, freeShip, total: sub - discount + ship };
   }, [D, cart, city, co.fulfill, promoInfo, products, L, settings, fmt, cityName, bestAlt, plan]);
 
   // Ask the server where this cart ships from. Runs on the checkout page, and
@@ -537,9 +609,79 @@ export default function App() {
     return () => { live = false; };
   }, [page, postSlug, post]);
 
+  useEffect(() => {
+    if (page !== "info" || !pageSlug) return;
+    if (infoPage && infoPage.slug === pageSlug) return;
+    setInfoPage(null);
+    let live = true;
+    api.get(`/api/pages/${encodeURIComponent(pageSlug)}`)
+      .then((r) => { if (live) setInfoPage({ slug: pageSlug, page: r.page }); })
+      .catch((e) => { if (live) setInfoPage({ slug: pageSlug, error: e.message }); });
+    return () => { live = false; };
+  }, [page, pageSlug, infoPage]);
+
+  // The leave-behind nudge.
+  //
+  // Exit intent on a desktop (the pointer leaving for the tab bar), and on a
+  // phone — which has no such gesture — a long pause with a cart that has been
+  // sitting there. It only ever fires for somebody who *has* a cart and has not
+  // reached the confirmation page, it is capped to once every few days, and it
+  // ships switched off until the house has written its own words.
+  useEffect(() => {
+    const st = D && D.settings;
+    if (!st || !st.nudgeOn) return;
+    if (!cart.length || page === "checkout" || page === "confirm") return;
+    let last = 0;
+    try { last = parseInt(localStorage.getItem("mr-nudge-at") || "0", 10) || 0; } catch { return; }
+    const every = Math.max(1, parseInt(st.nudgeEveryDays, 10) || 7) * 86400000;
+    if (Date.now() - last < every) return;
+
+    let done = false;
+    const fire = () => {
+      if (done) return;
+      done = true;
+      setNudge(true);
+      mrRecord("nudge_shown", {});
+    };
+    const onOut = (e) => { if (e.clientY <= 0) fire(); };
+    // 45 seconds of a cart sitting untouched is the phone's version of turning
+    // to leave.
+    const idle = setTimeout(fire, 45000);
+    document.addEventListener("mouseout", onOut);
+    return () => { clearTimeout(idle); document.removeEventListener("mouseout", onOut); };
+  }, [D, cart.length, page]);
+
+  // A recovery link: ?recover=<token> puts the cart back and takes the shopper
+  // to it. Done once, and the token is taken off the address bar immediately so
+  // it is not shared onward or left in a browser's history.
+  const recovered = useRef(false);
+  useEffect(() => {
+    if (recovered.current) return;
+    const token = new URLSearchParams(window.location.search).get("recover");
+    if (!token) return;
+    recovered.current = true;
+    api.get(`/api/cart/recover?t=${encodeURIComponent(token)}`)
+      .then((r) => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("recover");
+        window.history.replaceState({}, "", url.pathname + url.search);
+        if (!r.items || !r.items.length) return;
+        setCart(r.items.map((i) => ({ id: i.id, variantId: i.variantId, sku: i.sku, size: i.size, qty: i.qty })));
+        if (r.city) setCity(r.city);
+        setCartOpen(true);
+        mrRecord("nudge_clicked", { path: "/recover" });
+      })
+      .catch(() => {});
+  }, []);
+
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
   useEffect(() => { if (D && consent === "granted") startAnalytics(D.settings); }, [D, consent]);
+  // The house's own measurement. Not gated on the cookie banner — it is the
+  // shop counting its own shop, sets no third-party cookie and shares nothing —
+  // but switched off entirely by the setting, or by anyone who says no.
+  useEffect(() => { if (D) startTracking({ on: D.settings.insightsOn !== false }); }, [D]);
+  useEffect(() => { mrSetCity(city); }, [city]);
   useEffect(() => {
     if (!D) return;
     const product = page === "product" ? products.find((p) => p.id === productId) : null;
@@ -552,13 +694,26 @@ export default function App() {
       category: page === "shop" && fCat && fCat !== "all" ? fCat : "",
       brand: fBrand ? (brands.find((b) => b.id === fBrand) || { name: fBrand }).name : "",
       post: post && post.post ? post.post : null,
+      infoPage: infoPage && infoPage.page ? infoPage.page : null,
     }));
     trackEvent("page_view");
-    if (product && variant) trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
-    if (page === "checkout" && cc.items.length) trackEvent("begin_checkout", { value: cc.total });
-    if (page === "confirm" && placed) trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
+    mrRecord("page_view", { path: window.location.pathname });
+    if (product && variant) {
+      trackEvent("view_item", { id: variant.sku || product.id, name: product.name, value: variant.ngn });
+      mrRecord("view_item", { productId: product.id, variantId: variant.id, value: variant.ngn });
+      noteViewed(product.id);
+    }
+    if (page === "shop" && fCat && fCat !== "all") mrRecord("view_category", { cat: fCat });
+    if (page === "checkout" && cc.items.length) {
+      trackEvent("begin_checkout", { value: cc.total });
+      mrRecord("begin_checkout", { value: cc.total });
+    }
+    if (page === "confirm" && placed) {
+      trackEvent("purchase", { id: placed.no, value: placed.total || 0 });
+      mrRecord("purchase", { value: placed.total || 0 });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fCat, fBrand, post]);
+  }, [page, productId, prVariantId, prSku, D, consent, fSeg, fCat, fBrand, post, infoPage]);
 
   // Prefill checkout for a signed-in customer, once per visit to the page.
   const prefilled = useRef(false);
@@ -631,10 +786,13 @@ export default function App() {
       const stage = co.address.trim() || co.fulfill === "collect" ? "Payment" : "Delivery details";
       api.post("/api/checkouts/activity", {
         name: co.name.trim(), phone: co.phone.trim(), email: co.email.trim(), city: cityName, value: cc.total, stage,
+        // What was in it, so the chase can put it back rather than only
+        // mentioning that there was something.
+        items: cart.map((c) => ({ variantId: c.variantId, qty: c.qty })),
       }).catch(() => {});
     }, 1500);
     return () => clearTimeout(abandonTimer.current);
-  }, [page, co, cc.total, cc.items.length, cityName]);
+  }, [page, co, cc.total, cc.items.length, cityName, cart]);
 
   const placeOrder = useCallback(async () => {
     if (!co.name.trim()) return setCoErr("Enter your name.");
@@ -762,13 +920,22 @@ export default function App() {
     },
     gateOpen,
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
-    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings, payMethods,
+    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, lowLine, scarcity, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
     collections, segments, deals, dailyDeal, brands, testimonials, latestPosts, refreshStore,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
-    blog, blogTag, setBlogTag, post, postSlug,
+    blog, blogTag, setBlogTag, post, postSlug, pageSlug, infoPage, pages: D ? (D.pages || []) : [],
+    // The home page, as the house arranged it. Empty until the store payload
+    // lands — HomePage renders its hero from settings and nothing else, rather
+    // than flashing a page in the wrong order.
+    homeBlocks: D ? (D.homeBlocks || []) : [],
     proof, joinList,
+    // The two rails off the stream: what this shopper was looking at, and what
+    // other shoppers opened alongside it.
+    recentIds: recentlyViewed(),
+    clearRecent: () => { clearRecent(); setMeasureTick((n) => n + 1); },
+    alsoViewed: D ? (D.alsoViewed || {}) : {},
     plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,
     co, setCo, promoInfo, promoMsg, applyPromo, coErr, placing, placeOrder, placed,
@@ -776,8 +943,20 @@ export default function App() {
     cf, setCf, contactSent, sendContact,
     chat, setChat, sendChat,
     popup, setPopup, plEmail, setPlEmail, plDone, submitLead,
+    nudge, dismissNudge: () => { setNudge(false); try { localStorage.setItem("mr-nudge-at", String(Date.now())); } catch {} },
+    takeNudge: () => {
+      setNudge(false);
+      try { localStorage.setItem("mr-nudge-at", String(Date.now())); } catch {}
+      mrRecord("nudge_clicked", {});
+      setCartOpen(true);
+    },
     closePopup: () => { try { localStorage.setItem("mr-popup-seen", "1"); } catch {} setPopup(false); },
     consent, showConsent: !consent,
+    // Anyone can stop being counted, and no means no measurement at all rather
+    // than "measure anyway and mark the row". The privacy page points here.
+    measuring: !optedOut(),
+    setMeasuring: (on) => { setOptOut(!on); setMeasureTick((n) => n + 1); },
+    visitorId,
     grantConsent: () => { setConsent("granted"); setConsentState("granted"); },
     denyConsent: () => { setConsent("denied"); setConsentState("denied"); },
     cust, custData, custRegister, custLogin, custLogout, updateProfile, addAddress, removeAddress, toggleWishlist, joinWaitlist,
@@ -795,7 +974,7 @@ export default function App() {
     page === "track" ? <TrackPage ctx={ctx} /> :
     page === "contact" ? <ContactPage ctx={ctx} /> :
     page === "faq" ? <FaqPage ctx={ctx} /> :
-    page === "privacy" ? <PrivacyPage ctx={ctx} /> :
+    page === "info" ? <InfoPage ctx={ctx} /> :
     page === "account" ? <AccountPage ctx={ctx} /> :
     page === "wishlist" ? <WishlistPage ctx={ctx} /> :
     page === "locations" ? <LocationsPage ctx={ctx} /> :

@@ -192,10 +192,19 @@ export function Dashboard({ ctx }) {
   );
 }
 
+// One line saying how "low" is currently being decided, and where to change it
+// — so nobody has to guess why a cell is gold.
+function lowStockNote(ctx) {
+  const cfg = (ctx.stockHealth && ctx.stockHealth.cfg) || {};
+  if (cfg.mode === "cover") {
+    return `Low when a store holds under ${cfg.coverDays} days of cover (never above ${cfg.flat ?? ctx.TH}) — Settings → Inventory`;
+  }
+  return `Low at ${cfg.flat ?? ctx.TH} units or fewer, per store — Settings → Inventory`;
+}
+
 export function Inventory({ ctx }) {
   const [q, setQ] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
-  const TH = ctx.TH;
   const scope = ctx.scope;
   // Stock moves against the variation's id — the size label can be edited
   // without the stepper losing track of which row it is adjusting.
@@ -213,25 +222,38 @@ export function Inventory({ ctx }) {
     }
   };
   const stores = ctx.openStores;
+  // Stock sits per store, so the line does too. A cell is read against its own
+  // store's line — which, in days-of-cover mode, differs between a branch
+  // turning ten a day and one turning one a week.
+  const stateAt = (v, locationId) => {
+    const n = v.stock[locationId] || 0;
+    if (n <= 0) return "bad";
+    return n <= ctx.lowLine(v.id, locationId) ? "warn" : "good";
+  };
   const rows = [];
   let lowCount = 0, outCount = 0, unitTotal = 0;
   for (const p of ctx.products) for (const v of p.variants) {
     const counts = stores.map((l) => v.stock[l.id] || 0);
-    const scoped = scope === "all" ? counts.reduce((n, x) => n + x, 0) : (v.stock[scope] || 0);
-    unitTotal += scoped;
-    if (scoped === 0) outCount++;
-    else if (scoped <= TH) lowCount++;
-    const st = scoped === 0 ? "bad" : scoped <= TH ? "warn" : "good";
+    const shelves = (scope === "all" ? stores.map((l) => l.id) : [scope]);
+    const states = shelves.map((l) => stateAt(v, l));
+    unitTotal += scope === "all" ? counts.reduce((n, x) => n + x, 0) : (v.stock[scope] || 0);
+    // Every store the piece is thin at is its own job of work, so each is
+    // counted — the same way the server counts them for the alert.
+    lowCount += states.filter((x) => x === "warn").length;
+    outCount += states.filter((x) => x === "bad").length;
+    // The row's badge is the worst state across the stores in view: an empty
+    // shelf somewhere is the thing worth seeing from the list.
+    const st = states.includes("bad") ? "bad" : states.includes("warn") ? "warn" : "good";
     if (lowOnly && st === "good") continue;
     if (q && !p.name.toLowerCase().includes(q.toLowerCase())) continue;
     rows.push({ p, v, counts, st });
   }
-  const cellStyle = (n) => n === 0
+  const cellStyle = (st) => st === "bad"
     ? { bg: "#f7e3ea", bd: "#eac3d1", fg: "#c0587a" }
-    : n <= TH ? { bg: "var(--mr-gold-200)", bd: "var(--mr-gold-400)", fg: "var(--mr-gold-600)" }
+    : st === "warn" ? { bg: "var(--mr-gold-200)", bd: "var(--mr-gold-400)", fg: "var(--mr-gold-600)" }
     : { bg: "var(--surface-card)", bd: "var(--border-hairline)", fg: "var(--text-strong)" };
-  const stepper = (n, dec, inc) => {
-    const c = cellStyle(n);
+  const stepper = (n, st, dec, inc) => {
+    const c = cellStyle(st);
     return (
       <span style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${c.bd}`, borderRadius: "var(--radius-pill)", background: c.bg }}>
         <button onClick={dec} style={{ background: "none", border: "none", cursor: "pointer", padding: "3px 8px", fontSize: 13, color: "var(--mr-purple-800)" }}>−</button>
@@ -242,8 +264,8 @@ export function Inventory({ ctx }) {
   };
   const kpis = [
     { label: "Units on hand — " + ctx.scopeLabel, value: unitTotal.toLocaleString(), color: "var(--text-strong)" },
-    { label: "Low stock variants", value: lowCount, color: lowCount ? "var(--mr-gold-600)" : "var(--text-strong)" },
-    { label: "Out of stock variants", value: outCount, color: outCount ? "#c0587a" : "var(--text-strong)" },
+    { label: "Low stock shelves", value: lowCount, color: lowCount ? "var(--mr-gold-600)" : "var(--text-strong)" },
+    { label: "Out of stock shelves", value: outCount, color: outCount ? "#c0587a" : "var(--text-strong)" },
   ];
   const cell = { padding: "12px 14px", borderTop: "1px solid var(--border-hairline)", display: "flex", alignItems: "center" };
   return (
@@ -255,7 +277,7 @@ export function Inventory({ ctx }) {
           Low &amp; out of stock only
         </label>
         <div style={{ flex: 1 }} />
-        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Low-stock threshold: {TH} units — triggers back-in-stock waitlists</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>{lowStockNote(ctx)}</div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
         {kpis.map((k) => (
@@ -296,7 +318,9 @@ export function Inventory({ ctx }) {
                   {v.sku && <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontFamily: "monospace" }}>{v.sku}</span>}
                 </div>
                 {stores.map((l, i) => (
-                  <div key={l.id} style={cell}>{stepper(counts[i], () => bump(p.id, v.id, l.id, -1), () => bump(p.id, v.id, l.id, 1))}</div>
+                  <div key={l.id} style={cell} title={`Low at ${ctx.lowLine(v.id, l.id)} or fewer in ${l.city}`}>
+                    {stepper(counts[i], stateAt(v, l.id), () => bump(p.id, v.id, l.id, -1), () => bump(p.id, v.id, l.id, 1))}
+                  </div>
                 ))}
                 <div style={cell}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: badge.bg, color: badge.fg }}>{st === "bad" ? "Out of stock" : st === "warn" ? "Low stock" : "Healthy"}</span></div>
                 <div style={{ ...cell, paddingRight: 22 }}>

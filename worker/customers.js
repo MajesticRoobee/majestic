@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { issueToken, verifyToken, hashPassword, verifyPassword, displayDate, fmtNaira, sha256hex, normalizeContact, todayInWAT } from "./util.js";
 import { rewardOut } from "./rewards.js";
 import { emitEvent, sendTransactional } from "./events.js";
+import { stitchVisitor } from "./insights.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 
 export const account = new Hono();
@@ -45,6 +46,10 @@ account.post("/register", async (c) => {
     cust = { id: r.meta.last_row_id, email: lc(email) };
   }
   await linkOrders(db, cust.id, cust.email);
+  // Every visit this browser has ever made now belongs to a person. This is the
+  // line between "someone opened this four times" and "*this customer* opened
+  // this four times" — and the only moment it can be drawn.
+  await stitchVisitor(c.env, c.req.header("x-mr-visitor"), cust.id);
   const token = await issueCustomerToken(c.env, cust);
   const u = await db.prepare("SELECT * FROM customers WHERE id=?").bind(cust.id).first();
   await emitEvent(c.env, "customer_registered", { entity: String(u.id), payload: { name: u.name, email: u.email, contact: u.email }, ctx: c.executionCtx });
@@ -67,6 +72,7 @@ account.post("/login", async (c) => {
   await clearFailures(db, buckets);
   await db.prepare("UPDATE customers SET last_login=datetime('now') WHERE id=?").bind(u.id).run();
   await linkOrders(db, u.id, u.email);
+  await stitchVisitor(c.env, c.req.header("x-mr-visitor"), u.id);
   const token = await issueCustomerToken(c.env, u);
   return c.json({ token, customer: publicProfile(u) });
 });

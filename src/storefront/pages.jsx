@@ -1,11 +1,12 @@
 // Storefront pages — ported from "Majestic Roobee Storefront.dc.html".
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "../ds/components.jsx";
 import { ProductCard } from "./product-card.jsx";
-import { routeToPath } from "./router.js";
-import { EmbedCard, TestimonialCarousel } from "./pages-content.jsx";
+import { pathToRoute, routeToPath } from "./router.js";
+import { EmbedCard, TestimonialCarousel, PostBody } from "./pages-content.jsx";
 import { DailyDealCard } from "./daily-deal.jsx";
 import { catFamily, catPath, countIn } from "../lib/categories.js";
+import { record } from "./track.js";
 
 export { ProductCard };
 export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage } from "./pages-content.jsx";
@@ -13,14 +14,18 @@ export { EmbedCard, TestimonialCarousel };
 
 const PAD = "clamp(16px, 4vw, 40px)";
 
-// The three banners under the homepage hero. Fixed shelves rather than editable
-// blocks: what changes is the photograph behind each (Settings → Homepage), not
-// which three the store leads with.
-const PROMO_TILES = [
-  { id: "deals", setting: "promoTileDeals", kicker: "On sale now", title: "Deals", href: "/deals", extra: { fSeg: "deals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(37,20,50,0.9), rgba(37,20,50,0.12))" },
-  { id: "new", setting: "promoTileNew", kicker: "Just in", title: "New Arrivals", href: "/new-arrivals", extra: { fSeg: "new-arrivals", fCat: "all" }, veil: "linear-gradient(0deg, rgba(61,35,80,0.9), rgba(61,35,80,0.12))" },
-  { id: "sets", setting: "promoTileSets", kicker: "Ready to give", title: "Gift Sets", href: "/gift-sets", extra: { fSeg: "gift-sets", fCat: "all" }, veil: "linear-gradient(0deg, rgba(90,45,110,0.9), rgba(90,45,110,0.12))" },
+// The wash over a promo tile. The tiles themselves are rows now
+// (Admin → Home page), so this is the one thing left here: the house of
+// purples they are drawn in, applied in order however many there are.
+const TILE_VEILS = [
+  "linear-gradient(0deg, rgba(37,20,50,0.9), rgba(37,20,50,0.12))",
+  "linear-gradient(0deg, rgba(61,35,80,0.9), rgba(61,35,80,0.12))",
+  "linear-gradient(0deg, rgba(90,45,110,0.9), rgba(90,45,110,0.12))",
 ];
+
+// The line above the hero headline. A setting overrides it; this is what the
+// store opens with.
+const HERO_EYEBROW = "Perfumes · Perfume oils · Body mists · Feminine care";
 
 // The founder's story, exactly as the client wrote it. The About page runs it
 // in full; the homepage shows the opening paragraph and links through.
@@ -86,17 +91,15 @@ const REWARD_STEPS = [
 
 // The newsletter block. It feeds the same list as the first-order pop-up, so
 // an address left here reaches the store the same way.
-function NewsletterSignup({ ctx }) {
+function NewsletterSignup({ ctx, title, sub }) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
   const join = () => { if (ctx.joinList(email, "newsletter")) setDone(true); };
   return (
     <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
       <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "clamp(28px, 4vw, 48px)", textAlign: "center" }}>
-        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: 0 }}>Join the list</h2>
-        <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 20px", maxWidth: "54ch" }}>
-          Be the first to know about new scents, restocks, special offers and everything happening at Majestic Roobee.
-        </p>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: 0 }}>{title || "Join the list"}</h2>
+        <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 20px", maxWidth: "54ch" }}>{sub}</p>
         {done ? (
           <p style={{ fontSize: 14, color: "var(--mr-purple-900)", fontWeight: 500, margin: 0 }}>You&apos;re on the list. Watch your inbox.</p>
         ) : (
@@ -115,20 +118,11 @@ function NewsletterSignup({ ctx }) {
 // A category sold by showing it: the copy on one side, real products from that
 // category on the other, each a link straight to the thing itself.
 //
-// The products are read from the live catalogue rather than named here — a
-// hand-picked list would be wrong the first time one of them sold out. Photos
-// come first, because a band whose whole job is to look good should lead with
-// the pieces that have a photograph; the rest follow so it is never empty while
-// the store is still uploading.
-function ProductBand({ ctx, catId, eyebrow, title, lines, cta, count = 3 }) {
-  const fam = catFamily(ctx.categories, catId);
-  const picks = ctx.listings
-    .filter((e) => fam && fam.has(e.product.cat))
-    .map(ctx.card)
-    .filter(Boolean)
-    .sort((a, b) => (b.imageUrl ? 1 : 0) - (a.imageUrl ? 1 : 0))
-    .slice(0, count);
-  const open = () => ctx.nav("shop", { fCat: catId, fSeg: null, fBrand: "", fCol: null });
+// Which products is the server's answer now (worker/home.js) — hand-picked
+// where the house has picked them, and the category's own otherwise. This
+// component only draws what it is handed, so the same shape serves feminine
+// care, home fragrance and any band the house adds later.
+function ProductBand({ eyebrow, title, lines, cta, picks, onOpen }) {
   return (
     <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
       <div style={{ background: "var(--royal-wash)", borderRadius: "var(--radius-lg)", overflow: "hidden", display: "grid", gridTemplateColumns: picks.length ? "repeat(auto-fit, minmax(min(320px, 100%), 1fr))" : "1fr", gap: "clamp(20px, 3vw, 40px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
@@ -138,9 +132,11 @@ function ProductBand({ ctx, catId, eyebrow, title, lines, cta, count = 3 }) {
           {lines.map((l) => (
             <p key={l} style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--text-on-dark-muted)", margin: "10px 0 0" }}>{l}</p>
           ))}
-          <div style={{ marginTop: 22 }}>
-            <Button variant="gold" size="lg" onClick={open}>{cta}</Button>
-          </div>
+          {cta && (
+            <div style={{ marginTop: 22 }}>
+              <Button variant="gold" size="lg" onClick={onOpen}>{cta}</Button>
+            </div>
+          )}
         </div>
         {picks.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(picks.length, 3)}, minmax(0, 1fr))`, gap: "clamp(10px, 1.4vw, 16px)" }}>
@@ -161,24 +157,84 @@ function ProductBand({ ctx, catId, eyebrow, title, lines, cta, count = 3 }) {
   );
 }
 
+// ---- The home page ---------------------------------------------------------
+//
+// Every band, shelf, heading and tile below is a row in `home_blocks`, arranged
+// in Admin → Home page. The server resolves each block to the products it shows
+// (worker/home.js) and sends them in order; this file only knows how to *draw*
+// a block of each kind. Which means reordering the page, rewriting a heading,
+// swapping a photograph, curating a shelf by hand or adding a new band is a
+// save rather than a deploy.
+//
+// Nothing here reads a block that isn't live: the server has already dropped
+// those.
+
+// A heading may say {city}, so "In Abuja now" follows the shopper when they
+// switch store instead of naming the house's default forever.
+const fill = (text, vars) => String(text || "").replace(/\{city\}/g, vars.city || "");
+
+// A block's products, as cards, in the order the server resolved them.
+function cardsFor(block, ctx) {
+  return (block.productIds || [])
+    .map((id) => ctx.listings.find((e) => e.product.id === id))
+    .filter(Boolean)
+    .map(ctx.card)
+    .filter(Boolean);
+}
+
+// "Ready at your store today" is the one shelf the server cannot finish: only
+// the browser knows which city the shopper picked. So the server sends
+// candidates in catalogue order and the narrowing happens here.
+function shelfCards(block, ctx) {
+  const cards = cardsFor(block, ctx);
+  if (block.source !== "in-city") return cards.slice(0, block.count || cards.length);
+  const here = (block.productIds || [])
+    .map((id) => ctx.products.find((p) => p.id === id))
+    .filter((p) => p && p.variants && p.variants.length && ctx.availInfo(p).inCity)
+    .slice(0, block.count || 4)
+    .map(ctx.card)
+    .filter(Boolean);
+  return here;
+}
+
+// A block's button or "see all" link. The target is a storefront path, so the
+// house types /deals or /shop?category=home and it routes properly rather than
+// reloading the whole app.
+function blockNav(ctx, target) {
+  const path = String(target || "").trim();
+  if (!path) return null;
+  return (e) => {
+    if (e) e.preventDefault();
+    if (/^https?:\/\//i.test(path)) { window.open(path, "_blank", "noopener"); return; }
+    const r = pathToRoute(path.split("?")[0], path.includes("?") ? "?" + path.split("?").slice(1).join("?") : "");
+    const { page, ...extra } = r;
+    // Coming from a shelf link, the filters that are *not* named must be
+    // cleared, or "/deals" would land still narrowed to whatever the shopper
+    // was last looking at.
+    ctx.nav(page, page === "shop" ? { fCat: "all", fCol: null, fSeg: null, fBrand: "", ...extra } : extra);
+  };
+}
+
+function BlockLink({ ctx, block }) {
+  const go = blockNav(ctx, block.ctaTarget);
+  if (!block.ctaLabel || !go) return null;
+  return <a href={block.ctaTarget} onClick={go} style={{ fontSize: 13.5, fontWeight: 500 }}>{block.ctaLabel}</a>;
+}
+
 export function HomePage({ ctx }) {
-  const { settings, products, categories, cityName, L, testimonials, latestPosts } = ctx;
-  // Four products from whatever is marked down right now, and the deal they sit
-  // under when there is exactly one running — a strip that names its reason.
-  const dealIds = (ctx.segments.deals || []).slice(0, 4);
-  const dealPicks = dealIds.map((id) => ctx.listings.find((e) => e.product.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
-  const runningDeal = ctx.deals.length === 1 ? ctx.deals[0] : null;
-  // Four best sellers, in the order the server ranked them.
-  const bestPicks = (ctx.segments["best-sellers"] || []).slice(0, 4)
-    .map((id) => ctx.listings.find((e) => e.product.id === id)).filter(Boolean).map(ctx.card).filter(Boolean);
+  const { settings, products, categories, cityName, L, testimonials, latestPosts, homeBlocks } = ctx;
   const dir = settings.heroDirection || "storefront grid";
   const sellable = products.filter((p) => p.variants && p.variants.length);
-  const inCity = sellable.filter((p) => ctx.availInfo(p).inCity).slice(0, 4).map(ctx.card).filter(Boolean);
   // Three picks from whatever is live, city stock first — never named ids, which
   // would break the moment the catalogue changes.
   const heroPicks = sellable
     .slice().sort((a, b) => (ctx.availInfo(b).inCity ? 1 : 0) - (ctx.availInfo(a).inCity ? 1 : 0))
     .slice(0, 3).map(ctx.card).filter(Boolean);
+  const tiles = homeBlocks.filter((b) => b.kind === "tile");
+  const flow = homeBlocks.filter((b) => b.kind !== "tile");
+  const vars = { city: cityName };
+  const runningDeal = ctx.deals.length === 1 ? ctx.deals[0] : null;
+
   const perk = (icon, title, sub) => (
     <div style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "18px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
       {icon}
@@ -189,6 +245,7 @@ export function HomePage({ ctx }) {
     </div>
   );
   const iconStyle = { flexShrink: 0, marginTop: 2 };
+
   return (
     <main>
       {dir === "storefront grid" && (
@@ -209,7 +266,7 @@ export function HomePage({ ctx }) {
                 {/* The wash is heaviest where the words are and clears to the
                     right, so the photograph still reads as a photograph. */}
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(61,35,80,0.86) 0%, rgba(61,35,80,0.52) 48%, rgba(61,35,80,0.06) 100%)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, padding: "clamp(24px, 4vw, 48px)", pointerEvents: "none" }}>
-                  <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>Perfumes · Perfume oils · Body mists · Feminine care</span>
+                  <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{settings.heroEyebrow || HERO_EYEBROW}</span>
                   <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
                   <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--text-on-dark-muted)", maxWidth: "34ch", margin: 0 }}>{settings.heroSub}</p>
                   <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
@@ -217,18 +274,24 @@ export function HomePage({ ctx }) {
                   </div>
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: "clamp(12px, 1.4vw, 18px)", marginTop: "clamp(12px, 1.4vw, 18px)" }}>
-                {PROMO_TILES.map((t) => (
-                  <a key={t.id} href={t.href} onClick={(e) => { e.preventDefault(); ctx.nav("shop", t.extra); }}
-                    style={{ position: "relative", display: "block", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
-                    <ImageSlot src={settings[t.setting]} name={t.title} sizes="(max-width: 860px) 92vw, 240px" style={{ width: "100%", height: 150 }} />
-                    <span style={{ position: "absolute", inset: 0, background: t.veil, display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 4, padding: 16 }}>
-                      <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{t.kicker}</span>
-                      <span style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)", lineHeight: 1.15 }}>{t.title}</span>
-                    </span>
-                  </a>
-                ))}
-              </div>
+              {/* The tiles under the hero. Three of them were written into this
+                  file with one settings key each for the photograph; they are
+                  rows now, so the house can rename one, reorder them, point one
+                  somewhere else, switch one off or add a fourth. */}
+              {tiles.length > 0 && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: "clamp(12px, 1.4vw, 18px)", marginTop: "clamp(12px, 1.4vw, 18px)" }}>
+                  {tiles.map((t, i) => (
+                    <a key={t.id} href={t.ctaTarget || "/shop"} onClick={blockNav(ctx, t.ctaTarget || "/shop")}
+                      style={{ position: "relative", display: "block", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                      <ImageSlot src={t.imageUrl} name={t.title} sizes="(max-width: 860px) 92vw, 240px" style={{ width: "100%", height: 150 }} />
+                      <span style={{ position: "absolute", inset: 0, background: TILE_VEILS[i % TILE_VEILS.length], display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 4, padding: 16 }}>
+                        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{fill(t.eyebrow, vars)}</span>
+                        <span style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)", lineHeight: 1.15 }}>{fill(t.title, vars)}</span>
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              )}
               {/* On a phone the deal follows the tiles at full width rather
                   than disappearing — most of this shop is read on a phone. */}
               {ctx.isMobile && <DailyDealCard ctx={ctx} style={{ marginTop: "clamp(12px, 1.4vw, 18px)" }} />}
@@ -240,7 +303,7 @@ export function HomePage({ ctx }) {
       {dir === "editorial split" && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 88px) ${PAD}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: "clamp(28px, 5vw, 64px)", alignItems: "center" }}>
           <div>
-            <Eyebrow>Perfumes · Perfume oils · Body mists · Feminine care</Eyebrow>
+            <Eyebrow>{settings.heroEyebrow || HERO_EYEBROW}</Eyebrow>
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(38px, 5.4vw, 64px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "18px 0 0", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
             <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(19px, 2vw, 23px)", lineHeight: 1.5, color: "var(--text-body)", maxWidth: "46ch", margin: "22px 0 30px" }}>{settings.heroSub}</p>
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
@@ -289,172 +352,171 @@ export function HomePage({ ctx }) {
         </section>
       )}
 
-      <section style={{ maxWidth: 1280, margin: "0 auto", padding: `12px ${PAD} 8px` }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(230px, 100%), 1fr))", gap: 14 }}>
-          {perk(
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>,
-            "Delivered from your nearest store", "Your order ships from the store that has everything you chose."
-          )}
-          {perk(
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>,
-            "Secure payment", "Card, bank transfer, or order on WhatsApp."
-          )}
-          {perk(
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg>,
-            "Worldwide delivery", "Naira and US Dollar pricing, delivered anywhere."
-          )}
-        </div>
-      </section>
+      {/* Whatever this shopper was last looking at, before the page's own
+          merchandising — the strongest thing the shop can put in front of
+          somebody is the thing they had already chosen to look at. */}
+      <RecentlyViewed ctx={ctx} />
 
-      {/* Shop by category. The tiles are the live category tree, so this can
-          never disagree with the menu in the header. */}
-      <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
-        <SectionHead centred eyebrow="Shop by category" title="Find Your Fragrance"
-          sub="Whatever you're in the mood for, there's a fragrance for it." />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 14 }}>
-          {categories.filter((c) => !c.parentId).map((c) => {
-            const n = countIn(categories, products, c.id);
-            return (
-              <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id, fSeg: null, fBrand: "", fCol: null })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
-                <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--mr-purple-900)" }}>{c.label}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 5 }}>{n} {n === 1 ? "product" : "products"}</div>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {flow.map((b) => (
+        <HomeBlock key={b.id} block={b} ctx={ctx} vars={vars} runningDeal={runningDeal}
+          perk={perk} iconStyle={iconStyle} categories={categories} products={products}
+          testimonials={testimonials} latestPosts={latestPosts} settings={settings} />
+      ))}
+    </main>
+  );
+}
 
-      <ProductBand
-        ctx={ctx}
-        catId="care"
-        eyebrow="Feminine care"
-        title="The products your intimate area needs"
-        lines={["Looking for a safe product for your intimate area?", "Shop our plant-based and non-toxic intimate care."]}
-        cta="Shop feminine care"
-      />
+// One block, drawn according to its kind. A kind this file does not know how to
+// draw renders nothing rather than throwing — a half-deployed admin must never
+// be able to white-screen the shop.
+function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories, products, testimonials, latestPosts, settings }) {
+  const eyebrow = fill(block.eyebrow, vars);
+  const title = fill(block.title, vars);
+  const sub = fill(block.sub, vars);
 
-      {/* Best sellers — the server decides what has actually sold, so this is
-          never a hand-picked list that has quietly gone out of date. */}
-      {bestPicks.length > 0 && (
-        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
-          <SectionHead
-            eyebrow="Best sellers"
-            title="The fragrance everyone is talking about"
-            sub="Not sure where to start? Start with the fragrances our customers keep coming back for."
-            action={<a href="/best-sellers" onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fSeg: "best-sellers" }); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Shop best sellers</a>}
-          />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-            {bestPicks.map((p) => <ProductCard key={p.key} p={p} />)}
+  switch (block.kind) {
+    case "perks":
+      return (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `12px ${PAD} 8px` }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(230px, 100%), 1fr))", gap: 14 }}>
+            {perk(
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>,
+              "Delivered from your nearest store", "Your order ships from the store that has everything you chose."
+            )}
+            {perk(
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>,
+              "Secure payment", "Card, bank transfer, or order on WhatsApp."
+            )}
+            {perk(
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg>,
+              "Worldwide delivery", "Naira and US Dollar pricing, delivered anywhere."
+            )}
           </div>
         </section>
-      )}
+      );
 
-      {inCity.length > 0 && (
+    // The tiles are the live category tree, so this can never disagree with the
+    // menu in the header.
+    case "categories":
+      return (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+          <SectionHead centred eyebrow={eyebrow} title={title} sub={sub} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 14 }}>
+            {categories.filter((c) => !c.parentId).map((c) => {
+              const n = countIn(categories, products, c.id);
+              return (
+                <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id, fSeg: null, fBrand: "", fCol: null })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
+                  <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--mr-purple-900)" }}>{c.label}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 5 }}>{n} {n === 1 ? "product" : "products"}</div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      );
+
+    case "band": {
+      const picks = cardsFor(block, ctx);
+      const go = blockNav(ctx, block.ctaTarget);
+      // A band with no products left in it — the category sold out, or was
+      // emptied — falls back to the plain call-to-action rather than rendering
+      // a lopsided box with a hole where the bottles should be.
+      if (block.layout === "cta-band" || !picks.length) {
+        return (
+          <CtaBand title={title} lines={block.lines} cta={block.ctaLabel} onClick={go || (() => ctx.nav("shop"))} dark={block.dark} />
+        );
+      }
+      return <ProductBand ctx={ctx} eyebrow={eyebrow} title={title} lines={block.lines} cta={block.ctaLabel} picks={picks} onOpen={go || (() => ctx.nav("shop"))} />;
+    }
+
+    case "shelf": {
+      const picks = shelfCards(block, ctx);
+      if (!picks.length) return null;
+      // When exactly one deal is running it names the shelf itself, which is
+      // what lets a sale say what it is instead of always reading "Hot deals".
+      const isDeals = block.source === "segment" && block.refId === "deals";
+      const named = isDeals && runningDeal;
+      return (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD} 0` }}>
           <SectionHead
-            eyebrow={`In ${cityName} now`}
-            title="Ready at your store today"
-            action={<a href="/shop" onClick={(e) => { e.preventDefault(); ctx.nav("shop"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>View all products</a>}
+            eyebrow={eyebrow}
+            title={named ? runningDeal.title : (title || (isDeals ? "Hot deals" : ""))}
+            sub={named && runningDeal.desc ? runningDeal.desc : sub}
+            action={<BlockLink ctx={ctx} block={block} />}
           />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-            {inCity.map((p) => <ProductCard key={p.key} p={p} />)}
+            {picks.map((p) => <ProductCard key={p.key} p={p} />)}
           </div>
         </section>
-      )}
+      );
+    }
 
-      {dealPicks.length > 0 && (
-        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD} 0` }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
+    // The founder's story. Her portrait, the opening paragraph, and the way
+    // through to the rest — the whole thing here would run two thousand words
+    // before the shopper reached the reviews.
+    case "story":
+      return (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+          <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 320px) minmax(0, 1fr)", gap: "clamp(22px, 3vw, 44px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
+            <div style={{ position: "relative" }}>
+              {/* A gold frame offset behind the photograph, the same gesture the
+                  editorial hero uses, so the two read as one house style. */}
+              <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
+              <ImageSlot src={settings.founderImage || FOUNDER_PHOTO} shape="rounded" radius={14} name={FOUNDER_NAME}
+                sizes="(max-width: 860px) 92vw, 420px" label={`${FOUNDER_NAME} — ${FOUNDER_ROLE}`}
+                style={{ width: "100%", aspectRatio: "3 / 4", position: "relative" }} />
+            </div>
             <div>
-              <Eyebrow>On sale now</Eyebrow>
-              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {runningDeal ? runningDeal.title : "Hot deals"}
-              </h2>
-              {runningDeal && runningDeal.desc && <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "6px 0 0", maxWidth: "58ch" }}>{runningDeal.desc}</p>}
+              <Eyebrow>{eyebrow}</Eyebrow>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{title || STORY_TITLE}</h2>
+              <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 8px" }}>{STORY[0]}</p>
+              <div style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 20px" }}>
+                <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{FOUNDER_NAME}</strong> — {FOUNDER_ROLE}
+              </div>
+              <Button variant="secondary" onClick={blockNav(ctx, block.ctaTarget) || (() => ctx.nav("about"))}>{block.ctaLabel || "Read our story"}</Button>
             </div>
-            <a href="/deals" onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fSeg: "deals" }); }} style={{ fontSize: 13.5, fontWeight: 500 }}>See all deals</a>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
-            {dealPicks.map((p) => <ProductCard key={p.key} p={p} />)}
           </div>
         </section>
-      )}
+      );
 
-      <CtaBand
-        title="What's your fragrance personality?"
-        lines={[
-          "Are you soft and feminine? Warm and sensual? Fresh and effortless? Bold and commanding?",
-          "There's a fragrance for every version of you.",
-        ]}
-        cta="Find your signature scent"
-        onClick={() => ctx.nav("shop", { fCat: "perfumes", fSeg: null, fBrand: "", fCol: null })}
-        dark
-      />
-
-      <CtaBand
-        title="Your home deserves a signature scent too"
-        lines={["Explore our collection of home fragrances created to make your space feel warmer, fresher and more inviting."]}
-        cta="Shop home fragrance"
-        onClick={() => ctx.nav("shop", { fCat: "home", fSeg: null, fBrand: "", fCol: null })}
-      />
-
-      {/* The founder's story. Her portrait, the opening paragraph, and the way
-          through to the rest — the whole thing here would run two thousand
-          words before the shopper reached the reviews. */}
-      <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
-        <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 320px) minmax(0, 1fr)", gap: "clamp(22px, 3vw, 44px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
-          <div style={{ position: "relative" }}>
-            {/* A gold frame offset behind the photograph, the same gesture the
-                editorial hero uses, so the two read as one house style. */}
-            <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
-            <ImageSlot src={settings.founderImage || FOUNDER_PHOTO} shape="rounded" radius={14} name={FOUNDER_NAME}
-              sizes="(max-width: 860px) 92vw, 420px" label={`${FOUNDER_NAME} — ${FOUNDER_ROLE}`}
-              style={{ width: "100%", aspectRatio: "3 / 4", position: "relative" }} />
+    // Rewards. A qualifying purchase earns a single-use code, issued the moment
+    // the order is paid for — see `worker/rewards.js`.
+    case "rewards":
+      return (
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+          <SectionHead centred eyebrow={eyebrow} title={title} sub={sub} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 14 }}>
+            {REWARD_STEPS.map((r, i) => (
+              <div key={r.step} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 22px 24px" }}>
+                <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Step {i + 1}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "8px 0 6px" }}>{r.step}</div>
+                <div style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.65 }}>{r.copy}</div>
+              </div>
+            ))}
           </div>
-          <div>
-            <Eyebrow>Our story</Eyebrow>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{STORY_TITLE}</h2>
-            <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 8px" }}>{STORY[0]}</p>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 20px" }}>
-              <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{FOUNDER_NAME}</strong> — {FOUNDER_ROLE}
+          {block.ctaLabel && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
+              <Button variant="primary" size="lg" onClick={blockNav(ctx, block.ctaTarget) || (() => ctx.nav("shop"))}>{block.ctaLabel}</Button>
             </div>
-            <Button variant="secondary" onClick={() => ctx.nav("about")}>Read our story</Button>
-          </div>
-        </div>
-      </section>
+          )}
+        </section>
+      );
 
-      {/* Rewards. A qualifying purchase earns a single-use code, issued the
-          moment the order is paid for — see `worker/rewards.js`. */}
-      <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
-        <SectionHead centred eyebrow="Rewards" title="The more you shop, the more you earn"
-          sub="Every qualifying purchase earns you a reward code you can spend on your next order." />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 14 }}>
-          {REWARD_STEPS.map((r, i) => (
-            <div key={r.step} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 22px 24px" }}>
-              <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Step {i + 1}</div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "8px 0 6px" }}>{r.step}</div>
-              <div style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.65 }}>{r.copy}</div>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
-          <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop to earn your points</Button>
-        </div>
-      </section>
-
-      {/* Reviews & testimonials — the customers' own posts, on a rail that moves
-          on its own. They are added and removed under Reviews in the admin;
-          nothing in this section is written into the page. */}
-      {testimonials.length > 0 && (
+    // Reviews & testimonials — the customers' own posts, on a rail that moves
+    // on its own. They are added and removed under Reviews in the admin;
+    // nothing in this section is written into the page.
+    case "reviews":
+      if (!testimonials.length) return null;
+      return (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
-              <Eyebrow>Reviews</Eyebrow>
+              <Eyebrow>{eyebrow}</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {settings.reviewsHeadline || "Don't just take our word for it"}
+                {title || settings.reviewsHeadline || "Don't just take our word for it"}
               </h2>
             </div>
-            <a href="/reviews" onClick={(e) => { e.preventDefault(); ctx.nav("reviews"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read all reviews</a>
+            <BlockLink ctx={ctx} block={block} />
           </div>
           {/* The rail has its own gutter, so it pulls back level with the grids
               above and below it. */}
@@ -462,22 +524,23 @@ export function HomePage({ ctx }) {
             <TestimonialCarousel items={testimonials.slice(0, 9)} />
           </div>
         </section>
-      )}
+      );
 
-      {/* The blog — three most recent stories. */}
-      {latestPosts.length > 0 && (
+    case "blog":
+      if (!latestPosts.length) return null;
+      return (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
-              <Eyebrow>Journal</Eyebrow>
+              <Eyebrow>{eyebrow}</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {settings.blogHeadline || "From the blog"}
+                {title || settings.blogHeadline || "From the blog"}
               </h2>
             </div>
-            <a href="/blog" onClick={(e) => { e.preventDefault(); ctx.nav("blog"); }} style={{ fontSize: 13.5, fontWeight: 500 }}>Read the blog</a>
+            <BlockLink ctx={ctx} block={block} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
-            {latestPosts.map((p) => (
+            {latestPosts.slice(0, block.count || 3).map((p) => (
               <a key={p.slug} href={`/blog/${p.slug}`} onClick={(e) => { e.preventDefault(); ctx.nav("post", { postSlug: p.slug }); }} className="mr-lift"
                 style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
                 <ImageSlot src={p.coverUrl} name={p.title} sizes="(max-width: 640px) 92vw, 300px" style={{ width: "100%", height: 170 }} />
@@ -490,30 +553,79 @@ export function HomePage({ ctx }) {
             ))}
           </div>
         </section>
-      )}
+      );
 
-      <NewsletterSignup ctx={ctx} />
+    case "newsletter":
+      return <NewsletterSignup ctx={ctx} title={title} sub={sub} />;
 
-      {settings.igUrl && (
+    case "instagram":
+      if (!settings.igUrl) return null;
+      return (
         <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
           <div style={{ textAlign: "center" }}>
-            <Eyebrow>Instagram</Eyebrow>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>Follow the fragrance</h2>
-            <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 6px", maxWidth: "54ch" }}>
-              Come behind the scenes, discover new fragrances and see what&apos;s happening at Majestic Roobee.
-            </p>
+            <Eyebrow>{eyebrow}</Eyebrow>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
+            <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 6px", maxWidth: "54ch" }}>{sub}</p>
             <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", marginBottom: 18 }}>
               {settings.igHandle || "@majesticroobee"}
             </div>
             <a href={settings.igUrl} target="_blank" rel="noopener noreferrer"
               style={{ display: "inline-block", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, color: "var(--mr-purple-900)", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "12px 24px" }}>
-              Follow us on Instagram
+              {block.ctaLabel || "Follow us on Instagram"}
             </a>
           </div>
         </section>
-      )}
-    </main>
+      );
+
+    default:
+      return null;
+  }
+}
+
+// What this shopper was looking at last time, or five minutes ago.
+//
+// Read from their own browser rather than fetched back from the server: it is
+// theirs, it is instant, and — the point — it works for the anonymous visitor
+// who is most of the traffic. Nothing here needs an account.
+export function RecentlyViewed({ ctx, exclude = null, title = "Pick up where you left off" }) {
+  const ids = (ctx.recentIds || []).filter((id) => id !== exclude);
+  const picks = ids
+    .map((id) => ctx.listings.find((e) => e.product.id === id))
+    .filter(Boolean)
+    .map(ctx.card)
+    .filter(Boolean)
+    .slice(0, 4);
+  if (ctx.settings.recentlyViewedOn === false || picks.length < 2) return null;
+  return (
+    <section style={{ maxWidth: 1280, margin: "clamp(36px, 6vw, 64px) auto 0", padding: `0 ${PAD}` }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
+        <div>
+          <Eyebrow>Recently viewed</Eyebrow>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
+        </div>
+        <button onClick={ctx.clearRecent} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-muted)" }}>Clear</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
+        {picks.map((p) => <ProductCard key={p.key} p={p} />)}
+      </div>
+    </section>
   );
+}
+
+// A search is recorded once it has settled, not on every keystroke — otherwise
+// "vanilla" arrives as v, va, van, vani… and the list of terms nobody found is
+// mostly prefixes of terms somebody did.
+function useSearchRecord(term, found) {
+  const foundRef = useRef(found);
+  foundRef.current = found;
+  useEffect(() => {
+    const q = String(term || "").trim();
+    if (q.length < 2) return;
+    const t = setTimeout(() => {
+      record(foundRef.current ? "search" : "search_no_results", { q, value: foundRef.current });
+    }, 900);
+    return () => clearTimeout(t);
+  }, [term]);
 }
 
 // The shop grid, and every page in the header that leads to it.
@@ -606,6 +718,10 @@ export function ShopPage({ ctx }) {
     const at = (e) => (rank.has(e.product.id) ? rank.get(e.product.id) : ids.length);
     return (a, b) => at(a) - at(b);
   };
+  // What people searched for, and — the useful half — what they searched for
+  // and the shop had nothing to show. That second list is a buying brief and an
+  // SEO brief at once, written by customers.
+  useSearchRecord(ctx.search, list.length);
   if (ctx.fSort === "new") list = list.slice().sort(rankBy("new-arrivals"));
   else if (ctx.fSort === "best") list = list.slice().sort(rankBy("best-sellers"));
   else if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
@@ -779,6 +895,10 @@ export function ProductPage({ ctx }) {
   const prA = ctx.variantAvail(prV);
   const { cityName, L } = ctx;
   const soldOut = prA.soldOut;
+  // How many are left here, when that number is small enough to be worth
+  // saying. Null the rest of the time — a shop that cries "only 9 left" on
+  // every page is a shop nobody believes on the one that matters.
+  const scarce = ctx.scarcity(prV);
   const optionName = (pr.optionNames && pr.optionNames[0]) || "Size";
   // The brand grid keys on a slug of the name, so the link from here has to
   // slug it the same way the server does.
@@ -805,13 +925,24 @@ export function ProductPage({ ctx }) {
     window.history.replaceState({}, "", `/product/${encodeURIComponent(pr.id)}${v.sku ? `?variant=${encodeURIComponent(v.sku)}` : ""}`);
   };
 
+  // "You may also like" was filed by category: it recommended whatever happened
+  // to sit near this piece on a shelf. The shop's own shoppers answer it better
+  // — what did people open in the same visit as this — so that comes first, and
+  // the category is what fills in while the graph is still thin.
+  //
   // Only products that still have something to sell — `card` reads the default
   // variation's price and photo, so an empty one has nothing to render.
-  const related = ctx.products
-    .filter((p) => p.id !== pr.id && p.cat === pr.cat && p.variants && p.variants.length)
+  const sellableNow = (p) => p && p.id !== pr.id && p.variants && p.variants.length;
+  const alsoIds = (ctx.alsoViewed[pr.id] || []).slice(0, 6);
+  const seenIds = new Set();
+  const related = alsoIds
+    .map((id) => ctx.products.find((p) => p.id === id))
+    .concat(ctx.products.filter((p) => p.cat === pr.cat))
+    .filter((p) => sellableNow(p) && !seenIds.has(p.id) && seenIds.add(p.id))
     .slice(0, 3)
     .map(ctx.card)
     .filter(Boolean);
+  const relatedFromShoppers = alsoIds.length > 0;
   return (
     <main style={{ maxWidth: 1180, margin: "0 auto", padding: `clamp(24px, 4vw, 44px) ${PAD}` }}>
       <button onClick={() => ctx.nav("shop")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-700)", padding: 0, marginBottom: 22 }}>← Back to shop</button>
@@ -863,6 +994,12 @@ export function ProductPage({ ctx }) {
               );
             })}
           </div>
+          {scarce !== null && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, fontSize: 13.5, fontWeight: 500, color: "var(--accent-gold-ink)" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+              Only {scarce} left in {cityName}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)" }}>
               <button onClick={() => ctx.setPrQty(Math.max(1, ctx.prQty - 1))} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: "9px 15px", color: "var(--mr-purple-800)" }}>−</button>
@@ -882,11 +1019,16 @@ export function ProductPage({ ctx }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {ctx.locations.map((l) => {
                 const n = prV.stock[l.id] || 0;
+                // "Only two left" is the house's own low-stock line, drawn in
+                // Settings → Inventory and sent down per store — not a five
+                // written into this file that would drift from it.
+                const line = ctx.lowLine(prV, l.id);
+                const thin = line !== null && n > 0 && n <= line;
                 return (
                   <div key={l.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
                     <span style={{ color: "var(--text-body)" }}>{l.store}, {l.city}</span>
-                    <span style={{ fontWeight: 500, color: n > 5 ? "#3f6b45" : n > 0 ? "var(--accent-gold-ink)" : "var(--text-muted)" }}>
-                      {n > 5 ? "In stock" : n > 0 ? "Only " + n + " left" : "Out of stock"}
+                    <span style={{ fontWeight: 500, color: n <= 0 ? "var(--text-muted)" : thin ? "var(--accent-gold-ink)" : "#3f6b45" }}>
+                      {n <= 0 ? "Out of stock" : thin ? "Only " + n + " left" : "In stock"}
                     </span>
                   </div>
                 );
@@ -902,8 +1044,9 @@ export function ProductPage({ ctx }) {
           </div>
         </div>
       </div>
+      <RecentlyViewed ctx={ctx} exclude={pr.id} />
       <section style={{ marginTop: "clamp(40px, 6vw, 64px)" }}>
-        <Eyebrow>You may also like</Eyebrow>
+        <Eyebrow>{relatedFromShoppers ? "Often opened together" : "You may also like"}</Eyebrow>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20, marginTop: 18 }}>
           {related.map((p) => (
             <div key={p.key} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)" }}>
@@ -1475,36 +1618,78 @@ export function ContactPage({ ctx }) {
   );
 }
 
-export function PrivacyPage({ ctx }) {
-  const { settings } = ctx;
-  const h = { fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "28px 0 8px" };
-  const p = { fontFamily: "var(--font-editorial)", fontSize: 15.5, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 12px" };
+// An information page — privacy, terms, returns, delivery, or anything else the
+// house writes. The body is the blog's own plain-text format rendered by the
+// blog's own PostBody, so nothing written in the admin is ever handed to
+// dangerouslySetInnerHTML, and there is one renderer to keep good rather than
+// two that drift.
+export function InfoPage({ ctx }) {
+  const wrapper = ctx.infoPage;
+  const slug = ctx.pageSlug;
+  if (!wrapper || wrapper.slug !== slug) {
+    return <main style={{ maxWidth: 760, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
+      <p style={{ fontSize: 13.5, color: "var(--text-muted)" }}>Opening the page…</p>
+    </main>;
+  }
+  if (wrapper.error || !wrapper.page) {
+    return (
+      <main style={{ maxWidth: 760, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
+        <Eyebrow>Not found</Eyebrow>
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 4vw, 40px)", color: "var(--text-strong)", margin: "12px 0 10px" }}>There is no page here</h1>
+        <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "0 0 22px" }}>
+          The address may have changed, or the page may not be published yet.
+        </p>
+        <Button variant="primary" onClick={() => ctx.nav("shop")}>Shop all products</Button>
+      </main>
+    );
+  }
+  const page = wrapper.page;
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
-      <Eyebrow>Legal</Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 6px" }}>Privacy &amp; cookies</h1>
-      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 8px" }}>Last updated July 2026</p>
-      <GildedRule style={{ margin: "18px 0 4px" }} />
-
-      <p style={p}>Majestic Roobee ("we") respects your privacy. This notice explains what we collect, why, and the choices you have. You can shop as a guest without creating an account.</p>
-
-      <h2 style={h}>What we collect</h2>
-      <p style={p}>To fulfil an order we collect your name, phone, email and delivery address, plus the items and amounts in your order. If you contact us or start a live chat, we keep that conversation so we can help. If you join our list, we keep your email until you unsubscribe.</p>
-
-      <h2 style={h}>Payments</h2>
-      <p style={p}>Card payments are processed by our payment provider (Paystack). We never see or store your full card details — payment is confirmed to us by the provider.</p>
-
-      <h2 style={h}>Cookies &amp; analytics</h2>
-      <p style={p}>We use cookies for two things: essential store function (your cart, your chosen city) and — only if you accept — analytics and marketing tools that help us understand and improve the experience. You can decline the optional cookies from the banner and still shop normally. Optional tools we may use include Google Analytics, Google Ads, Meta Pixel, TikTok Pixel and Microsoft Clarity.</p>
-
-      <h2 style={h}>How we use your information</h2>
-      <p style={p}>To process and deliver orders, provide support, prevent fraud, and — where you've opted in — send you offers and updates. We do not sell your personal information.</p>
-
-      <h2 style={h}>Your choices</h2>
-      <p style={p}>You can decline optional cookies, unsubscribe from marketing at any time, and ask us to access or delete the information we hold about you.</p>
-
-      <h2 style={h}>Contact</h2>
-      <p style={p}>Questions about your privacy? Reach us at {settings.contactEmail || "hello@majesticroobee.com"} or {settings.contactPhone || "+234 906 227 7470"}.</p>
+      {page.eyebrow && <Eyebrow>{page.eyebrow}</Eyebrow>}
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 6px" }}>{page.title}</h1>
+      {page.updatedAt && (
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 8px" }}>Last updated {updatedLabel(page.updatedAt)}</p>
+      )}
+      <GildedRule style={{ margin: "18px 0 26px" }} />
+      <PostBody body={page.body} />
+      {/* The privacy page is the one place a promise about measurement is worth
+          making, so it is also the place the switch lives — a policy that says
+          "you can ask us to stop" and gives you no way to is not a policy. */}
+      {slug === "privacy" && <MeasureSwitch ctx={ctx} />}
     </main>
   );
+}
+
+function MeasureSwitch({ ctx }) {
+  const on = ctx.measuring;
+  return (
+    <div style={{ marginTop: 32, background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "20px 22px" }}>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>Counting your visit</div>
+      <p style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--text-body)", margin: "8px 0 14px" }}>
+        We keep a count of what is looked at in our own shop, on our own site, so we know which
+        products people open and which ones they never find. It is not shared with anyone, it carries
+        no name, email or address, and it is not the advertising cookies above — those you turn on or
+        off from the banner. If you would rather not be counted at all, switch it off here.
+      </p>
+      <button
+        onClick={() => ctx.setMeasuring(!on)}
+        style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, padding: "10px 18px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border-strong)", background: on ? "var(--surface-card)" : "var(--mr-purple-900)", color: on ? "var(--mr-purple-800)" : "var(--mr-cream)" }}>
+        {on ? "Stop counting my visits" : "Counting is off — turn it back on"}
+      </button>
+      <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 10 }}>
+        {on
+          ? "Your browser's Do Not Track or Global Privacy Control setting also turns this off on its own."
+          : "Nothing about your visits is being recorded."}
+      </div>
+    </div>
+  );
+}
+
+// The date the house last saved the page — never a date written into the file,
+// which is what the old privacy notice had and what made it quietly untrue.
+function updatedLabel(sqlDate) {
+  const d = new Date(String(sqlDate).replace(" ", "T") + "Z");
+  if (Number.isNaN(d.getTime())) return String(sqlDate);
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "Africa/Lagos" });
 }

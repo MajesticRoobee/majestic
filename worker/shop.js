@@ -2,6 +2,10 @@
 import { Hono } from "hono";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT, scopeCats } from "./util.js";
 import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
+import { lowStockLines } from "./inventory.js";
+import { loadHomeBlocks, resolveHomeBlocks } from "./home.js";
+import { ingest, stitchVisitor } from "./insights.js";
+import { loadAffinity } from "./affinity.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -84,6 +88,14 @@ shop.get("/store", async (c) => {
     parentId: x.parent_id || null,
   }));
   const { products, dailyDeal } = await storeCatalogue(db, { settings });
+  // "Only 2 left in Abuja" reads off the *same* line the house set in Settings
+  // — per store, because the stock is per store, and honouring any override on
+  // the variation. Switched off, the lines are simply not published: there is no
+  // reason for the shop's reorder points to leave the building.
+  if (settings.lowStockOnStorefront !== false) {
+    const lines = await lowStockLines(db, settings);
+    for (const p of products) for (const v of p.variants) if (lines[v.id]) v.lowAt = lines[v.id];
+  }
   const colRows = (await db.prepare("SELECT * FROM collections WHERE live=1 ORDER BY sort, created_at").all()).results;
   const colItems = (await db.prepare("SELECT * FROM collection_products ORDER BY sort").all()).results;
   const collections = colRows.map((x) => ({
@@ -129,7 +141,33 @@ shop.get("/store", async (c) => {
     "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).all()).results.map(blogCard);
 
-  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog });
+  // The home page, as the house arranged it. Each block arrives carrying the
+  // products it shows, resolved here so the browser is handed a finished list
+  // rather than re-deriving the house's merchandising rules for itself.
+  const catById = new Map(products.map((p) => [p.id, p.cat]));
+  const homeBlocks = resolveHomeBlocks(await loadHomeBlocks(db, { liveOnly: true }), {
+    order: products.map((p) => p.id),
+    segments,
+    collections: Object.fromEntries(collections.map((c) => [c.id, c.productIds])),
+    categories,
+    catOf: (id) => catById.get(id),
+    // A product with nothing to sell is not a candidate for any shelf.
+    sellable: new Set(products.filter((p) => (p.variants || []).length).map((p) => p.id)),
+  });
+
+  // "Other people also opened…" — the shop's own shoppers, not a guess from the
+  // category tree. Small enough to ride with the catalogue; empty until the
+  // graph has been built and while there is too little traffic to mean anything.
+  const alsoViewed = settings.alsoViewedOn === false ? {} : await loadAffinity(db);
+
+  // The information pages that are published, so the footer links to what
+  // actually exists rather than to a list kept in the markup. Titles only —
+  // the body is fetched when someone opens one.
+  const pages = (await db.prepare(
+    "SELECT slug, title FROM content_pages WHERE live=1 AND in_footer=1 ORDER BY sort, slug"
+  ).all()).results.map((r) => ({ slug: r.slug, title: r.title }));
+
+  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog, pages, homeBlocks, alsoViewed });
 });
 
 // Units sold per product over the best-seller window. Only orders that were
@@ -206,6 +244,20 @@ shop.get("/blog/:slug", async (c) => {
     "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' AND slug<>? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).bind(row.slug).all()).results.map(blogCard);
   return c.json({ post: { ...blogCard(row), body: row.body }, more });
+});
+
+// One information page. Unpublished reads as missing, so a draft is never
+// reachable by guessing its address.
+shop.get("/pages/:slug", async (c) => {
+  const row = await c.env.DB.prepare("SELECT * FROM content_pages WHERE slug=? AND live=1").bind(c.req.param("slug")).first();
+  if (!row) return c.json({ error: "No such page." }, 404);
+  return c.json({
+    page: {
+      slug: row.slug, title: row.title, eyebrow: row.eyebrow || "", body: row.body || "",
+      seoTitle: row.seo_title || "", seoDesc: row.seo_desc || "",
+      updatedAt: row.updated_at,
+    },
+  });
 });
 
 // ---- Purchase proof -------------------------------------------------------
@@ -315,21 +367,96 @@ shop.post("/promos/validate", async (c) => {
   return c.json({ valid: false, reason: "That code isn't recognised." });
 });
 
+// The behavioural stream (F4). One batch of events from one visit.
+//
+// Deliberately the least interesting endpoint in the Worker: it answers 204 to
+// everything, because it is called by `sendBeacon` on a page that is already
+// closing and nothing may ever be shown to a shopper on account of it. A
+// refusal is silent and the visit carries on.
+//
+// What bounds it is a ceiling on what can be *stored*, not on how often it may
+// be called: forty events to a request, six hundred to a session, and a session
+// id that has to look like one. Past that a request costs one UPDATE and
+// writes nothing, however many arrive. The login throttle is deliberately not
+// reused here — that is a security table counting failures, and pouring ordinary
+// traffic through it would both pollute it and throttle real shoppers. The outer
+// layer for this endpoint is a Cloudflare rate-limiting rule (BUILD-MAP §6).
+shop.post("/track", async (c) => {
+  try {
+    await ingest(c.env, await c.req.json(), {
+      ua: c.req.header("user-agent") || "",
+      country: c.req.header("cf-ipcountry") || "",
+      cfVerifiedBot: !!(c.req.raw.cf && c.req.raw.cf.verifiedBotCategory),
+    });
+  } catch { /* measurement never surfaces to a shopper */ }
+  return c.body(null, 204);
+});
+
 // Track abandoned checkouts. Upserts by phone/email.
+//
+// It now keeps *what was in the cart*, and a token that puts it back. The
+// automation has been enqueuing "you left something" since Phase 1 and could
+// only ever drop the shopper on the home page to find it again; most do not.
+// The token is random, names one row, and carries nothing — the row is already
+// keyed on a contact the shopper typed into our own checkout.
 shop.post("/checkouts/activity", async (c) => {
-  const { name, phone, email, city, value, stage } = await c.req.json();
+  const { name, phone, email, city, value, stage, items } = await c.req.json();
   const key = normalizeContact(email || phone);
   if (!key) return c.json({ ok: false });
-  await c.env.DB
+  const db = c.env.DB;
+  const lines = JSON.stringify(
+    (Array.isArray(items) ? items : []).slice(0, 30).map((i) => ({
+      variantId: parseInt(i.variantId, 10) || null,
+      qty: Math.max(1, Math.min(50, parseInt(i.qty, 10) || 1)),
+    })).filter((i) => i.variantId)
+  );
+  const existing = await db.prepare("SELECT token FROM abandoned_checkouts WHERE contact_key=?").bind(key).first();
+  const token = (existing && existing.token) || crypto.randomUUID().replace(/-/g, "");
+  await db
     .prepare(
-      `INSERT INTO abandoned_checkouts (contact_key, name, phone, email, city, value_ngn, stage, converted, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))
+      `INSERT INTO abandoned_checkouts (contact_key, name, phone, email, city, value_ngn, stage, converted, updated_at, token, items)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, datetime('now'), ?, ?)
        ON CONFLICT(contact_key) DO UPDATE SET name=excluded.name, phone=excluded.phone, email=excluded.email,
-         city=excluded.city, value_ngn=excluded.value_ngn, stage=excluded.stage, converted=0, updated_at=datetime('now')`
+         city=excluded.city, value_ngn=excluded.value_ngn, stage=excluded.stage, converted=0,
+         updated_at=datetime('now'), token=COALESCE(abandoned_checkouts.token, excluded.token), items=excluded.items`
     )
-    .bind(key, name || "", phone || "", email || "", city || "", Math.round(value || 0), stage || "Cart")
+    .bind(key, name || "", phone || "", email || "", city || "", Math.round(value || 0), stage || "Cart", token, lines)
     .run();
   return c.json({ ok: true });
+});
+
+// One tap back into the cart someone left.
+//
+// The link answers with the lines only — never the name, the address or the
+// contact it is keyed on. A recovery link that leaked a customer's details to
+// whoever it was forwarded to would be a worse bargain than the sale it wins.
+shop.get("/cart/recover", async (c) => {
+  const token = String(c.req.query("t") || "").trim();
+  if (!/^[a-f0-9]{16,64}$/i.test(token)) return c.json({ items: [] });
+  const db = c.env.DB;
+  const row = await db.prepare("SELECT * FROM abandoned_checkouts WHERE token=? AND converted=0").bind(token).first();
+  if (!row) return c.json({ items: [] });
+  let lines = [];
+  try { lines = JSON.parse(row.items || "[]"); } catch { lines = []; }
+  if (!lines.length) return c.json({ items: [] });
+
+  // Only what can still actually be bought — the shopper is being sent back to
+  // a cart, and a cart that prices something withdrawn is a dead end at the
+  // last step rather than at the first.
+  const ids = lines.map((l) => l.variantId);
+  const live = (await db.prepare(
+    `SELECT v.id, v.product_id, v.sku, v.size FROM variants v JOIN products p ON p.id = v.product_id
+      WHERE v.active = 1 AND p.live = 1 AND v.id IN (${ids.map(() => "?").join(",")})`
+  ).bind(...ids).all()).results;
+  const byId = new Map(live.map((v) => [v.id, v]));
+  const items = lines
+    .filter((l) => byId.has(l.variantId))
+    .map((l) => {
+      const v = byId.get(l.variantId);
+      return { id: v.product_id, variantId: v.id, sku: v.sku, size: v.size, qty: l.qty };
+    });
+  await db.prepare("UPDATE abandoned_checkouts SET recovered_at=datetime('now') WHERE token=?").bind(token).run();
+  return c.json({ items, city: row.city || "" });
 });
 
 shop.post("/inquiries", async (c) => {
@@ -606,6 +733,16 @@ shop.post("/orders", async (c) => {
     // has legitimately taken in the meantime is never resurrected.
     if (reward) await releaseReward(db, reward.code, no);
     throw e;
+  }
+
+  // An order is an identification too: a guest who has never signed in still
+  // just told the shop who they are. Their earlier visits are attached to that
+  // record, which is what makes "how many times did they look before they
+  // bought" answerable at all.
+  const guestEmail = (customer.email || "").trim().toLowerCase();
+  if (guestEmail) {
+    const cust = await db.prepare("SELECT id FROM customers WHERE email=?").bind(guestEmail).first();
+    if (cust) await stitchVisitor(c.env, c.req.header("x-mr-visitor"), cust.id);
   }
 
   await emitEvent(c.env, "order_placed", {

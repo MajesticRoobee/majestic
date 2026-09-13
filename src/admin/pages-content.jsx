@@ -670,3 +670,119 @@ export function TestimonialsPage({ ctx }) {
     </main>
   );
 }
+
+// Information & legal pages.
+//
+// The privacy notice used to live in the storefront's JSX, "last updated July
+// 2026" and all — a policy the house could not correct without a deploy, on a
+// shop that takes card payments. It is content now, written exactly the way the
+// blog is written, so there is one format and one renderer rather than two.
+export function PagesPage({ ctx }) {
+  const [editing, setEditing] = useState(null);
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const blank = { title: "", slug: "", eyebrow: "", body: "", seoTitle: "", seoDesc: "", inFooter: true, live: false };
+  const open = (p) => {
+    setErr("");
+    setEditing(p ? p.slug : "new");
+    setF(p ? { ...p } : { ...blank });
+  };
+  const close = () => { setEditing(null); setF(null); setErr(""); };
+
+  const save = async (live) => {
+    setBusy(true); setErr("");
+    const body = live === undefined ? f : { ...f, live };
+    try {
+      if (editing === "new") await api.post("/api/admin/pages", body, ctx.token);
+      else await api.patch(`/api/admin/pages/${encodeURIComponent(editing)}`, body, ctx.token);
+      ctx.loadPages();
+      ctx.flash(body.live ? "Published" : "Saved as a draft");
+      close();
+    } catch (e) { ctx.authFail(e); setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const setLive = async (p, live) => {
+    try {
+      await api.patch(`/api/admin/pages/${encodeURIComponent(p.slug)}`, { live }, ctx.token);
+      ctx.loadPages();
+      ctx.flash(live ? "Published" : "Taken off the storefront");
+    } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
+  };
+
+  const remove = async (p) => {
+    if (!window.confirm(`Delete "${p.title}"? Anyone holding a link to /${p.slug} will get a not-found page.`)) return;
+    try {
+      await api.del(`/api/admin/pages/${encodeURIComponent(p.slug)}`, ctx.token);
+      ctx.loadPages();
+      ctx.flash("Page deleted");
+      close();
+    } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
+  };
+
+  return (
+    <main style={pageStyle}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Intro title="Information & legal pages">
+          Privacy, terms, returns, delivery — each one lives at its own address (<strong>/privacy</strong>, <strong>/terms</strong>) and is
+          written in plain text, the same way the blog is: a blank line between paragraphs, <code>## </code> to start a heading,
+          <code>&gt; </code> for a quote. A draft is invisible until you publish it, and the &ldquo;last updated&rdquo; line on the page is
+          stamped each time you save, so it can never quietly say something untrue.
+        </Intro>
+        {ctx.pages.map((p) => (
+          <div key={p.slug} style={{ ...card, padding: 18, opacity: p.live ? 1 : 0.68 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: p.live ? "#e4efe4" : "var(--surface-sunken)", color: p.live ? "#3f6b45" : "var(--mr-purple-800)" }}>
+                {p.live ? "Live" : "Draft"}
+              </span>
+              <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>/{p.slug}</span>
+              {!p.inFooter && <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>· not in the footer</span>}
+            </div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginTop: 8 }}>{p.title}</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
+              {p.body.trim() ? `${p.body.trim().split(/\s+/).length} words` : "Nothing written yet"}
+              {p.updatedAt ? ` · saved ${String(p.updatedAt).slice(0, 10)}` : ""}
+            </div>
+            <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+              <button onClick={() => open(p)} style={linkBtn}>Edit →</button>
+              <button onClick={() => setLive(p, !p.live)} style={linkBtn}>{p.live ? "Take off the storefront" : "Publish"}</button>
+              {p.live && <a href={`/${p.slug}`} target="_blank" rel="noreferrer" style={{ ...linkBtn, textDecoration: "none" }}>View →</a>}
+              {p.slug !== "privacy" && <button onClick={() => remove(p)} style={{ ...linkBtn, color: "#c0587a" }}>Delete</button>}
+            </div>
+          </div>
+        ))}
+        <button onClick={() => open(null)} style={{ alignSelf: "flex-start", background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "8px 16px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ Write a new page</button>
+      </div>
+
+      <div style={{ ...card, padding: 22, display: "flex", flexDirection: "column", gap: 14, position: "sticky", top: 20 }}>
+        {!f ? (
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Pick a page to edit, or start a new one.</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{editing === "new" ? "A new page" : `Editing /${editing}`}</div>
+            <Input label="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Returns & refunds" />
+            {editing === "new" && (
+              <Input label="Address (optional)" value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })} placeholder="returns"
+                hint="The page lives at /this. Left empty it is made from the title. It is fixed once the page exists, so a link someone has shared keeps working however the title is later reworded." />
+            )}
+            <Input label="Eyebrow (optional)" value={f.eyebrow} onChange={(e) => setF({ ...f, eyebrow: e.target.value })} placeholder="Legal"
+              hint="The small line above the title." />
+            <Textarea label="The page" value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={18}
+              hint="Blank line between paragraphs. `## ` starts a heading, `> ` a quote, and an address on its own line becomes a picture." />
+            <Input label="Search title (optional)" value={f.seoTitle} onChange={(e) => setF({ ...f, seoTitle: e.target.value })}
+              hint="Left empty, the page's own title is used." />
+            <Textarea label="Search description (optional)" value={f.seoDesc} onChange={(e) => setF({ ...f, seoDesc: e.target.value })} rows={2} />
+            <Switch label="List it in the storefront footer" checked={f.inFooter} onChange={(e) => setF({ ...f, inFooter: e.target.checked })} />
+            {err && <div style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <Button variant="primary" size="sm" disabled={busy} onClick={() => save(true)}>{busy ? "Saving…" : "Save & publish"}</Button>
+              <Button variant="secondary" size="sm" disabled={busy} onClick={() => save(false)}>Save as a draft</Button>
+              <button onClick={close} style={{ ...linkBtn, color: "var(--text-muted)" }}>Cancel</button>
+            </div>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}

@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue, CollectionsPage } from "./pages-ops.jsx";
-import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage } from "./pages-content.jsx";
+import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage, PagesPage } from "./pages-content.jsx";
 import { DailyDealsPage } from "./daily-deals.jsx";
 import { Sales, Rewards, Notifications, Inquiries, SettingsPage } from "./pages-growth.jsx";
 import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
 import { GoLivePage } from "./golive.jsx";
+import { HomePageAdmin } from "./home-page.jsx";
+import { InsightsPage } from "./insights.jsx";
 import { catTree, catPath } from "../lib/categories.js";
 
 // The categories the shop was seeded with, kept only as a label of last resort:
@@ -42,13 +44,16 @@ export const statusBadge = (st) => ({
 
 const PAGES = [
   { id: "dash", label: "Dashboard", title: "Dashboard" },
+  { id: "insights", label: "Insights", title: "Shopper insights" },
   { id: "inv", label: "Inventory", title: "Inventory" },
   { id: "cat", label: "Products", title: "Product catalogue" },
+  { id: "home", label: "Home page", title: "The home page" },
   { id: "collections", label: "Collections", title: "Collections & sets" },
   { id: "categories", label: "Categories", title: "Categories" },
   { id: "deals", label: "Deals", title: "Deals & hot offers" },
   { id: "daily-deals", label: "Daily Deals", title: "Daily deals & countdown" },
   { id: "blog", label: "Blog", title: "The blog" },
+  { id: "pages", label: "Pages", title: "Information & legal pages" },
   { id: "reviews", label: "Reviews", title: "Reviews & testimonials" },
   { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
   { id: "rewards", label: "Rewards", title: "Reward codes" },
@@ -156,7 +161,13 @@ export default function App() {
   const [deals, setDeals] = useState([]);
   const [posts, setPosts] = useState([]);
   const [testimonials, setTestimonials] = useState([]);
+  const [pages, setPages] = useState([]);
   const [settingsData, setSettingsData] = useState(null);
+  // Where the low-stock line sits for every shelf, as the server draws it — an
+  // override on a variation, and in days-of-cover mode a line that differs per
+  // store. The inventory screen must colour a cell by the same rule the alert
+  // fires on, so it reads this rather than re-deriving it from one number.
+  const [stockHealth, setStockHealth] = useState(null);
   const [toast, setToast] = useState("");
   const [me, setMe] = useState(null);
 
@@ -228,6 +239,14 @@ export default function App() {
     if (!token) return;
     api.get("/api/admin/settings", token).then(setSettingsData).catch(authFail);
   }, [token, authFail]);
+  const loadPages = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/pages", token).then((r) => setPages(r.pages)).catch(authFail);
+  }, [token, authFail]);
+  const loadStockHealth = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/stock/health", token).then(setStockHealth).catch(authFail);
+  }, [token, authFail]);
 
   useEffect(() => {
     if (!token) return;
@@ -243,6 +262,8 @@ export default function App() {
     loadDeals();
     loadPosts();
     loadTestimonials();
+    loadStockHealth();
+    loadPages();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -258,7 +279,15 @@ export default function App() {
   }
 
   const settings = settingsData ? settingsData.settings : {};
-  const TH = settings.lowStockThreshold ?? 5;
+  // The line for one variation at one store. Falls back to the house's flat
+  // number for the moment before the health call lands, and for a shelf the
+  // server has not seen (a size added a second ago).
+  const flatTH = parseInt(settings.lowStockThreshold, 10);
+  const TH = Number.isFinite(flatTH) ? flatTH : 5;
+  const lowLine = (variantId, locationId) => {
+    const t = stockHealth && stockHealth.thresholds[`${variantId}:${locationId}`];
+    return t === undefined || t === null ? TH : t;
+  };
   const openInq = showArchived ? 0 : inquiries.filter((q) => q.status !== "Resolved").length;
   const isSuper = !me || me.role === "super";
   const openStores = locations.filter((l) => l.active);
@@ -270,9 +299,9 @@ export default function App() {
   const goPage = (id) => { setPage(id); window.scrollTo({ top: 0 }); };
 
   const ctx = {
-    token, page, setPage: goPage, scope, setScope, scopeLabel, TH, me, loadMe, isSuper,
+    token, page, setPage: goPage, scope, setScope, scopeLabel, TH, lowLine, stockHealth, loadStockHealth, me, loadMe, isSuper,
     overview, products, promos, campaigns, inquiries, settingsData,
-    locations, openStores, collections, inqCounts, showArchived, setShowArchived,
+    locations, openStores, collections, inqCounts, showArchived, setShowArchived, pages, loadPages,
     categories, deals, posts, testimonials,
     // Category labels come from the live table; CAT_LABELS is only the fallback
     // for the moment before it has loaded.
@@ -361,6 +390,9 @@ export default function App() {
         {activePage === "deals" && <DealsPage ctx={ctx} />}
         {activePage === "daily-deals" && <DailyDealsPage ctx={ctx} />}
         {activePage === "blog" && <BlogPage ctx={ctx} />}
+        {activePage === "pages" && <PagesPage ctx={ctx} />}
+        {activePage === "home" && <HomePageAdmin ctx={ctx} />}
+        {activePage === "insights" && <InsightsPage ctx={ctx} />}
         {activePage === "reviews" && <TestimonialsPage ctx={ctx} />}
         {activePage === "sales" && <Sales ctx={ctx} />}
         {activePage === "rewards" && <Rewards ctx={ctx} />}

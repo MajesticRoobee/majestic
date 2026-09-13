@@ -5,6 +5,9 @@ import { account } from "./customers.js";
 import { v1, handleMcp } from "./integrations.js";
 import { runScheduled } from "./events.js";
 import { releaseExpiredOrders } from "./payments.js";
+import { sweepStock } from "./inventory.js";
+import { rollup } from "./insights.js";
+import { rebuildAffinity } from "./affinity.js";
 import { resolveMedia, readMedia } from "./media.js";
 
 const app = new Hono();
@@ -88,12 +91,17 @@ app.get("/sitemap.xml", async (c) => {
     productUrls = rows.map((r) => (r.n > 1 && r.sku ? `/product/${r.pid}?variant=${encodeURIComponent(r.sku)}` : `/product/${r.pid}`));
     productUrls = [...new Set(productUrls)];
   } catch {}
+  let pageUrls = [];
+  try {
+    const rows = (await c.env.DB.prepare("SELECT slug FROM content_pages WHERE live=1 ORDER BY sort, slug").all()).results;
+    pageUrls = rows.map((r) => `/${r.slug}`);
+  } catch {}
   let postUrls = [];
   try {
     const rows = (await c.env.DB.prepare("SELECT slug FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC").all()).results;
     postUrls = rows.map((r) => `/blog/${r.slug}`);
   } catch {}
-  const urls = staticUrls.concat(catUrls, productUrls, postUrls);
+  const urls = staticUrls.concat(catUrls, pageUrls, productUrls, postUrls);
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
@@ -117,7 +125,19 @@ app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 // been released should not then be chased as an abandoned cart.
 async function cron(env) {
   try { await releaseExpiredOrders(env); } catch (e) { console.error("payment sweep failed", e); }
+  // Stock next, and before the outbox drains: a shelf that crossed its low-stock
+  // line in the last quarter hour should leave the building on this run, not the
+  // next one.
+  try { await sweepStock(env); } catch (e) { console.error("stock sweep failed", e); }
   try { await runScheduled(env); } catch (e) { console.error("automation run failed", e); }
+  // Fold yesterday into the rollups the admin reads, and prune raw events past
+  // the window. Last, because it is the only job here nobody is waiting on.
+  try { await rollup(env); } catch (e) { console.error("insight rollup failed", e); }
+  // "Other people also opened…". Rebuilt whole, and only once an hour — it only
+  // has to be right daily, and a rebuild cannot drift the way a counter can.
+  if (new Date().getUTCMinutes() < 15) {
+    try { await rebuildAffinity(env); } catch (e) { console.error("affinity rebuild failed", e); }
+  }
 }
 
 export default {

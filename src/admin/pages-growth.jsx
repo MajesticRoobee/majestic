@@ -663,13 +663,16 @@ export function Inquiries({ ctx }) {
 // nobody has to scroll to the foot of the page to keep one edit.
 const SECTION_KEYS = {
   brand: ["logoUrl", "logoLightUrl", "founderImage"],
-  storefront: ["announcement", "heroHeadline", "heroSub", "heroImage", "heroDirection", "defaultCity", "promoPopup",
-    "promoTileDeals", "promoTileNew", "promoTileSets"],
+  storefront: ["announcement", "heroHeadline", "heroSub", "heroEyebrow", "heroImage", "heroDirection", "defaultCity", "promoPopup"],
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
+  inventory: ["lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays", "lowStockAlerts", "lowStockOnStorefront"],
+  insights: ["insightsOn", "insightsRetainDays", "abandonAfterMins"],
+  convert: ["nudgeOn", "nudgeTitle", "nudgeBody", "nudgeCta", "nudgeCode", "nudgeEveryDays",
+    "promoPopupWhen", "recentlyViewedOn", "alsoViewedOn"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
   contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
   footer: ["footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl"],
-  seo: ["siteName", "metaDescription", "ogImage"],
+  seo: ["siteName", "siteUrl", "metaDescription", "ogImage"],
   analytics: ["ga4Id", "clarityId", "googleAdsId", "googleAdsPurchaseLabel", "metaPixelId", "tiktokPixelId", "gscVerification"],
 };
 
@@ -731,6 +734,8 @@ export function SettingsPage({ ctx }) {
       <div style={section}>
         {sectionHead("Storefront text", "The top announcement bar and the homepage hero copy.")}
         <Input label="Announcement bar" value={form.announcement || ""} onChange={set("announcement")} />
+        <Input label="Line above the hero headline" value={form.heroEyebrow || ""} onChange={set("heroEyebrow")}
+          placeholder="Perfumes · Perfume oils · Body mists · Feminine care" hint="The small gold line over the headline." />
         <Textarea label="Hero headline" value={form.heroHeadline || ""} onChange={set("heroHeadline")} rows={2} hint="A line break shows as two lines on the storefront." />
         <Textarea label="Hero subtext" value={form.heroSub || ""} onChange={set("heroSub")} rows={2} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -747,17 +752,10 @@ export function SettingsPage({ ctx }) {
         <ImagePicker ctx={ctx} label="Hero image (optional)" value={form.heroImage || ""} onChange={(url) => touch({ heroImage: url })}
           hint="The picture beside the headline on the home page — and the backdrop behind it on the full-bleed layout. Leave it empty for the monogram placeholder. Wide images look best." />
         {(form.heroDirection || "storefront grid") === "storefront grid" && (
-          <>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
-              The three banners under the hero. Each one leads to the shelf it names — the picture is all that changes here.
-              Landscape shots crop best; leave one empty and it falls back to the monogram.
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              <ImagePicker ctx={ctx} label="Hot Deals banner" value={form.promoTileDeals || ""} onChange={(url) => touch({ promoTileDeals: url })} />
-              <ImagePicker ctx={ctx} label="New Arrivals banner" value={form.promoTileNew || ""} onChange={(url) => touch({ promoTileNew: url })} />
-              <ImagePicker ctx={ctx} label="Gift Sets banner" value={form.promoTileSets || ""} onChange={(url) => touch({ promoTileSets: url })} />
-            </div>
-          </>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+            The tiles under the hero — their pictures, their words, how many there are and where each one leads —
+            are edited under <strong>Home page</strong>, along with every other section of it.
+          </div>
         )}
         <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => touch({ promoPopup: e.target.checked })} />
         {sectionSave("storefront")}
@@ -780,6 +778,64 @@ export function SettingsPage({ ctx }) {
             onChange={(e) => touch({ purchasePopupIntervalMs: (parseInt(e.target.value, 10) || 0) * 1000 })} placeholder="14" />
         </div>
         {sectionSave("shelves")}
+      </div>
+      <InventorySection ctx={ctx} form={form} touch={touch} set={set} section={section} sectionHead={sectionHead} sectionSave={sectionSave} />
+      <div style={section}>
+        {sectionHead("Shopper insights", "Whether the shop counts its own visits, and for how long it keeps the detail.")}
+        <Switch label="Measure what happens in the shop" checked={form.insightsOn ?? true} onChange={(e) => touch({ insightsOn: e.target.checked })} />
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          Our own count, on our own site, shared with nobody — which is why it still works for the shoppers whose ad-blocker
+          stops Google and Meta loading. No name, email or address is ever recorded, a referring link is reduced to its site
+          name, and anyone can switch themselves out from the privacy page. Switched off here, nothing new is recorded at all.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Keep the detail for (days)" value={form.insightsRetainDays ?? ""} onChange={set("insightsRetainDays")} placeholder="90"
+            hint="After this the individual visits are deleted. The daily totals behind the charts are kept for good, and a visit that carried an order is never deleted." />
+          <Input label="A cart counts as abandoned after (minutes)" value={form.abandonAfterMins ?? ""} onChange={set("abandonAfterMins")} placeholder="45"
+            hint="How long a cart sits quiet before it appears in the group worth chasing." />
+        </div>
+        {sectionSave("insights")}
+      </div>
+      <div style={section}>
+        {sectionHead("Winning the sale", "The quiet nudges that turn a full cart into an order.")}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Switch label="Show shoppers what they were looking at" checked={form.recentlyViewedOn ?? true} onChange={(e) => touch({ recentlyViewedOn: e.target.checked })} />
+          <Switch label="Show &ldquo;often opened together&rdquo; on a product" checked={form.alsoViewedOn ?? true} onChange={(e) => touch({ alsoViewedOn: e.target.checked })} />
+        </div>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          The first is read from the shopper&apos;s own browser, so it works for someone who has never signed in. The second is built
+          overnight from what real shoppers open in the same visit — it fills out as the shop gets traffic, and falls back to the
+          category until it has enough to say anything.
+        </div>
+        <Select label="Who sees the first-order pop-up" value={form.promoPopupWhen || "everyone"} onChange={set("promoPopupWhen")}>
+          <option value="everyone">Everyone (as it has always been)</option>
+          <option value="returning">Only someone who has been here before and not bought</option>
+        </Select>
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          A first-order offer is for somebody deciding whether to start, not for a stranger three seconds into their first look.
+        </div>
+        <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 14 }}>
+          <Switch label="Say something when a shopper with a full cart is about to leave" checked={form.nudgeOn ?? false} onChange={(e) => touch({ nudgeOn: e.target.checked })} />
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.6 }}>
+            A small card in the corner — never for an empty cart, never at checkout, and never twice inside the window below.
+            Off until you have written what it should say.
+          </div>
+        </div>
+        {(form.nudgeOn ?? false) && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="Heading" value={form.nudgeTitle || ""} onChange={set("nudgeTitle")} placeholder="Still deciding?" />
+              <Input label="Button" value={form.nudgeCta || ""} onChange={set("nudgeCta")} placeholder="Back to my cart" />
+            </div>
+            <Textarea label="What it says" value={form.nudgeBody || ""} onChange={set("nudgeBody")} rows={2} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Input label="Offer a code (optional)" value={form.nudgeCode || ""} onChange={set("nudgeCode")} placeholder="COMEBACK10"
+                hint="Create it under Sales & Promos first — this only names it." />
+              <Input label="Not again for (days)" value={form.nudgeEveryDays ?? ""} onChange={set("nudgeEveryDays")} placeholder="7" />
+            </div>
+          </>
+        )}
+        {sectionSave("convert")}
       </div>
       <div style={section}>
         {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
@@ -822,6 +878,8 @@ export function SettingsPage({ ctx }) {
       <div style={section}>
         {sectionHead("SEO", "How the store appears in search results and when shared. Product pages generate their own tags automatically.")}
         <Input label="Site name" value={form.siteName || ""} onChange={set("siteName")} placeholder="Majestic Roobee" />
+        <Input label="The shop's web address" value={form.siteUrl || ""} onChange={set("siteUrl")} placeholder="https://majesticroobee.com"
+          hint="Used in the links we email — a cart-recovery link has no request to take the address from. Set this before switching on the abandoned-cart chase, or those messages go out without their link." />
         <Textarea label="Default meta description" value={form.metaDescription || ""} onChange={set("metaDescription")} rows={2} hint="Used on the homepage and as a fallback (aim for 150–160 characters)." />
         <ImagePicker ctx={ctx} label="Social share image (optional)" value={form.ogImage || ""} onChange={(url) => touch({ ogImage: url })}
           hint="Shown when a link is shared on WhatsApp, Instagram, X, etc. 1200×630 is the shape they all crop to." />
@@ -855,6 +913,70 @@ export function SettingsPage({ ctx }) {
         </span>
       </div>
     </main>
+  );
+}
+
+// Where the low-stock line sits.
+//
+// The setting has existed since the first seed and has been saveable all along;
+// no screen ever rendered it, so in practice it was five, forever, for a ₦2,000
+// sample and a ₦180,000 extrait alike. Two ways to draw it now: a flat number,
+// or days of cover read off what each store has actually been selling. A piece
+// that needs its own line gets one on the product itself.
+function InventorySection({ ctx, form, touch, set, section, sectionHead, sectionSave }) {
+  const [sweeping, setSweeping] = useState("");
+  const cover = form.lowStockMode === "cover";
+  const counts = ctx.stockHealth ? ctx.stockHealth.counts : null;
+  const sweep = async () => {
+    setSweeping("…");
+    try {
+      const r = await api.post("/api/admin/stock/sweep", {}, ctx.token);
+      const parts = [];
+      if (r.out) parts.push(`${r.out} sold out`);
+      if (r.low) parts.push(`${r.low} running low`);
+      if (r.recovered) parts.push(`${r.recovered} back above the line`);
+      setSweeping(parts.length ? parts.join(", ") + (r.alerted ? " — alert sent" : "") : "Nothing crossed the line");
+      ctx.loadStockHealth();
+    } catch (e) { ctx.authFail(e); setSweeping(""); }
+  };
+  return (
+    <div style={section}>
+      {sectionHead("Inventory", "When a shelf counts as running low, and who hears about it.")}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Select label="How &ldquo;low&rdquo; is decided" value={form.lowStockMode || "flat"} onChange={set("lowStockMode")}>
+          <option value="flat">A flat number of units</option>
+          <option value="cover">Days of cover (from recent sales)</option>
+        </Select>
+        <Input label={cover ? "Never warn above (units)" : "Low at this many units or fewer"}
+          value={form.lowStockThreshold ?? ""} onChange={set("lowStockThreshold")} placeholder="5"
+          hint={cover
+            ? "The floor. A piece that has never sold still gets a warning at this figure rather than going from healthy to gone with nothing in between."
+            : "Counted per store, not across all of them — a shelf is empty where the shopper is standing."} />
+      </div>
+      {cover && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Days of cover to keep" value={form.lowStockCoverDays ?? ""} onChange={set("lowStockCoverDays")} placeholder="14"
+            hint="Warn when a store holds less than this many days of what it has been selling." />
+          <Input label="Measured over the last (days)" value={form.lowStockVelocityDays ?? ""} onChange={set("lowStockVelocityDays")} placeholder="30"
+            hint="Only paid, uncancelled orders count." />
+        </div>
+      )}
+      <Switch label="Send an alert when a shelf runs low or sells out" checked={form.lowStockAlerts ?? true} onChange={(e) => touch({ lowStockAlerts: e.target.checked })} />
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+        Raised on the crossing, not every quarter of an hour — and again if it recovers and dips a second time.
+        Edit the wording under Integrations → Automations. Until an email provider is connected they queue there, readable, rather than being lost.
+      </div>
+      <Switch label="Show shoppers when stock is nearly gone" checked={form.lowStockOnStorefront ?? true} onChange={(e) => touch({ lowStockOnStorefront: e.target.checked })} />
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+        &ldquo;Only 2 left in Abuja&rdquo; on the product page, read off this same line. Switched off, the figures are not published at all.
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--text-muted)", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <Button variant="ghost" size="sm" disabled={sweeping === "…"} onClick={sweep}>{sweeping === "…" ? "Checking…" : "Check every shelf now"}</Button>
+        {counts && <span>Right now: {counts.low} low, {counts.out} out.</span>}
+        {sweeping && sweeping !== "…" && <span style={{ color: "#3f6b45" }}>{sweeping}</span>}
+      </div>
+      {sectionSave("inventory")}
+    </div>
   );
 }
 

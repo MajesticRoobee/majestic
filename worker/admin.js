@@ -6,6 +6,10 @@ import {
   optionLabel, makeSku, allLocations, locationIds, promoIsLive, todayInWAT, watToMs, msToWat,
 } from "./util.js";
 import { emitEvent } from "./events.js";
+import { stockHealth, sweepStock } from "./inventory.js";
+import { loadHomeBlocks, SOURCES } from "./home.js";
+import { overview as insightOverview, segmentCounts, segmentRows, soldOutDemand, rollup, insightsConfig } from "./insights.js";
+import { rebuildAffinity } from "./affinity.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
@@ -198,7 +202,6 @@ admin.get("/overview", async (c) => {
   const db = c.env.DB;
   const scope = scopeFilter(effectiveScope(c, c.req.query("scope")));
   const settings = await getSettings(db);
-  const TH = settings.lowStockThreshold ?? 5;
   const locations = (await db.prepare("SELECT * FROM locations ORDER BY sort").all()).results;
   const scopeSql = scope ? "AND fulfilled_from = ?" : "";
   const bindScope = (stmt) => (scope ? stmt.bind(scope) : stmt);
@@ -255,14 +258,12 @@ admin.get("/overview", async (c) => {
       ).bind(...orders.map((o) => o.no)).all()).results
     : [];
 
-  // Stock health.
-  const products = await loadProducts(db);
-  let lowCount = 0, outCount = 0;
-  for (const p of products) for (const v of p.variants) {
-    const t = scope ? (v.stock[scope] || 0) : Object.values(v.stock).reduce((n, q) => n + q, 0);
-    if (t === 0) outCount++;
-    else if (t <= TH) lowCount++;
-  }
+  // Stock health. The line each shelf is measured against lives in
+  // worker/inventory.js, so the dashboard, the inventory screen, the alert and
+  // the storefront's "only N left" can never disagree about what "low" means.
+  const health = await stockHealth(db, settings, scope);
+  const lowCount = health.low.length;
+  const outCount = health.out.length;
 
   const abandoned = (await db.prepare(
     "SELECT * FROM abandoned_checkouts WHERE converted=0 ORDER BY updated_at DESC LIMIT 12"
@@ -567,6 +568,11 @@ admin.patch("/variants/:id", async (c) => {
   if (b.imageUrl !== undefined) put("image_url", String(b.imageUrl || "").trim() || null);
   if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
   if (b.active !== undefined) put("active", b.active ? 1 : 0);
+  // The line for this one piece. Empty means "whatever the store's is".
+  if (b.lowStockAt !== undefined) {
+    const n = parseInt(b.lowStockAt, 10);
+    put("low_stock_at", b.lowStockAt === "" || b.lowStockAt === null || !Number.isFinite(n) || n < 0 ? null : n);
+  }
 
   if (!sets.length) return c.json({ ok: true });
   vals.push(vid);
@@ -586,6 +592,25 @@ admin.delete("/products/:id", async (c) => {
   await db.batch(stmts);
   return c.json({ ok: true });
 });
+
+// Where the low-stock line sits for every shelf in the shop, so the inventory
+// screen colours a cell by the *same* rule the alert fires on — including a
+// per-variation override and, in days-of-cover mode, a line that differs per
+// store because the selling does.
+admin.get("/stock/health", async (c) => {
+  const db = c.env.DB;
+  const settings = await getSettings(db);
+  const scope = scopeFilter(effectiveScope(c, c.req.query("scope")));
+  const health = await stockHealth(db, settings, scope);
+  const thresholds = {};
+  for (const s of health.states) thresholds[`${s.variantId}:${s.locationId}`] = s.threshold;
+  return c.json({ cfg: health.cfg, thresholds, counts: { low: health.low.length, out: health.out.length } });
+});
+
+// Run the sweep by hand. Alerts ride the cron every fifteen minutes; this is for
+// the moment after someone changes the threshold and wants to know what it
+// caught, rather than waiting a quarter of an hour to find out.
+admin.post("/stock/sweep", async (c) => c.json(await sweepStock(c.env)));
 
 admin.patch("/stock", async (c) => {
   const { productId, variantId, size, location, delta } = await c.req.json();
@@ -929,10 +954,21 @@ admin.put("/settings", async (c) => {
   const { settings, locations } = await c.req.json();
   const db = c.env.DB;
   const allowed = [
-    "announcement", "heroHeadline", "heroSub", "heroImage", "footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl",
-    "contactPhone", "contactEmail", "contactHours", "ngnPerUsd", "lowStockThreshold",
+    "announcement", "heroHeadline", "heroSub", "heroEyebrow", "heroImage", "footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl",
+    "contactPhone", "contactEmail", "contactHours", "ngnPerUsd",
+    // Inventory: where the low-stock line sits, how it is drawn, whether it
+    // leaves the building, and whether shoppers see it too.
+    "lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays",
+    "lowStockAlerts", "lowStockOnStorefront",
+    // The behavioural stream: whether it runs, how long a raw event is kept,
+    // and how long a cart sits before it counts as abandoned.
+    "insightsOn", "insightsRetainDays", "abandonAfterMins",
+    // Smart shopping: the leave-behind nudge, who the first-order pop-up is
+    // for, and the two rails read off the stream.
+    "nudgeOn", "nudgeTitle", "nudgeBody", "nudgeCta", "nudgeCode", "nudgeEveryDays",
+    "promoPopupWhen", "recentlyViewedOn", "alsoViewedOn",
     // SEO
-    "siteName", "metaDescription", "ogImage",
+    "siteName", "siteUrl", "metaDescription", "ogImage",
     // Marketing & analytics tags
     "ga4Id", "metaPixelId", "tiktokPixelId", "googleAdsId", "googleAdsPurchaseLabel", "clarityId", "gscVerification",
     // The house's mark: the logo in the header, and a light version for the
@@ -952,8 +988,9 @@ admin.put("/settings", async (c) => {
     // The daily-deal card: whether it shows at all, whether it falls back to the
     // deepest markdown when nothing is scheduled, and what it is called.
     "dailyDealOn", "dailyDealAuto", "dailyDealHeadline",
-    // The three banners under the homepage hero.
-    "promoTileDeals", "promoTileNew", "promoTileSets",
+    // The tiles under the hero were three fixed settings keys, one photograph
+    // each. They are rows in home_blocks now (migration 0019 carried the
+    // photographs across), so there is nothing here to keep.
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
     // Rewards: whether a paid order earns a code, and what that code is worth.
@@ -1491,6 +1528,271 @@ async function resolveVariant(db, productId, variantId) {
   if (Number.isFinite(wanted) && rows.some((v) => v.id === wanted)) return wanted;
   return rows.length ? rows[0].id : null;
 }
+
+// ---- Insights ----
+//
+// The first screen in this admin that answers "why didn't they buy" rather than
+// "what did they buy". Everything historical reads `insight_daily`; only today
+// and a drill-down into one segment touch a session row, and nothing here ever
+// scans the raw event log — which is the whole reason the rollup exists.
+
+admin.get("/insights", async (c) => {
+  const days = parseInt(c.req.query("days") || "30", 10);
+  const db = c.env.DB;
+  const settings = await getSettings(db);
+  const [data, segments, soldOut] = await Promise.all([
+    insightOverview(c.env, { days }),
+    segmentCounts(c.env, { days, settings }),
+    soldOutDemand(c.env, { days }),
+  ]);
+  // A stream switched off, or one that has not run long enough to have folded a
+  // single day, should say so rather than drawing a chart of zeroes and letting
+  // the reader conclude nobody came.
+  const folded = await db.prepare("SELECT COUNT(*) AS n FROM insight_daily").first();
+  return c.json({
+    ...data, segments, soldOut,
+    cfg: insightsConfig(settings),
+    warming: folded.n === 0,
+  });
+});
+
+admin.get("/insights/segments/:id", async (c) => {
+  const r = await segmentRows(c.env, c.req.param("id"), { days: parseInt(c.req.query("days") || "30", 10) });
+  return r ? c.json(r) : c.json({ error: "No such segment." }, 404);
+});
+
+// Catch the derived data up now rather than waiting for the cron — for the
+// moment after switching the stream on, when an empty screen is
+// indistinguishable from a broken one. Both jobs, because both are "fold what
+// has happened into what the shop reads", and two buttons would only ever be
+// pressed together.
+admin.post("/insights/rollup", async (c) => {
+  const folded = await rollup(c.env);
+  const graph = await rebuildAffinity(c.env);
+  return c.json({ ...folded, ...graph });
+});
+
+// ---- The home page ----
+//
+// Every band, shelf, heading and tile on the home page is a row here. What the
+// house gets out of that: reorder the page, rewrite any heading, swap a
+// photograph, point a button somewhere else, switch a section off, add a band
+// of its own — and, the thing actually asked for, choose by hand which products
+// sit under "Best sellers" and "Ready at your store" instead of taking whatever
+// the arithmetic picked.
+//
+// The kinds whose body is structural (the story, the rewards steps, the
+// newsletter box) can be reordered, retitled and switched off but not invented:
+// there is no drawing for a kind this file has never heard of, so creating one
+// is refused rather than rendering nothing on the storefront.
+const BLOCK_KINDS = ["tile", "band", "shelf"];
+const FIXED_KINDS = ["perks", "categories", "story", "rewards", "reviews", "blog", "newsletter", "instagram"];
+
+admin.get("/home-blocks", async (c) => {
+  const blocks = await loadHomeBlocks(c.env.DB);
+  return c.json({ blocks, kinds: BLOCK_KINDS, fixedKinds: FIXED_KINDS, sources: SOURCES });
+});
+
+admin.post("/home-blocks", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const kind = String(b.kind || "").trim();
+  if (!BLOCK_KINDS.includes(kind)) {
+    return c.json({ error: `A new block can be a ${BLOCK_KINDS.join(", a ")}. The rest of the page is already on it.` }, 400);
+  }
+  const base = String(b.id || b.title || kind).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || kind;
+  let id = base;
+  for (let n = 2; await db.prepare("SELECT id FROM home_blocks WHERE id=?").bind(id).first(); n++) id = `${base}-${n}`;
+  const last = await db.prepare("SELECT COALESCE(MAX(sort), 0) + 100 AS n FROM home_blocks WHERE kind IS NOT 'tile'").first();
+  const tileLast = await db.prepare("SELECT COALESCE(MAX(sort), 0) + 10 AS n FROM home_blocks WHERE kind = 'tile'").first();
+  await db.prepare(
+    `INSERT INTO home_blocks (id, kind, layout, source, ref_id, count, eyebrow, title, sub, lines, cta_label, cta_target, image_url, dark, sort, live)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id, kind,
+    b.layout === "cta-band" ? "cta-band" : "product-band",
+    SOURCES.includes(b.source) ? b.source : (kind === "band" ? "category" : "segment"),
+    String(b.refId || "").trim(),
+    Math.max(0, Math.min(24, parseInt(b.count, 10) || (kind === "band" ? 3 : 4))),
+    String(b.eyebrow || "").trim(), String(b.title || "").trim(), String(b.sub || "").trim(),
+    String(b.lines || ""), String(b.ctaLabel || "").trim(), String(b.ctaTarget || "").trim(),
+    String(b.imageUrl || "").trim() || null,
+    b.dark === false ? 0 : 1,
+    kind === "tile" ? tileLast.n : last.n,
+    // A new block opens hidden. Nobody wants their first half-written band to
+    // land on the shop floor the instant they name it.
+    0
+  ).run();
+  return c.json({ ok: true, id });
+});
+
+admin.patch("/home-blocks/:id", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const id = c.req.param("id");
+  const row = await db.prepare("SELECT * FROM home_blocks WHERE id=?").bind(id).first();
+  if (!row) return c.json({ error: "No such block." }, 404);
+  const sets = ["updated_at=datetime('now')"], vals = [];
+  const put = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.layout !== undefined) put("layout", b.layout === "cta-band" ? "cta-band" : "product-band");
+  if (b.source !== undefined && SOURCES.includes(b.source)) put("source", b.source);
+  if (b.refId !== undefined) put("ref_id", String(b.refId).trim());
+  if (b.count !== undefined) put("count", Math.max(0, Math.min(24, parseInt(b.count, 10) || 0)));
+  if (b.eyebrow !== undefined) put("eyebrow", String(b.eyebrow).trim());
+  if (b.title !== undefined) put("title", String(b.title).trim());
+  if (b.sub !== undefined) put("sub", String(b.sub).trim());
+  if (b.lines !== undefined) put("lines", String(b.lines));
+  if (b.ctaLabel !== undefined) put("cta_label", String(b.ctaLabel).trim());
+  if (b.ctaTarget !== undefined) put("cta_target", String(b.ctaTarget).trim());
+  if (b.imageUrl !== undefined) put("image_url", String(b.imageUrl || "").trim() || null);
+  if (b.dark !== undefined) put("dark", b.dark ? 1 : 0);
+  if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
+  if (b.live !== undefined) put("live", b.live ? 1 : 0);
+  vals.push(id);
+  await db.prepare(`UPDATE home_blocks SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+
+  // The hand-picked list, replaced wholesale in the order it arrives.
+  if (Array.isArray(b.productIds)) {
+    const known = new Set((await db.prepare("SELECT id FROM products").all()).results.map((p) => p.id));
+    const ids = [...new Set(b.productIds.map(String))].filter((p) => known.has(p)).slice(0, 24);
+    await db.prepare("DELETE FROM home_block_products WHERE block_id=?").bind(id).run();
+    if (ids.length) {
+      await db.batch(ids.map((pid, i) =>
+        db.prepare("INSERT INTO home_block_products (block_id, product_id, sort) VALUES (?, ?, ?)").bind(id, pid, i)));
+    }
+  }
+  return c.json({ ok: true });
+});
+
+// Reorder in one call, so dragging a block up does not leave the page in a
+// half-sorted state if the second request never lands.
+admin.put("/home-blocks/order", async (c) => {
+  const { ids } = await c.req.json();
+  if (!Array.isArray(ids) || !ids.length) return c.json({ error: "Send the blocks in their new order." }, 400);
+  const db = c.env.DB;
+  const known = new Set((await db.prepare("SELECT id FROM home_blocks").all()).results.map((r) => r.id));
+  const ordered = ids.map(String).filter((id) => known.has(id));
+  // Tiles and the flow of the page are two sequences; each is renumbered
+  // within itself so neither can push the other around.
+  const rows = (await db.prepare("SELECT id, kind FROM home_blocks").all()).results;
+  const kindOf = new Map(rows.map((r) => [r.id, r.kind]));
+  let tile = 0, flow = 0;
+  await db.batch(ordered.map((id) => {
+    const sort = kindOf.get(id) === "tile" ? (tile += 10) : (flow += 100);
+    return db.prepare("UPDATE home_blocks SET sort=?, updated_at=datetime('now') WHERE id=?").bind(sort, id);
+  }));
+  return c.json({ ok: true, ordered: ordered.length });
+});
+
+admin.delete("/home-blocks/:id", async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param("id");
+  const row = await db.prepare("SELECT kind FROM home_blocks WHERE id=?").bind(id).first();
+  if (!row) return c.json({ error: "No such block." }, 404);
+  // The structural blocks can be switched off but not destroyed: there is no
+  // way to make another one, so deleting the story would lose it for good.
+  if (FIXED_KINDS.includes(row.kind)) {
+    return c.json({ error: "This section can be hidden, but not deleted — there is no way to make another one." }, 400);
+  }
+  await db.batch([
+    db.prepare("DELETE FROM home_block_products WHERE block_id=?").bind(id),
+    db.prepare("DELETE FROM home_blocks WHERE id=?").bind(id),
+  ]);
+  return c.json({ ok: true });
+});
+
+// ---- Information & legal pages ----
+//
+// The privacy notice used to be JSX, down to a "last updated" date only a
+// deploy could move — which is how a shop ends up publishing a policy nobody in
+// the house can correct. It is content now, written the way the blog is written:
+// plain text, `## ` for a heading, `> ` for a quote, rendered by the same
+// PostBody. Nothing user-written is ever handed to dangerouslySetInnerHTML.
+//
+// The slug is the URL. It is fixed at creation for the four pages that ship, so
+// /privacy stays /privacy however the title is reworded.
+
+const pageOut = (r) => ({
+  slug: r.slug, title: r.title, eyebrow: r.eyebrow || "", body: r.body || "",
+  seoTitle: r.seo_title || "", seoDesc: r.seo_desc || "",
+  inFooter: !!r.in_footer, live: !!r.live, sort: r.sort, updatedAt: r.updated_at,
+});
+
+async function freePageSlug(db, want) {
+  const base = String(want || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "page";
+  for (let n = 0; n < 50; n++) {
+    const candidate = n ? `${base}-${n + 1}` : base;
+    if (!(await db.prepare("SELECT slug FROM content_pages WHERE slug=?").bind(candidate).first())) return candidate;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+// Paths the storefront already answers for itself. A page may not claim one, or
+// it would shadow the shop and never be reachable.
+const RESERVED_SLUGS = new Set([
+  "shop", "product", "blog", "about", "faq", "track", "contact", "checkout", "confirm",
+  "account", "wishlist", "locations", "reviews", "brand", "brands", "admin", "api", "images",
+  "new-arrivals", "best-sellers", "deals", "gift-sets", "robots.txt", "sitemap.xml",
+]);
+
+admin.get("/pages", async (c) => {
+  const rows = (await c.env.DB.prepare("SELECT * FROM content_pages ORDER BY sort, slug").all()).results;
+  return c.json({ pages: rows.map(pageOut) });
+});
+
+admin.post("/pages", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const title = String(b.title || "").trim();
+  if (!title) return c.json({ error: "Give the page a title." }, 400);
+  const wanted = String(b.slug || title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  if (RESERVED_SLUGS.has(wanted)) return c.json({ error: `"/${wanted}" is already a page of the shop — choose another address.` }, 400);
+  const slug = await freePageSlug(db, wanted);
+  const next = await db.prepare("SELECT COALESCE(MAX(sort), 0) + 10 AS n FROM content_pages").first();
+  await db.prepare(
+    "INSERT INTO content_pages (slug, title, eyebrow, body, seo_title, seo_desc, in_footer, live, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(
+    slug, title, String(b.eyebrow || "").trim(), String(b.body || ""),
+    String(b.seoTitle || "").trim(), String(b.seoDesc || "").trim(),
+    b.inFooter === false ? 0 : 1, b.live ? 1 : 0, next.n
+  ).run();
+  return c.json({ ok: true, slug });
+});
+
+admin.patch("/pages/:slug", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const slug = c.req.param("slug");
+  const row = await db.prepare("SELECT * FROM content_pages WHERE slug=?").bind(slug).first();
+  if (!row) return c.json({ error: "No such page." }, 404);
+  const sets = ["updated_at=datetime('now')"], vals = [];
+  const put = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.title !== undefined) {
+    const t = String(b.title).trim();
+    if (!t) return c.json({ error: "A page needs a title." }, 400);
+    put("title", t);
+  }
+  if (b.eyebrow !== undefined) put("eyebrow", String(b.eyebrow).trim());
+  if (b.body !== undefined) put("body", String(b.body));
+  if (b.seoTitle !== undefined) put("seo_title", String(b.seoTitle).trim());
+  if (b.seoDesc !== undefined) put("seo_desc", String(b.seoDesc).trim());
+  if (b.inFooter !== undefined) put("in_footer", b.inFooter ? 1 : 0);
+  if (b.live !== undefined) put("live", b.live ? 1 : 0);
+  if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
+  vals.push(slug);
+  await db.prepare(`UPDATE content_pages SET ${sets.join(", ")} WHERE slug=?`).bind(...vals).run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/pages/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  // Privacy is linked from the consent banner and the footer, and a shop that
+  // takes payments has to have one. Hiding it is a decision; deleting it by
+  // accident should not be possible.
+  if (slug === "privacy") return c.json({ error: "The privacy notice can be unpublished, but not deleted." }, 400);
+  await c.env.DB.prepare("DELETE FROM content_pages WHERE slug=?").bind(slug).run();
+  return c.json({ ok: true });
+});
 
 // ---- The blog ----
 //

@@ -141,7 +141,11 @@ const NAV_TABS = [
   { label: "New arrivals", page: "shop", extra: { fSeg: "new-arrivals" } },
   { label: "Deals", page: "shop", extra: { fSeg: "deals" }, hot: true },
   { label: "Best sellers", page: "shop", extra: { fSeg: "best-sellers" } },
-  { label: "About", page: "about", from: 1000 },
+  // The blog takes the band's last tab. The house writes it weekly and it is
+  // what brings people back; the story does not change and does not need a slot
+  // at the top of every page. /about is still there — the menu below names it,
+  // the footer links it, and the home page still runs its opening paragraph.
+  { label: "Blog", page: "blog", from: 1000 },
 ];
 
 // Below this the search box leaves the band and takes its old place in the top
@@ -154,7 +158,7 @@ const RAIL_FOOTER = [
   { label: "All products", extra: { fCat: "all", fSeg: null, fBrand: "", fCol: null } },
   { label: "Our stores", page: "locations" },
   { label: "Blog", page: "blog" },
-  { label: "About", page: "about" },
+  { label: "Our story", page: "about" },
   { label: "FAQs", page: "faq" },
 ];
 
@@ -483,7 +487,9 @@ function Header({ ctx }) {
       {ctx.mnav && ctx.isMobile && (
         <nav style={{ display: "flex", flexDirection: "column", borderTop: "1px solid var(--border-hairline)", background: "var(--mr-cream)", padding: "8px 0", maxHeight: "70vh", overflowY: "auto" }}>
           <div style={{ margin: "8px 24px 12px" }}>{searchBox(false)}</div>
-          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }]).map((t) => (
+          {/* The drawer has room the band has not, so the story keeps its place
+              here rather than disappearing with the header tab. */}
+          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Our story", page: "about" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }]).map((t) => (
             <a key={t.label} href={routeToPath(t.page, t.extra)} onClick={(e) => { e.preventDefault(); ctx.nav(t.page, t.extra || {}); }} style={{ padding: "12px 24px", fontSize: 15, fontWeight: 500 }}>{t.label}</a>
           ))}
           <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "8px 0", paddingTop: 8 }}>
@@ -558,6 +564,20 @@ function CartDrawer({ ctx }) {
           ))}
         </div>
         <div style={{ padding: "20px 24px", borderTop: "1px solid var(--border-hairline)" }}>
+          {/* Free delivery has been enforced since the shop opened and never
+              once shown to the person it would move. */}
+          {cc.items.length > 0 && cc.freeShip && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12.5, color: cc.freeShip.remaining ? "var(--text-body)" : "#3f6b45", fontWeight: 500, marginBottom: 6 }}>
+                {cc.freeShip.remaining
+                  ? <>Add {ctx.fmt(cc.freeShip.remaining)} more for free delivery</>
+                  : <>Free delivery unlocked</>}
+              </div>
+              <div style={{ height: 6, borderRadius: "var(--radius-pill)", background: "var(--surface-sunken)", overflow: "hidden" }}>
+                <div style={{ width: `${cc.freeShip.pct}%`, height: "100%", background: cc.freeShip.remaining ? "var(--mr-gold-500)" : "#8fd694", transition: "width .3s" }} />
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 600, color: "var(--text-strong)", marginBottom: 6 }}>
             <span>Subtotal</span><span>{ctx.fmt(cc.sub)}</span>
           </div>
@@ -566,6 +586,41 @@ function CartDrawer({ ctx }) {
         </div>
       </aside>
     </>
+  );
+}
+
+// One quiet word to somebody with a full cart who is about to leave.
+//
+// Everything about it is deliberately restrained: it is off until the house
+// writes its own copy, it never appears for a shopper with an empty cart or one
+// already at checkout, it takes no for an answer for days at a time, and it is
+// a card in the corner rather than a sheet over the shop. A pop-up is the
+// easiest thing in this sprint to make a shop worse with.
+function LeaveNudge({ ctx }) {
+  if (!ctx.nudge) return null;
+  const st = ctx.settings || {};
+  const n = ctx.cart.reduce((a, c) => a + c.qty, 0);
+  // The consent banner owns the bottom of the screen until it is answered, and
+  // two cards stacked on the same 16px would sit on top of each other.
+  const bottom = ctx.showConsent ? 128 : 16;
+  return (
+    <div role="dialog" aria-label={st.nudgeTitle || "Still deciding?"}
+      style={{ position: "fixed", left: 16, right: 16, bottom, zIndex: 175, maxWidth: 400, margin: "0 auto", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "18px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--text-strong)" }}>{st.nudgeTitle || "Still deciding?"}</div>
+        <button onClick={ctx.dismissNudge} aria-label="Close" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 15, color: "var(--text-muted)", lineHeight: 1 }}>✕</button>
+      </div>
+      <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--text-body)", margin: "8px 0 0" }}>{st.nudgeBody}</p>
+      {st.nudgeCode && (
+        <div style={{ marginTop: 10, fontSize: 13, color: "var(--mr-purple-900)" }}>
+          Use <strong style={{ fontFamily: "var(--font-condensed)", letterSpacing: "0.08em" }}>{st.nudgeCode}</strong> at checkout.
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
+        <Button variant="primary" onClick={ctx.takeNudge}>{st.nudgeCta || "Back to my cart"}</Button>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{n} item{n === 1 ? "" : "s"} waiting</span>
+      </div>
+    </div>
   );
 }
 
@@ -682,7 +737,13 @@ function Footer({ ctx }) {
             {link("Your wishlist", "wishlist")}
             {faqLink("Shipping & delivery", "shipping")}
             {faqLink("Returns & exchanges", "returns")}
-            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy policy</a>
+            {/* The pages the house has actually published, in the order it put
+                them in — rather than a list kept here that promises a returns
+                policy nobody has written. */}
+            {ctx.pages.map((pg) => (
+              <a key={pg.slug} href={`/${pg.slug}`} onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: pg.slug }); }}
+                style={{ color: "var(--text-on-dark-muted)" }}>{pg.title}</a>
+            ))}
           </div>
         </div>
       </div>
@@ -691,7 +752,7 @@ function Footer({ ctx }) {
           <span>© {new Date().getFullYear()} Majestic Roobee. All rights reserved.</span>
           <span style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
             <span style={{ fontFamily: "var(--font-condensed)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--mr-gold-400)" }}>Elevate Your Smellgame</span>
-            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
+            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
             <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff portal</a>
           </span>
         </div>
@@ -709,7 +770,7 @@ function ConsentBanner({ ctx }) {
     <div style={{ position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 180, maxWidth: 720, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span style={{ fontSize: 13, lineHeight: 1.5, flex: 1, minWidth: 220 }}>
         We use cookies to run the store and, if you accept, to measure and improve it.
-        {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("privacy"); }} style={{ color: "var(--mr-gold-400)" }}>Privacy policy</a>
+        {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--mr-gold-400)" }}>Privacy policy</a>
       </span>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Button variant="gold" size="sm" onClick={ctx.grantConsent}>Accept</Button>
@@ -810,6 +871,7 @@ export function Chrome({ ctx, children }) {
       <Header ctx={ctx} />
       {children}
       <CartDrawer ctx={ctx} />
+      <LeaveNudge ctx={ctx} />
       <PurchaseProof ctx={ctx} />
       <ChatWidget ctx={ctx} />
       <Footer ctx={ctx} />

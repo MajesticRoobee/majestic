@@ -99,7 +99,7 @@ const CATEGORY_HEADS = {
 };
 
 // Build the head payload for a given page from live data.
-export function headFor({ page, product, variant, settings, categories = [], segment = null, brand = "", post = null, category = "" }) {
+export function headFor({ page, product, variant, settings, categories = [], segment = null, brand = "", post = null, category = "", infoPage = null }) {
   const siteName = settings.siteName || "Majestic Roobee";
   const baseDesc = settings.metaDescription
     || "Discover luxurious perfumes, fragrance oils, body mists, feminine care, wellness products and home fragrances from Majestic Roobee. Find your signature scent and shop online in Nigeria.";
@@ -224,6 +224,20 @@ export function headFor({ page, product, variant, settings, categories = [], seg
     };
   }
 
+  // An information page describes itself: its own title and, where the house
+  // wrote one, its own description — rather than a row in a table here that
+  // would have to be edited every time a page is added.
+  if (page === "info" && infoPage) {
+    return {
+      title: infoPage.seoTitle || `${infoPage.title} | ${siteName}`,
+      description: infoPage.seoDesc || baseDesc,
+      canonical: `${origin()}/${infoPage.slug}`,
+      image: ogImage,
+      noindex: false,
+      jsonLd: null,
+    };
+  }
+
   const pageMeta = {
     home: { title: `Luxury Perfumes & Fragrance Oils, Feminine Care and Wellness Products in Nigeria | ${siteName}`, path: "/", desc: baseDesc,
       jsonLd: { "@context": "https://schema.org", "@graph": [
@@ -237,7 +251,6 @@ export function headFor({ page, product, variant, settings, categories = [], seg
     faq: { title: `Frequently Asked Questions | ${siteName}`, path: "/faq", desc: "Answers on choosing a perfume, making it last, perfume oils, layering, storage, delivery across Nigeria and returns." },
     track: { title: `Track Your Order | ${siteName}`, path: "/track", desc: "Follow your Majestic Roobee order with your order number and contact." },
     contact: { title: `Contact Us | ${siteName}`, path: "/contact", desc: "Questions about an order, product or fragrance? Reach Majestic Roobee on WhatsApp, email, Instagram or live chat." },
-    privacy: { title: `Privacy & Cookies | ${siteName}`, path: "/privacy", desc: "How Majestic Roobee collects, uses and protects your information." },
     wishlist: { title: `Your Wishlist | ${siteName}`, path: "/wishlist", desc: "The products you've saved to come back to.", noindex: true },
     locations: { title: `Our Stores | ${siteName}`, path: "/locations", desc: "Where to find Majestic Roobee — addresses, opening hours and phone numbers for every store." },
     reviews: { title: `Reviews | ${siteName}`, path: "/reviews", desc: "What customers say about Majestic Roobee, in their own posts and their own words." },
