@@ -157,6 +157,11 @@ export default function App() {
   const [posts, setPosts] = useState([]);
   const [testimonials, setTestimonials] = useState([]);
   const [settingsData, setSettingsData] = useState(null);
+  // Where the low-stock line sits for every shelf, as the server draws it — an
+  // override on a variation, and in days-of-cover mode a line that differs per
+  // store. The inventory screen must colour a cell by the same rule the alert
+  // fires on, so it reads this rather than re-deriving it from one number.
+  const [stockHealth, setStockHealth] = useState(null);
   const [toast, setToast] = useState("");
   const [me, setMe] = useState(null);
 
@@ -228,6 +233,10 @@ export default function App() {
     if (!token) return;
     api.get("/api/admin/settings", token).then(setSettingsData).catch(authFail);
   }, [token, authFail]);
+  const loadStockHealth = useCallback(() => {
+    if (!token) return;
+    api.get("/api/admin/stock/health", token).then(setStockHealth).catch(authFail);
+  }, [token, authFail]);
 
   useEffect(() => {
     if (!token) return;
@@ -243,6 +252,7 @@ export default function App() {
     loadDeals();
     loadPosts();
     loadTestimonials();
+    loadStockHealth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -258,7 +268,15 @@ export default function App() {
   }
 
   const settings = settingsData ? settingsData.settings : {};
-  const TH = settings.lowStockThreshold ?? 5;
+  // The line for one variation at one store. Falls back to the house's flat
+  // number for the moment before the health call lands, and for a shelf the
+  // server has not seen (a size added a second ago).
+  const flatTH = parseInt(settings.lowStockThreshold, 10);
+  const TH = Number.isFinite(flatTH) ? flatTH : 5;
+  const lowLine = (variantId, locationId) => {
+    const t = stockHealth && stockHealth.thresholds[`${variantId}:${locationId}`];
+    return t === undefined || t === null ? TH : t;
+  };
   const openInq = showArchived ? 0 : inquiries.filter((q) => q.status !== "Resolved").length;
   const isSuper = !me || me.role === "super";
   const openStores = locations.filter((l) => l.active);
@@ -270,7 +288,7 @@ export default function App() {
   const goPage = (id) => { setPage(id); window.scrollTo({ top: 0 }); };
 
   const ctx = {
-    token, page, setPage: goPage, scope, setScope, scopeLabel, TH, me, loadMe, isSuper,
+    token, page, setPage: goPage, scope, setScope, scopeLabel, TH, lowLine, stockHealth, loadStockHealth, me, loadMe, isSuper,
     overview, products, promos, campaigns, inquiries, settingsData,
     locations, openStores, collections, inqCounts, showArchived, setShowArchived,
     categories, deals, posts, testimonials,

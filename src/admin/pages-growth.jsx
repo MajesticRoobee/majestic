@@ -666,6 +666,7 @@ const SECTION_KEYS = {
   storefront: ["announcement", "heroHeadline", "heroSub", "heroImage", "heroDirection", "defaultCity", "promoPopup",
     "promoTileDeals", "promoTileNew", "promoTileSets"],
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
+  inventory: ["lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays", "lowStockAlerts", "lowStockOnStorefront"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
   contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
   footer: ["footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl"],
@@ -781,6 +782,7 @@ export function SettingsPage({ ctx }) {
         </div>
         {sectionSave("shelves")}
       </div>
+      <InventorySection ctx={ctx} form={form} touch={touch} set={set} section={section} sectionHead={sectionHead} sectionSave={sectionSave} />
       <div style={section}>
         {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -855,6 +857,66 @@ export function SettingsPage({ ctx }) {
         </span>
       </div>
     </main>
+  );
+}
+
+// Where the low-stock line sits.
+//
+// The setting has existed since the first seed and has been saveable all along;
+// no screen ever rendered it, so in practice it was five, forever, for a ₦2,000
+// sample and a ₦180,000 extrait alike. Two ways to draw it now: a flat number,
+// or days of cover read off what each store has actually been selling. A piece
+// that needs its own line gets one on the product itself.
+function InventorySection({ ctx, form, touch, set, section, sectionHead, sectionSave }) {
+  const [sweeping, setSweeping] = useState("");
+  const cover = form.lowStockMode === "cover";
+  const counts = ctx.stockHealth ? ctx.stockHealth.counts : null;
+  const sweep = async () => {
+    setSweeping("…");
+    try {
+      const r = await api.post("/api/admin/stock/sweep", {}, ctx.token);
+      setSweeping(r.changed ? `${r.changed} shelf/shelves changed state — ${r.alerted} alert(s) raised` : "Nothing crossed the line");
+      ctx.loadStockHealth();
+    } catch (e) { ctx.authFail(e); setSweeping(""); }
+  };
+  return (
+    <div style={section}>
+      {sectionHead("Inventory", "When a shelf counts as running low, and who hears about it.")}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Select label="How &ldquo;low&rdquo; is decided" value={form.lowStockMode || "flat"} onChange={set("lowStockMode")}>
+          <option value="flat">A flat number of units</option>
+          <option value="cover">Days of cover (from recent sales)</option>
+        </Select>
+        <Input label={cover ? "Never warn above (units)" : "Low at this many units or fewer"}
+          value={form.lowStockThreshold ?? ""} onChange={set("lowStockThreshold")} placeholder="5"
+          hint={cover
+            ? "The floor. A piece that has never sold still gets a warning at this figure rather than going from healthy to gone with nothing in between."
+            : "Counted per store, not across all of them — a shelf is empty where the shopper is standing."} />
+      </div>
+      {cover && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Days of cover to keep" value={form.lowStockCoverDays ?? ""} onChange={set("lowStockCoverDays")} placeholder="14"
+            hint="Warn when a store holds less than this many days of what it has been selling." />
+          <Input label="Measured over the last (days)" value={form.lowStockVelocityDays ?? ""} onChange={set("lowStockVelocityDays")} placeholder="30"
+            hint="Only paid, uncancelled orders count." />
+        </div>
+      )}
+      <Switch label="Send an alert when a shelf runs low or sells out" checked={form.lowStockAlerts ?? true} onChange={(e) => touch({ lowStockAlerts: e.target.checked })} />
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+        Raised on the crossing, not every quarter of an hour — and again if it recovers and dips a second time.
+        Edit the wording under Integrations → Automations. Until an email provider is connected they queue there, readable, rather than being lost.
+      </div>
+      <Switch label="Show shoppers when stock is nearly gone" checked={form.lowStockOnStorefront ?? true} onChange={(e) => touch({ lowStockOnStorefront: e.target.checked })} />
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+        &ldquo;Only 2 left in Abuja&rdquo; on the product page, read off this same line. Switched off, the figures are not published at all.
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--text-muted)", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <Button variant="ghost" size="sm" disabled={sweeping === "…"} onClick={sweep}>{sweeping === "…" ? "Checking…" : "Check every shelf now"}</Button>
+        {counts && <span>Right now: {counts.low} low, {counts.out} out.</span>}
+        {sweeping && sweeping !== "…" && <span style={{ color: "#3f6b45" }}>{sweeping}</span>}
+      </div>
+      {sectionSave("inventory")}
+    </div>
   );
 }
 

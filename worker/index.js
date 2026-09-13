@@ -5,6 +5,7 @@ import { account } from "./customers.js";
 import { v1, handleMcp } from "./integrations.js";
 import { runScheduled } from "./events.js";
 import { releaseExpiredOrders } from "./payments.js";
+import { sweepStock } from "./inventory.js";
 import { resolveMedia, readMedia } from "./media.js";
 
 const app = new Hono();
@@ -117,6 +118,10 @@ app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 // been released should not then be chased as an abandoned cart.
 async function cron(env) {
   try { await releaseExpiredOrders(env); } catch (e) { console.error("payment sweep failed", e); }
+  // Stock next, and before the outbox drains: a shelf that crossed its low-stock
+  // line in the last quarter hour should leave the building on this run, not the
+  // next one.
+  try { await sweepStock(env); } catch (e) { console.error("stock sweep failed", e); }
   try { await runScheduled(env); } catch (e) { console.error("automation run failed", e); }
 }
 

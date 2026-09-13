@@ -779,6 +779,10 @@ export function ProductPage({ ctx }) {
   const prA = ctx.variantAvail(prV);
   const { cityName, L } = ctx;
   const soldOut = prA.soldOut;
+  // How many are left here, when that number is small enough to be worth
+  // saying. Null the rest of the time — a shop that cries "only 9 left" on
+  // every page is a shop nobody believes on the one that matters.
+  const scarce = ctx.scarcity(prV);
   const optionName = (pr.optionNames && pr.optionNames[0]) || "Size";
   // The brand grid keys on a slug of the name, so the link from here has to
   // slug it the same way the server does.
@@ -863,6 +867,12 @@ export function ProductPage({ ctx }) {
               );
             })}
           </div>
+          {scarce !== null && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, fontSize: 13.5, fontWeight: 500, color: "var(--accent-gold-ink)" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+              Only {scarce} left in {cityName}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)" }}>
               <button onClick={() => ctx.setPrQty(Math.max(1, ctx.prQty - 1))} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, padding: "9px 15px", color: "var(--mr-purple-800)" }}>−</button>
@@ -882,11 +892,16 @@ export function ProductPage({ ctx }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {ctx.locations.map((l) => {
                 const n = prV.stock[l.id] || 0;
+                // "Only two left" is the house's own low-stock line, drawn in
+                // Settings → Inventory and sent down per store — not a five
+                // written into this file that would drift from it.
+                const line = ctx.lowLine(prV, l.id);
+                const thin = line !== null && n > 0 && n <= line;
                 return (
                   <div key={l.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
                     <span style={{ color: "var(--text-body)" }}>{l.store}, {l.city}</span>
-                    <span style={{ fontWeight: 500, color: n > 5 ? "#3f6b45" : n > 0 ? "var(--accent-gold-ink)" : "var(--text-muted)" }}>
-                      {n > 5 ? "In stock" : n > 0 ? "Only " + n + " left" : "Out of stock"}
+                    <span style={{ fontWeight: 500, color: n <= 0 ? "var(--text-muted)" : thin ? "var(--accent-gold-ink)" : "#3f6b45" }}>
+                      {n <= 0 ? "Out of stock" : thin ? "Only " + n + " left" : "In stock"}
                     </span>
                   </div>
                 );

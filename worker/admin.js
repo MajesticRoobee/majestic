@@ -6,6 +6,7 @@ import {
   optionLabel, makeSku, allLocations, locationIds, promoIsLive, todayInWAT, watToMs, msToWat,
 } from "./util.js";
 import { emitEvent } from "./events.js";
+import { stockHealth, sweepStock } from "./inventory.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
@@ -198,7 +199,6 @@ admin.get("/overview", async (c) => {
   const db = c.env.DB;
   const scope = scopeFilter(effectiveScope(c, c.req.query("scope")));
   const settings = await getSettings(db);
-  const TH = settings.lowStockThreshold ?? 5;
   const locations = (await db.prepare("SELECT * FROM locations ORDER BY sort").all()).results;
   const scopeSql = scope ? "AND fulfilled_from = ?" : "";
   const bindScope = (stmt) => (scope ? stmt.bind(scope) : stmt);
@@ -255,14 +255,12 @@ admin.get("/overview", async (c) => {
       ).bind(...orders.map((o) => o.no)).all()).results
     : [];
 
-  // Stock health.
-  const products = await loadProducts(db);
-  let lowCount = 0, outCount = 0;
-  for (const p of products) for (const v of p.variants) {
-    const t = scope ? (v.stock[scope] || 0) : Object.values(v.stock).reduce((n, q) => n + q, 0);
-    if (t === 0) outCount++;
-    else if (t <= TH) lowCount++;
-  }
+  // Stock health. The line each shelf is measured against lives in
+  // worker/inventory.js, so the dashboard, the inventory screen, the alert and
+  // the storefront's "only N left" can never disagree about what "low" means.
+  const health = await stockHealth(db, settings, scope);
+  const lowCount = health.low.length;
+  const outCount = health.out.length;
 
   const abandoned = (await db.prepare(
     "SELECT * FROM abandoned_checkouts WHERE converted=0 ORDER BY updated_at DESC LIMIT 12"
@@ -567,6 +565,11 @@ admin.patch("/variants/:id", async (c) => {
   if (b.imageUrl !== undefined) put("image_url", String(b.imageUrl || "").trim() || null);
   if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
   if (b.active !== undefined) put("active", b.active ? 1 : 0);
+  // The line for this one piece. Empty means "whatever the store's is".
+  if (b.lowStockAt !== undefined) {
+    const n = parseInt(b.lowStockAt, 10);
+    put("low_stock_at", b.lowStockAt === "" || b.lowStockAt === null || !Number.isFinite(n) || n < 0 ? null : n);
+  }
 
   if (!sets.length) return c.json({ ok: true });
   vals.push(vid);
@@ -586,6 +589,25 @@ admin.delete("/products/:id", async (c) => {
   await db.batch(stmts);
   return c.json({ ok: true });
 });
+
+// Where the low-stock line sits for every shelf in the shop, so the inventory
+// screen colours a cell by the *same* rule the alert fires on — including a
+// per-variation override and, in days-of-cover mode, a line that differs per
+// store because the selling does.
+admin.get("/stock/health", async (c) => {
+  const db = c.env.DB;
+  const settings = await getSettings(db);
+  const scope = scopeFilter(effectiveScope(c, c.req.query("scope")));
+  const health = await stockHealth(db, settings, scope);
+  const thresholds = {};
+  for (const s of health.states) thresholds[`${s.variantId}:${s.locationId}`] = s.threshold;
+  return c.json({ cfg: health.cfg, thresholds, counts: { low: health.low.length, out: health.out.length } });
+});
+
+// Run the sweep by hand. Alerts ride the cron every fifteen minutes; this is for
+// the moment after someone changes the threshold and wants to know what it
+// caught, rather than waiting a quarter of an hour to find out.
+admin.post("/stock/sweep", async (c) => c.json(await sweepStock(c.env)));
 
 admin.patch("/stock", async (c) => {
   const { productId, variantId, size, location, delta } = await c.req.json();
@@ -930,7 +952,11 @@ admin.put("/settings", async (c) => {
   const db = c.env.DB;
   const allowed = [
     "announcement", "heroHeadline", "heroSub", "heroImage", "footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl",
-    "contactPhone", "contactEmail", "contactHours", "ngnPerUsd", "lowStockThreshold",
+    "contactPhone", "contactEmail", "contactHours", "ngnPerUsd",
+    // Inventory: where the low-stock line sits, how it is drawn, whether it
+    // leaves the building, and whether shoppers see it too.
+    "lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays",
+    "lowStockAlerts", "lowStockOnStorefront",
     // SEO
     "siteName", "metaDescription", "ogImage",
     // Marketing & analytics tags

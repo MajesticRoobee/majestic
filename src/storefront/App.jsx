@@ -344,6 +344,23 @@ export default function App() {
 
   const availInfo = useCallback((p) => variantAvail(defaultVariant(p.variants)), [variantAvail, defaultVariant]);
 
+  // How few is "nearly gone" for this variation at this store. The server sends
+  // the line it drew itself — per store, honouring any override on the piece —
+  // so the shop and the back office never disagree about what "low" means. With
+  // the setting off the lines are simply absent, and nothing is claimed.
+  const lowLine = useCallback((v, locationId) => {
+    const lines = v && v.lowAt;
+    return lines && lines[locationId] !== undefined ? lines[locationId] : null;
+  }, []);
+  // "Only 2 left" — for the shopper's own city, and only when it is true and
+  // there is something left to buy.
+  const scarcity = useCallback((v) => {
+    const line = lowLine(v, city);
+    if (line === null) return null;
+    const n = stockAt(v, city);
+    return n > 0 && n <= line ? n : null;
+  }, [lowLine, city]);
+
   const addToCart = useCallback((productId, variant, qty) => {
     setCart((cur) => {
       const next = cur.slice();
@@ -762,7 +779,7 @@ export default function App() {
     },
     gateOpen,
     currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
-    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, card, listings, payMethods,
+    fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, lowLine, scarcity, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
     collections, segments, deals, dailyDeal, brands, testimonials, latestPosts, refreshStore,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,

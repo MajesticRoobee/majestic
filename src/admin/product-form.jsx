@@ -176,7 +176,11 @@ export function EditProductPanel({ ctx, product, onClose }) {
   });
   // Every editable field of every variation, keyed by its id.
   const [vf, setVf] = useState(() => Object.fromEntries(product.variants.map((v) => [
-    v.id, { price: String(v.ngn), size: v.size, sku: v.sku || "", imageUrl: v.imageUrl || "" },
+    v.id, {
+      price: String(v.ngn), size: v.size, sku: v.sku || "", imageUrl: v.imageUrl || "",
+      // Empty means "use the store's line" — which is not the same as zero.
+      lowStockAt: v.lowStockAt === null || v.lowStockAt === undefined ? "" : String(v.lowStockAt),
+    },
   ])));
   const [addV, setAddV] = useState(null); // blankVariant() when adding
   const [msg, setMsg] = useState("");
@@ -197,6 +201,8 @@ export function EditProductPanel({ ctx, product, onClose }) {
         if (e.size.trim() && e.size.trim() !== v.size) patch.size = e.size.trim();
         if (e.sku.trim() !== (v.sku || "")) patch.sku = e.sku.trim();
         if (e.imageUrl !== (v.imageUrl || "")) patch.imageUrl = e.imageUrl;
+        const cur = v.lowStockAt === null || v.lowStockAt === undefined ? "" : String(v.lowStockAt);
+        if ((e.lowStockAt ?? "") !== cur) patch.lowStockAt = e.lowStockAt.trim() === "" ? null : e.lowStockAt.trim();
         if (Object.keys(patch).length) await api.patch(`/api/admin/variants/${v.id}`, patch, ctx.token);
       }
       ctx.flash("Product updated");
@@ -254,7 +260,7 @@ export function EditProductPanel({ ctx, product, onClose }) {
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {product.variants.map((v) => {
-            const e = vf[v.id] || { price: "", size: "", sku: "", imageUrl: "" };
+            const e = vf[v.id] || { price: "", size: "", sku: "", imageUrl: "", lowStockAt: "" };
             return (
               <div key={v.id} style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
@@ -267,7 +273,12 @@ export function EditProductPanel({ ctx, product, onClose }) {
                     <button onClick={() => delSize(v)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)", paddingBottom: 12 }}>Remove</button>
                   )}
                 </div>
-                <Input label="SKU" value={e.sku} onChange={(ev) => setV(v.id, { sku: ev.target.value })} placeholder="Leave blank to regenerate" />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <Input label="SKU" value={e.sku} onChange={(ev) => setV(v.id, { sku: ev.target.value })} placeholder="Leave blank to regenerate" />
+                  <Input label="Low stock at" value={e.lowStockAt} onChange={(ev) => setV(v.id, { lowStockAt: ev.target.value.replace(/\D/g, "") })}
+                    placeholder={`Store's line (${ctx.TH})`}
+                    hint="Per store. Leave empty to follow Settings → Inventory; a sample and an extrait rarely run low at the same number." />
+                </div>
                 <ImagePicker ctx={ctx} value={e.imageUrl} onChange={(url) => setV(v.id, { imageUrl: url })}
                   label={`Photo for this ${(f.optionName || "size").toLowerCase()}`} />
               </div>

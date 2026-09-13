@@ -2,6 +2,7 @@
 import { Hono } from "hono";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT, scopeCats } from "./util.js";
 import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
+import { lowStockLines } from "./inventory.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -84,6 +85,14 @@ shop.get("/store", async (c) => {
     parentId: x.parent_id || null,
   }));
   const { products, dailyDeal } = await storeCatalogue(db, { settings });
+  // "Only 2 left in Abuja" reads off the *same* line the house set in Settings
+  // — per store, because the stock is per store, and honouring any override on
+  // the variation. Switched off, the lines are simply not published: there is no
+  // reason for the shop's reorder points to leave the building.
+  if (settings.lowStockOnStorefront !== false) {
+    const lines = await lowStockLines(db, settings);
+    for (const p of products) for (const v of p.variants) if (lines[v.id]) v.lowAt = lines[v.id];
+  }
   const colRows = (await db.prepare("SELECT * FROM collections WHERE live=1 ORDER BY sort, created_at").all()).results;
   const colItems = (await db.prepare("SELECT * FROM collection_products ORDER BY sort").all()).results;
   const collections = colRows.map((x) => ({

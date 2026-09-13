@@ -269,6 +269,8 @@ export async function loadProducts(db, { liveOnly = false } = {}) {
             imageUrl: v.image_url || (own[0] ? own[0].url : null) || p.image_url || null,
             images: own.map((im) => ({ id: im.id, url: im.url, alt: im.alt })),
             active: v.active === undefined ? true : !!v.active,
+            // This variation's own low-stock line, or null for the store's.
+            lowStockAt: v.low_stock_at === null || v.low_stock_at === undefined ? null : v.low_stock_at,
             sort: v.sort,
             externalId: v.external_id || null,
             stock: { ...zeroes, ...(stockByVariant[v.id] || {}) },
