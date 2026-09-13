@@ -666,6 +666,7 @@ const SECTION_KEYS = {
   storefront: ["announcement", "heroHeadline", "heroSub", "heroEyebrow", "heroImage", "heroDirection", "defaultCity", "promoPopup"],
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
   inventory: ["lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays", "lowStockAlerts", "lowStockOnStorefront"],
+  insights: ["insightsOn", "insightsRetainDays", "abandonAfterMins"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
   contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
   footer: ["footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl"],
@@ -777,6 +778,22 @@ export function SettingsPage({ ctx }) {
         {sectionSave("shelves")}
       </div>
       <InventorySection ctx={ctx} form={form} touch={touch} set={set} section={section} sectionHead={sectionHead} sectionSave={sectionSave} />
+      <div style={section}>
+        {sectionHead("Shopper insights", "Whether the shop counts its own visits, and for how long it keeps the detail.")}
+        <Switch label="Measure what happens in the shop" checked={form.insightsOn ?? true} onChange={(e) => touch({ insightsOn: e.target.checked })} />
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          Our own count, on our own site, shared with nobody — which is why it still works for the shoppers whose ad-blocker
+          stops Google and Meta loading. No name, email or address is ever recorded, a referring link is reduced to its site
+          name, and anyone can switch themselves out from the privacy page. Switched off here, nothing new is recorded at all.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Keep the detail for (days)" value={form.insightsRetainDays ?? ""} onChange={set("insightsRetainDays")} placeholder="90"
+            hint="After this the individual visits are deleted. The daily totals behind the charts are kept for good, and a visit that carried an order is never deleted." />
+          <Input label="A cart counts as abandoned after (minutes)" value={form.abandonAfterMins ?? ""} onChange={set("abandonAfterMins")} placeholder="45"
+            hint="How long a cart sits quiet before it appears in the group worth chasing." />
+        </div>
+        {sectionSave("insights")}
+      </div>
       <div style={section}>
         {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

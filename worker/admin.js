@@ -8,6 +8,7 @@ import {
 import { emitEvent } from "./events.js";
 import { stockHealth, sweepStock } from "./inventory.js";
 import { loadHomeBlocks, SOURCES } from "./home.js";
+import { overview as insightOverview, segmentCounts, segmentRows, soldOutDemand, rollup, insightsConfig } from "./insights.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
@@ -958,6 +959,9 @@ admin.put("/settings", async (c) => {
     // leaves the building, and whether shoppers see it too.
     "lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays",
     "lowStockAlerts", "lowStockOnStorefront",
+    // The behavioural stream: whether it runs, how long a raw event is kept,
+    // and how long a cart sits before it counts as abandoned.
+    "insightsOn", "insightsRetainDays", "abandonAfterMins",
     // SEO
     "siteName", "metaDescription", "ogImage",
     // Marketing & analytics tags
@@ -1519,6 +1523,42 @@ async function resolveVariant(db, productId, variantId) {
   if (Number.isFinite(wanted) && rows.some((v) => v.id === wanted)) return wanted;
   return rows.length ? rows[0].id : null;
 }
+
+// ---- Insights ----
+//
+// The first screen in this admin that answers "why didn't they buy" rather than
+// "what did they buy". Everything historical reads `insight_daily`; only today
+// and a drill-down into one segment touch a session row, and nothing here ever
+// scans the raw event log — which is the whole reason the rollup exists.
+
+admin.get("/insights", async (c) => {
+  const days = parseInt(c.req.query("days") || "30", 10);
+  const db = c.env.DB;
+  const settings = await getSettings(db);
+  const [data, segments, soldOut] = await Promise.all([
+    insightOverview(c.env, { days }),
+    segmentCounts(c.env, { days, settings }),
+    soldOutDemand(c.env, { days }),
+  ]);
+  // A stream switched off, or one that has not run long enough to have folded a
+  // single day, should say so rather than drawing a chart of zeroes and letting
+  // the reader conclude nobody came.
+  const folded = await db.prepare("SELECT COUNT(*) AS n FROM insight_daily").first();
+  return c.json({
+    ...data, segments, soldOut,
+    cfg: insightsConfig(settings),
+    warming: folded.n === 0,
+  });
+});
+
+admin.get("/insights/segments/:id", async (c) => {
+  const r = await segmentRows(c.env, c.req.param("id"), { days: parseInt(c.req.query("days") || "30", 10) });
+  return r ? c.json(r) : c.json({ error: "No such segment." }, 404);
+});
+
+// Fold now rather than waiting for the cron — for the moment after switching
+// the stream on, when an empty screen is indistinguishable from a broken one.
+admin.post("/insights/rollup", async (c) => c.json(await rollup(c.env)));
 
 // ---- The home page ----
 //

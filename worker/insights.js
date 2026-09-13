@@ -411,3 +411,181 @@ export async function segmentCounts(env, { days = 30, settings = null } = {}) {
   }
   return out;
 }
+
+// ---- What the admin reads -------------------------------------------------
+//
+// Everything historical comes off `insight_daily`; only "right now" and a
+// drill-down into one segment touch the raw log. That split is the whole reason
+// the rollup exists, and it is worth keeping even while the numbers are small.
+
+const rangeDays = (d) => Math.max(1, Math.min(365, parseInt(d, 10) || 30));
+
+async function foldedTotals(db, days) {
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const prevSince = new Date(Date.now() - days * 2 * 86400000).toISOString().slice(0, 10);
+  const read = async (from, to) => {
+    const rows = (await db.prepare(
+      "SELECT metric, SUM(value) AS v FROM insight_daily WHERE dim = '' AND day >= ? AND day < ? GROUP BY metric"
+    ).bind(from, to).all()).results;
+    return Object.fromEntries(rows.map((r) => [r.metric, r.v]));
+  };
+  return { now: await read(since, "9999"), prev: await read(prevSince, since) };
+}
+
+/**
+ * Today so far, straight off the session rows.
+ *
+ * The rollup only folds days that are *over* — a chart that changes under the
+ * reader is worse than one that starts a day behind — so today is read live and
+ * added on. It is one indexed query, not a scan of the event log.
+ */
+async function todaySoFar(db) {
+  const r = await db.prepare(
+    `SELECT COUNT(*) AS sessions, COUNT(DISTINCT visitor_id) AS visitors,
+            COALESCE(SUM(views),0) AS views, COALESCE(SUM(carts),0) AS carts,
+            COALESCE(SUM(checkouts),0) AS checkouts, COALESCE(SUM(orders),0) AS orders,
+            COALESCE(SUM(revenue),0) AS revenue,
+            SUM(CASE WHEN views > 0 THEN 1 ELSE 0 END) AS browsed,
+            SUM(CASE WHEN carts > 0 THEN 1 ELSE 0 END) AS carted,
+            SUM(CASE WHEN orders > 0 THEN 1 ELSE 0 END) AS bought
+       FROM sessions WHERE is_bot = 0 AND date(started_at) = date('now')`
+  ).first();
+  return r || {};
+}
+
+/**
+ * The funnel, and what it costs at each step.
+ *
+ * Sessions rather than events at every stage, because "how many people got this
+ * far" is the question — four views by one shopper is one person who browsed,
+ * not four.
+ */
+export async function overview(env, { days = 30 } = {}) {
+  const db = env.DB;
+  const d = rangeDays(days);
+  const { now, prev } = await foldedTotals(db, d);
+  const today = await todaySoFar(db);
+  const add = (k) => (now[k] || 0) + (today[k] || 0);
+
+  const visitors = add("visitors");
+  const funnel = [
+    { step: "Came in", n: visitors, of: visitors },
+    { step: "Opened a product", n: add("browsed"), of: visitors },
+    { step: "Added to a cart", n: add("carted"), of: visitors },
+    { step: "Reached checkout", n: (now.checkouts || 0) + (today.checkouts || 0), of: visitors },
+    { step: "Bought", n: add("bought"), of: visitors },
+  ].map((s) => ({ ...s, pct: s.of ? Math.round((s.n / s.of) * 1000) / 10 : 0 }));
+
+  const orders = add("orders");
+  const revenue = add("revenue");
+  const prevVisitors = prev.visitors || 0;
+  const prevOrders = prev.orders || 0;
+
+  // The daily line, from the rollup plus today.
+  const rows = (await db.prepare(
+    "SELECT day, metric, value FROM insight_daily WHERE dim = '' AND metric IN ('visitors','orders','revenue') AND day >= ? ORDER BY day"
+  ).bind(new Date(Date.now() - d * 86400000).toISOString().slice(0, 10)).all()).results;
+  const byDay = {};
+  for (const r of rows) (byDay[r.day] ||= {})[r.metric] = r.value;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  byDay[todayKey] = { visitors: today.visitors || 0, orders: today.orders || 0, revenue: today.revenue || 0 };
+  const series = [];
+  for (let i = d - 1; i >= 0; i--) {
+    const day = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    const v = byDay[day] || {};
+    series.push({ day, visitors: v.visitors || 0, orders: v.orders || 0, revenue: v.revenue || 0 });
+  }
+
+  const dimRows = async (metric, limit = 12) => (await db.prepare(
+    "SELECT dim, SUM(value) AS v FROM insight_daily WHERE metric = ? AND dim <> '' AND day >= ? GROUP BY dim ORDER BY v DESC LIMIT ?"
+  ).bind(metric, new Date(Date.now() - d * 86400000).toISOString().slice(0, 10), limit).all()).results;
+
+  // Looked at a lot and put in a basket rarely: a price, a photograph or a
+  // description problem, and nothing in the admin could name those products
+  // before this.
+  const views = await dimRows("product_view", 200);
+  const carts = Object.fromEntries((await dimRows("product_cart", 200)).map((r) => [r.dim, r.v]));
+  const names = Object.fromEntries((await db.prepare("SELECT id, name FROM products").all()).results.map((p) => [p.id, p.name]));
+  const interest = views
+    .filter((r) => r.v >= 3)
+    .map((r) => ({ id: r.dim, name: names[r.dim] || r.dim, views: r.v, carts: carts[r.dim] || 0, rate: Math.round(((carts[r.dim] || 0) / r.v) * 1000) / 10 }))
+    .sort((a, b) => a.rate - b.rate || b.views - a.views);
+
+  return {
+    days: d,
+    kpis: {
+      visitors, prevVisitors,
+      sessions: add("sessions"),
+      orders, prevOrders,
+      revenue,
+      conversion: visitors ? Math.round((add("bought") / visitors) * 1000) / 10 : 0,
+      perVisitor: visitors ? Math.round(revenue / visitors) : 0,
+      aov: orders ? Math.round(revenue / orders) : 0,
+    },
+    funnel,
+    series,
+    sources: await dimRows("source"),
+    devices: await dimRows("device", 5),
+    searchMisses: await dimRows("search_miss", 20),
+    coldest: interest.slice(0, 12),
+    hottest: interest.slice().sort((a, b) => b.views - a.views).slice(0, 12),
+  };
+}
+
+/** Everything sold out, ranked by how many people went looking for it. */
+export async function soldOutDemand(env, { days = 30 } = {}) {
+  const db = env.DB;
+  const since = new Date(Date.now() - rangeDays(days) * 86400000).toISOString().slice(0, 10);
+  const rows = (await db.prepare(
+    `SELECT v.id AS variantId, p.id AS productId, p.name AS name, v.size AS size, v.price_ngn AS price,
+            COALESCE((SELECT SUM(d.value) FROM insight_daily d WHERE d.metric='product_view' AND d.dim = p.id AND d.day >= ?), 0) AS views,
+            (SELECT COUNT(*) FROM stock_waitlist w WHERE w.product_id = p.id AND w.notified = 0) AS waiting
+       FROM variants v JOIN products p ON p.id = v.product_id
+      WHERE v.active = 1 AND p.live = 1
+        AND NOT EXISTS (SELECT 1 FROM stock s WHERE s.variant_id = v.id AND s.qty > 0)
+      ORDER BY waiting DESC, views DESC LIMIT 25`
+  ).bind(since).all()).results;
+  // What the shelf being empty is costing, near enough to be worth ordering on.
+  return rows.map((r) => ({ ...r, missed: (r.waiting || 0) * r.price }));
+}
+
+/** One segment, as a readable list the house can act on. */
+export async function segmentRows(env, id, { days = 30, limit = 60, settings = null } = {}) {
+  const db = env.DB;
+  const seg = SEGMENTS.find((s) => s.id === id);
+  if (!seg) return null;
+  const cfg = insightsConfig(settings || (await getSettings(db)));
+  const where = seg.where.replace(/\?abandon/g, "?");
+  const binds = [`-${rangeDays(days)} days`];
+  for (let i = 0; i < (seg.where.match(/\?abandon/g) || []).length; i++) binds.push(`-${cfg.abandonMins} minutes`);
+  const rows = (await db.prepare(
+    `SELECT s.id, s.visitor_id, s.customer_id, s.started_at, s.last_seen, s.device, s.country,
+            s.city_pref, s.referrer, s.utm_source, s.views, s.carts, s.cart_value, s.recovered,
+            c.email AS email, c.name AS name
+       FROM sessions s LEFT JOIN customers c ON c.id = s.customer_id
+      WHERE s.is_bot = 0 AND s.started_at >= datetime('now', ?) AND (${where})
+      ORDER BY s.last_seen DESC LIMIT ?`
+  ).bind(...binds, Math.max(1, Math.min(200, limit))).all()).results;
+
+  // What each one was looking at, so the list is a list of *people and pieces*
+  // rather than a list of opaque ids.
+  const ids = rows.map((r) => r.id);
+  const looked = ids.length
+    ? (await db.prepare(
+        `SELECT e.session_id, p.name AS name, COUNT(*) AS n
+           FROM session_events e JOIN products p ON p.id = e.product_id
+          WHERE e.session_id IN (${ids.map(() => "?").join(",")}) AND e.type IN ('view_item','add_to_cart')
+          GROUP BY e.session_id, p.id ORDER BY n DESC`
+      ).bind(...ids).all()).results
+    : [];
+  return {
+    segment: { id: seg.id, name: seg.name, why: seg.why, action: seg.action },
+    rows: rows.map((r) => ({
+      id: r.id, customerId: r.customer_id, name: r.name || "", email: r.email || "",
+      started: r.started_at, lastSeen: r.last_seen, device: r.device, country: r.country,
+      city: r.city_pref, source: r.utm_source || r.referrer || "direct",
+      views: r.views, carts: r.carts, cartValue: r.cart_value, recovered: !!r.recovered,
+      looked: looked.filter((l) => l.session_id === r.id).slice(0, 4).map((l) => l.name),
+    })),
+  };
+}

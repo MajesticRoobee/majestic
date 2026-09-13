@@ -9,6 +9,7 @@ import { TeamPage, AccountPage } from "./team.jsx";
 import { IntegrationsPage } from "./integrations.jsx";
 import { GoLivePage } from "./golive.jsx";
 import { HomePageAdmin } from "./home-page.jsx";
+import { InsightsPage } from "./insights.jsx";
 import { catTree, catPath } from "../lib/categories.js";
 
 // The categories the shop was seeded with, kept only as a label of last resort:
@@ -43,6 +44,7 @@ export const statusBadge = (st) => ({
 
 const PAGES = [
   { id: "dash", label: "Dashboard", title: "Dashboard" },
+  { id: "insights", label: "Insights", title: "Shopper insights" },
   { id: "inv", label: "Inventory", title: "Inventory" },
   { id: "cat", label: "Products", title: "Product catalogue" },
   { id: "home", label: "Home page", title: "The home page" },
@@ -390,6 +392,7 @@ export default function App() {
         {activePage === "blog" && <BlogPage ctx={ctx} />}
         {activePage === "pages" && <PagesPage ctx={ctx} />}
         {activePage === "home" && <HomePageAdmin ctx={ctx} />}
+        {activePage === "insights" && <InsightsPage ctx={ctx} />}
         {activePage === "reviews" && <TestimonialsPage ctx={ctx} />}
         {activePage === "sales" && <Sales ctx={ctx} />}
         {activePage === "rewards" && <Rewards ctx={ctx} />}
