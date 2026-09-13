@@ -804,6 +804,10 @@ export default function App() {
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
     blog, blogTag, setBlogTag, post, postSlug, pageSlug, infoPage, pages: D ? (D.pages || []) : [],
+    // The home page, as the house arranged it. Empty until the store payload
+    // lands — HomePage renders its hero from settings and nothing else, rather
+    // than flashing a page in the wrong order.
+    homeBlocks: D ? (D.homeBlocks || []) : [],
     proof, joinList,
     plan, planning, reconfirm, clearPromo, payNow,
     productId, prVariantId, setPrVariantId, prSku, setPrSku, prQty, setPrQty,

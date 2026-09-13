@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT, scopeCats } from "./util.js";
 import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
 import { lowStockLines } from "./inventory.js";
+import { loadHomeBlocks, resolveHomeBlocks } from "./home.js";
 import { planFulfilment } from "./fulfilment.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
@@ -138,6 +139,20 @@ shop.get("/store", async (c) => {
     "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).all()).results.map(blogCard);
 
+  // The home page, as the house arranged it. Each block arrives carrying the
+  // products it shows, resolved here so the browser is handed a finished list
+  // rather than re-deriving the house's merchandising rules for itself.
+  const catById = new Map(products.map((p) => [p.id, p.cat]));
+  const homeBlocks = resolveHomeBlocks(await loadHomeBlocks(db, { liveOnly: true }), {
+    order: products.map((p) => p.id),
+    segments,
+    collections: Object.fromEntries(collections.map((c) => [c.id, c.productIds])),
+    categories,
+    catOf: (id) => catById.get(id),
+    // A product with nothing to sell is not a candidate for any shelf.
+    sellable: new Set(products.filter((p) => (p.variants || []).length).map((p) => p.id)),
+  });
+
   // The information pages that are published, so the footer links to what
   // actually exists rather than to a list kept in the markup. Titles only —
   // the body is fetched when someone opens one.
@@ -145,7 +160,7 @@ shop.get("/store", async (c) => {
     "SELECT slug, title FROM content_pages WHERE live=1 AND in_footer=1 ORDER BY sort, slug"
   ).all()).results.map((r) => ({ slug: r.slug, title: r.title }));
 
-  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog, pages });
+  return c.json({ settings, locations, categories, collections, products, popup, pay, deals, dailyDeal, segments, brands, testimonials, blog, pages, homeBlocks });
 });
 
 // Units sold per product over the best-seller window. Only orders that were

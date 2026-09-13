@@ -7,6 +7,7 @@ import {
 } from "./util.js";
 import { emitEvent } from "./events.js";
 import { stockHealth, sweepStock } from "./inventory.js";
+import { loadHomeBlocks, SOURCES } from "./home.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
@@ -951,7 +952,7 @@ admin.put("/settings", async (c) => {
   const { settings, locations } = await c.req.json();
   const db = c.env.DB;
   const allowed = [
-    "announcement", "heroHeadline", "heroSub", "heroImage", "footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl",
+    "announcement", "heroHeadline", "heroSub", "heroEyebrow", "heroImage", "footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl",
     "contactPhone", "contactEmail", "contactHours", "ngnPerUsd",
     // Inventory: where the low-stock line sits, how it is drawn, whether it
     // leaves the building, and whether shoppers see it too.
@@ -978,8 +979,9 @@ admin.put("/settings", async (c) => {
     // The daily-deal card: whether it shows at all, whether it falls back to the
     // deepest markdown when nothing is scheduled, and what it is called.
     "dailyDealOn", "dailyDealAuto", "dailyDealHeadline",
-    // The three banners under the homepage hero.
-    "promoTileDeals", "promoTileNew", "promoTileSets",
+    // The tiles under the hero were three fixed settings keys, one photograph
+    // each. They are rows in home_blocks now (migration 0019 carried the
+    // photographs across), so there is nothing here to keep.
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
     // Rewards: whether a paid order earns a code, and what that code is worth.
@@ -1517,6 +1519,135 @@ async function resolveVariant(db, productId, variantId) {
   if (Number.isFinite(wanted) && rows.some((v) => v.id === wanted)) return wanted;
   return rows.length ? rows[0].id : null;
 }
+
+// ---- The home page ----
+//
+// Every band, shelf, heading and tile on the home page is a row here. What the
+// house gets out of that: reorder the page, rewrite any heading, swap a
+// photograph, point a button somewhere else, switch a section off, add a band
+// of its own — and, the thing actually asked for, choose by hand which products
+// sit under "Best sellers" and "Ready at your store" instead of taking whatever
+// the arithmetic picked.
+//
+// The kinds whose body is structural (the story, the rewards steps, the
+// newsletter box) can be reordered, retitled and switched off but not invented:
+// there is no drawing for a kind this file has never heard of, so creating one
+// is refused rather than rendering nothing on the storefront.
+const BLOCK_KINDS = ["tile", "band", "shelf"];
+const FIXED_KINDS = ["perks", "categories", "story", "rewards", "reviews", "blog", "newsletter", "instagram"];
+
+admin.get("/home-blocks", async (c) => {
+  const blocks = await loadHomeBlocks(c.env.DB);
+  return c.json({ blocks, kinds: BLOCK_KINDS, fixedKinds: FIXED_KINDS, sources: SOURCES });
+});
+
+admin.post("/home-blocks", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const kind = String(b.kind || "").trim();
+  if (!BLOCK_KINDS.includes(kind)) {
+    return c.json({ error: `A new block can be a ${BLOCK_KINDS.join(", a ")}. The rest of the page is already on it.` }, 400);
+  }
+  const base = String(b.id || b.title || kind).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || kind;
+  let id = base;
+  for (let n = 2; await db.prepare("SELECT id FROM home_blocks WHERE id=?").bind(id).first(); n++) id = `${base}-${n}`;
+  const last = await db.prepare("SELECT COALESCE(MAX(sort), 0) + 100 AS n FROM home_blocks WHERE kind IS NOT 'tile'").first();
+  const tileLast = await db.prepare("SELECT COALESCE(MAX(sort), 0) + 10 AS n FROM home_blocks WHERE kind = 'tile'").first();
+  await db.prepare(
+    `INSERT INTO home_blocks (id, kind, layout, source, ref_id, count, eyebrow, title, sub, lines, cta_label, cta_target, image_url, dark, sort, live)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    id, kind,
+    b.layout === "cta-band" ? "cta-band" : "product-band",
+    SOURCES.includes(b.source) ? b.source : (kind === "band" ? "category" : "segment"),
+    String(b.refId || "").trim(),
+    Math.max(0, Math.min(24, parseInt(b.count, 10) || (kind === "band" ? 3 : 4))),
+    String(b.eyebrow || "").trim(), String(b.title || "").trim(), String(b.sub || "").trim(),
+    String(b.lines || ""), String(b.ctaLabel || "").trim(), String(b.ctaTarget || "").trim(),
+    String(b.imageUrl || "").trim() || null,
+    b.dark === false ? 0 : 1,
+    kind === "tile" ? tileLast.n : last.n,
+    // A new block opens hidden. Nobody wants their first half-written band to
+    // land on the shop floor the instant they name it.
+    0
+  ).run();
+  return c.json({ ok: true, id });
+});
+
+admin.patch("/home-blocks/:id", async (c) => {
+  const b = await c.req.json();
+  const db = c.env.DB;
+  const id = c.req.param("id");
+  const row = await db.prepare("SELECT * FROM home_blocks WHERE id=?").bind(id).first();
+  if (!row) return c.json({ error: "No such block." }, 404);
+  const sets = ["updated_at=datetime('now')"], vals = [];
+  const put = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
+  if (b.layout !== undefined) put("layout", b.layout === "cta-band" ? "cta-band" : "product-band");
+  if (b.source !== undefined && SOURCES.includes(b.source)) put("source", b.source);
+  if (b.refId !== undefined) put("ref_id", String(b.refId).trim());
+  if (b.count !== undefined) put("count", Math.max(0, Math.min(24, parseInt(b.count, 10) || 0)));
+  if (b.eyebrow !== undefined) put("eyebrow", String(b.eyebrow).trim());
+  if (b.title !== undefined) put("title", String(b.title).trim());
+  if (b.sub !== undefined) put("sub", String(b.sub).trim());
+  if (b.lines !== undefined) put("lines", String(b.lines));
+  if (b.ctaLabel !== undefined) put("cta_label", String(b.ctaLabel).trim());
+  if (b.ctaTarget !== undefined) put("cta_target", String(b.ctaTarget).trim());
+  if (b.imageUrl !== undefined) put("image_url", String(b.imageUrl || "").trim() || null);
+  if (b.dark !== undefined) put("dark", b.dark ? 1 : 0);
+  if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
+  if (b.live !== undefined) put("live", b.live ? 1 : 0);
+  vals.push(id);
+  await db.prepare(`UPDATE home_blocks SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+
+  // The hand-picked list, replaced wholesale in the order it arrives.
+  if (Array.isArray(b.productIds)) {
+    const known = new Set((await db.prepare("SELECT id FROM products").all()).results.map((p) => p.id));
+    const ids = [...new Set(b.productIds.map(String))].filter((p) => known.has(p)).slice(0, 24);
+    await db.prepare("DELETE FROM home_block_products WHERE block_id=?").bind(id).run();
+    if (ids.length) {
+      await db.batch(ids.map((pid, i) =>
+        db.prepare("INSERT INTO home_block_products (block_id, product_id, sort) VALUES (?, ?, ?)").bind(id, pid, i)));
+    }
+  }
+  return c.json({ ok: true });
+});
+
+// Reorder in one call, so dragging a block up does not leave the page in a
+// half-sorted state if the second request never lands.
+admin.put("/home-blocks/order", async (c) => {
+  const { ids } = await c.req.json();
+  if (!Array.isArray(ids) || !ids.length) return c.json({ error: "Send the blocks in their new order." }, 400);
+  const db = c.env.DB;
+  const known = new Set((await db.prepare("SELECT id FROM home_blocks").all()).results.map((r) => r.id));
+  const ordered = ids.map(String).filter((id) => known.has(id));
+  // Tiles and the flow of the page are two sequences; each is renumbered
+  // within itself so neither can push the other around.
+  const rows = (await db.prepare("SELECT id, kind FROM home_blocks").all()).results;
+  const kindOf = new Map(rows.map((r) => [r.id, r.kind]));
+  let tile = 0, flow = 0;
+  await db.batch(ordered.map((id) => {
+    const sort = kindOf.get(id) === "tile" ? (tile += 10) : (flow += 100);
+    return db.prepare("UPDATE home_blocks SET sort=?, updated_at=datetime('now') WHERE id=?").bind(sort, id);
+  }));
+  return c.json({ ok: true, ordered: ordered.length });
+});
+
+admin.delete("/home-blocks/:id", async (c) => {
+  const db = c.env.DB;
+  const id = c.req.param("id");
+  const row = await db.prepare("SELECT kind FROM home_blocks WHERE id=?").bind(id).first();
+  if (!row) return c.json({ error: "No such block." }, 404);
+  // The structural blocks can be switched off but not destroyed: there is no
+  // way to make another one, so deleting the story would lose it for good.
+  if (FIXED_KINDS.includes(row.kind)) {
+    return c.json({ error: "This section can be hidden, but not deleted — there is no way to make another one." }, 400);
+  }
+  await db.batch([
+    db.prepare("DELETE FROM home_block_products WHERE block_id=?").bind(id),
+    db.prepare("DELETE FROM home_blocks WHERE id=?").bind(id),
+  ]);
+  return c.json({ ok: true });
+});
 
 // ---- Information & legal pages ----
 //

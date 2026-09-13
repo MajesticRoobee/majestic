@@ -663,8 +663,7 @@ export function Inquiries({ ctx }) {
 // nobody has to scroll to the foot of the page to keep one edit.
 const SECTION_KEYS = {
   brand: ["logoUrl", "logoLightUrl", "founderImage"],
-  storefront: ["announcement", "heroHeadline", "heroSub", "heroImage", "heroDirection", "defaultCity", "promoPopup",
-    "promoTileDeals", "promoTileNew", "promoTileSets"],
+  storefront: ["announcement", "heroHeadline", "heroSub", "heroEyebrow", "heroImage", "heroDirection", "defaultCity", "promoPopup"],
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
   inventory: ["lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays", "lowStockAlerts", "lowStockOnStorefront"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
@@ -732,6 +731,8 @@ export function SettingsPage({ ctx }) {
       <div style={section}>
         {sectionHead("Storefront text", "The top announcement bar and the homepage hero copy.")}
         <Input label="Announcement bar" value={form.announcement || ""} onChange={set("announcement")} />
+        <Input label="Line above the hero headline" value={form.heroEyebrow || ""} onChange={set("heroEyebrow")}
+          placeholder="Perfumes · Perfume oils · Body mists · Feminine care" hint="The small gold line over the headline." />
         <Textarea label="Hero headline" value={form.heroHeadline || ""} onChange={set("heroHeadline")} rows={2} hint="A line break shows as two lines on the storefront." />
         <Textarea label="Hero subtext" value={form.heroSub || ""} onChange={set("heroSub")} rows={2} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -748,17 +749,10 @@ export function SettingsPage({ ctx }) {
         <ImagePicker ctx={ctx} label="Hero image (optional)" value={form.heroImage || ""} onChange={(url) => touch({ heroImage: url })}
           hint="The picture beside the headline on the home page — and the backdrop behind it on the full-bleed layout. Leave it empty for the monogram placeholder. Wide images look best." />
         {(form.heroDirection || "storefront grid") === "storefront grid" && (
-          <>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
-              The three banners under the hero. Each one leads to the shelf it names — the picture is all that changes here.
-              Landscape shots crop best; leave one empty and it falls back to the monogram.
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              <ImagePicker ctx={ctx} label="Hot Deals banner" value={form.promoTileDeals || ""} onChange={(url) => touch({ promoTileDeals: url })} />
-              <ImagePicker ctx={ctx} label="New Arrivals banner" value={form.promoTileNew || ""} onChange={(url) => touch({ promoTileNew: url })} />
-              <ImagePicker ctx={ctx} label="Gift Sets banner" value={form.promoTileSets || ""} onChange={(url) => touch({ promoTileSets: url })} />
-            </div>
-          </>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+            The tiles under the hero — their pictures, their words, how many there are and where each one leads —
+            are edited under <strong>Home page</strong>, along with every other section of it.
+          </div>
         )}
         <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => touch({ promoPopup: e.target.checked })} />
         {sectionSave("storefront")}
