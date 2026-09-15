@@ -202,12 +202,20 @@ POST /api/admin/rewards/:code/void | /restore
 GET  /api/v1/rewards           → read-only, for a CRM or loyalty dashboard
 ```
 
-## Wishlist, journal, reviews and purchase notes
+## Wishlist, the About page, journal, reviews and purchase notes
 
 - **Wishlist** — guest-first. Saving something never demands an account: the
   list lives in the shopper's browser and is handed to the server the moment
   they sign in or register (`POST /api/account/wishlist/merge`), so nothing is
   lost at the point of registration. Signed in, it is the same list everywhere.
+- **The About page** (`/about`) — the heading, what the house says about
+  itself, the founder's story, her name and title, the band at the foot and
+  the page's own search title and description are all **Admin → Settings →
+  About page**, written in the journal's plain-text format (a blank line
+  between paragraphs, `## ` for a heading). Every field falls back to the
+  copy the store shipped with, so an emptied box restores those words rather
+  than publishing a blank page, and the home page's story band reads the same
+  story — one story, two places, never out of step.
 - **The journal** (`/blog`) — written in Admin → Blog as plain text: a blank
   line between paragraphs, `## ` for a heading, `> ` for a pull quote, and a
   bare image URL on its own line for a picture. Drafts are invisible until

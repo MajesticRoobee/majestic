@@ -6,6 +6,7 @@ import { pathToRoute, routeToPath } from "./router.js";
 import { EmbedCard, TestimonialCarousel, PostBody } from "./pages-content.jsx";
 import { DailyDealCard } from "./daily-deal.jsx";
 import { catFamily, catPath, countIn } from "../lib/categories.js";
+import { aboutContent } from "../lib/about.js";
 import { record } from "./track.js";
 
 export { ProductCard };
@@ -27,23 +28,6 @@ const TILE_VEILS = [
 // store opens with.
 const HERO_EYEBROW = "Perfumes · Perfume oils · Body mists · Feminine care";
 
-// The founder's story, exactly as the client wrote it. The About page runs it
-// in full; the homepage shows the opening paragraph and links through.
-const STORY_TITLE = "How I never set out to build a fragrance brand";
-// The founder's portrait ships with the build, so the story is never wordless
-// while someone finds a photograph. Admin → Settings replaces it without a
-// deploy, the same way the logo works.
-const FOUNDER_PHOTO = "/founder.jpg";
-const FOUNDER_NAME = "Peace Ijeoma Jonathan";
-const FOUNDER_ROLE = "Founder, Majestic Roobee";
-const STORY = [
-  "My name is Peace Ijeoma Jonathan, founder of Majesticroobee. Most people assume this story began with perfume. It didn't. It began with a woman waiting to become a mother. There was a season in my life when I was trusting God for a child. It was a quiet season filled with prayers, hope, questions and waiting. Someone once told me that if I was to believe in God for children, I should spend more time around children. I held on to those words and moved straight to get a job in a school. At the time, I thought I was simply giving my heart something meaningful to do while I waited on God. I had no idea that the place I entered because I was waiting would become the place where He was quietly preparing me for work I never imagined I would one day do.",
-  "The children quickly became part of my heart, but so did their mothers. Every conversation, every school run and every interaction reminded me that every woman was carrying something, even when she smiled. Somewhere in the middle of that season, one of my colleagues introduced me to someone who brought attars into Nigeria. At the time, hardly anyone knew what they were. I was fascinated. I had always loved beautiful scents, but this was different. It opened a world I couldn't stop exploring. I learnt, I practised, I asked questions, and I kept learning. What started as curiosity slowly became purpose, and over the years that journey led me to become an internationally certified natural perfumer. Looking back now, I realise that what felt like an ordinary introduction was one of the quiet miracles hidden inside my season of waiting.",
-  "Life continued to unfold, and I became a mother. Motherhood changed me in ways I never expected. It introduced me to depths of love I had never known, but it also introduced me to a kind of grief that words still struggle to hold. Long before people came to know the name Majesticroobee, there was a little girl named Ruby. She lived for only twenty days, but she changed me forever. Losing her broke something in me, but it also awakened something in me. It made me pay closer attention to women, to our bodies, to our emotions and to the battles we carry without anyone noticing. I had lived through the waiting, the pregnancy, the birth, the joy, the loss, the hormonal changes, the exhaustion, the isolation and the quiet search for myself again. As I spoke with more women, I realised I wasn't alone. Different homes, different stories, but the same questions. The same desire to feel whole again. The same longing to understand our bodies deeply, to feel like ourselves again. The same hope that somewhere beneath everything life had placed on us, we could still find ourselves.",
-  "As I searched for answers for myself, I found myself searching for answers for other women too. I enrolled in schools, studied relentlessly and refused to stop asking questions. The more I learnt, the more I understood that what a woman puts on her body is never just about appearance. It touches her emotions, her confidence, her memories, her routines and sometimes even the way she sees herself. Around the same time, I found myself thinking often about my own mother. I grew up in a very Nigerian home with a very Nigerian mother who believed that cleanliness, good character and intentional living mattered. She read labels, questioned ingredients and paid close attention to what entered our home. She loved looking beautiful and smelling beautiful, but she never believed beauty should come at the expense of her health. She also never allowed motherhood to erase the woman she was. She continued to care for herself with grace and intention, and although I didn't know it then, she was quietly planting seeds that would later shape everything I believed about women's wellness and self-care.",
-  "As the years passed, every part of my journey slowly came together. The waiting. The classroom. The mothers I had met. My own experiences of womanhood. The lessons my mother had quietly lived before me. The years of studying natural perfumery and understanding the connection between scent, emotion and wellbeing. Then life carried me to Bonny Island. It was there that everything I had been learning finally found people. For the first time, women were not just hearing me talk about fragrance; they were experiencing it for themselves. They wore the products, shared their honest experiences, came back for more and introduced them to other women. Watching those conversations happen made something very clear to me. This was no longer just something I loved. It had become something that genuinely served women. It was also in Bonny Island that the vision became clear enough to give it a name. I called it Majesticroobee. It is a name that carries love, but it also carries strength, courage and resilience. More importantly, it carries a responsibility. Today, we are building for the women who are here, for the little girls who are quietly becoming tomorrow's women and for the generations still waiting to arrive. Every decision we make is guided by one belief: every woman deserves to feel safe in her body, confident in herself and deeply connected to who she is, no matter what season of life she is walking through.",
-  "Today, when people ask me how I built a fragrance brand, I smile because I know the answer has very little to do with perfume. This brand was built in classrooms, in hospital rooms, in seasons of waiting, in motherhood, in grief, in healing and in years of learning how to care for women well. Every bottle we make carries a small piece of that journey. Majesticroobee is more than the name of a company. It is the story of where God met me, where He restored me and where He gave purpose to every season I once struggled to understand. ",
-];
 
 // One section heading: the small line above, the heading, the line under it,
 // and — on a row of products — the link to the rest.
@@ -453,8 +437,10 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
 
     // The founder's story. Her portrait, the opening paragraph, and the way
     // through to the rest — the whole thing here would run two thousand words
-    // before the shopper reached the reviews.
-    case "story":
+    // before the shopper reached the reviews. It is the same story the About
+    // page runs, read from the same settings, so the two never disagree.
+    case "story": {
+      const about = aboutContent(settings);
       return (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 320px) minmax(0, 1fr)", gap: "clamp(22px, 3vw, 44px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
@@ -462,22 +448,23 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
               {/* A gold frame offset behind the photograph, the same gesture the
                   editorial hero uses, so the two read as one house style. */}
               <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
-              <ImageSlot src={settings.founderImage || FOUNDER_PHOTO} shape="rounded" radius={14} name={FOUNDER_NAME}
-                sizes="(max-width: 860px) 92vw, 420px" label={`${FOUNDER_NAME} — ${FOUNDER_ROLE}`}
+              <ImageSlot src={about.founderPhoto} shape="rounded" radius={14} name={about.founderName}
+                sizes="(max-width: 860px) 92vw, 420px" label={`${about.founderName} — ${about.founderRole}`}
                 style={{ width: "100%", aspectRatio: "3 / 4", position: "relative" }} />
             </div>
             <div>
               <Eyebrow>{eyebrow}</Eyebrow>
-              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{title || STORY_TITLE}</h2>
-              <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 8px" }}>{STORY[0]}</p>
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{title || about.storyTitle}</h2>
+              <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 8px" }}>{about.story[0]}</p>
               <div style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 20px" }}>
-                <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{FOUNDER_NAME}</strong> — {FOUNDER_ROLE}
+                <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{about.founderName}</strong> — {about.founderRole}
               </div>
               <Button variant="secondary" onClick={blockNav(ctx, block.ctaTarget) || (() => ctx.nav("about"))}>{block.ctaLabel || "Read our story"}</Button>
             </div>
           </div>
         </section>
       );
+    }
 
     // Rewards. A qualifying purchase earns a single-use code, issued the moment
     // the order is paid for — see `worker/rewards.js`.
@@ -1065,20 +1052,22 @@ export function ProductPage({ ctx }) {
   );
 }
 
+// Every word on this page is the client's, and none of it is code: the heading,
+// the four lines that say what the house is, the founder's story, the band at
+// the foot. They live in settings (Admin → Settings → About page) and fall back
+// to the copy the store shipped with — see `src/lib/about.js`.
 export function AboutPage({ ctx }) {
+  const about = aboutContent(ctx.settings);
   const para = { fontFamily: "var(--font-editorial)", fontSize: 16.5, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 18px" };
   return (
     <main>
       <section style={{ background: "var(--royal-wash)", textAlign: "center", padding: `clamp(52px, 8vw, 96px) ${PAD}` }}>
-        <Eyebrow tone="light">About us</Eyebrow>
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(34px, 5vw, 60px)", color: "var(--mr-cream)", letterSpacing: "var(--ls-display)", margin: "18px auto 0", maxWidth: "20ch" }}>Who are we?</h1>
+        <Eyebrow tone="light">{about.eyebrow}</Eyebrow>
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(34px, 5vw, 60px)", color: "var(--mr-cream)", letterSpacing: "var(--ls-display)", margin: "18px auto 0", maxWidth: "20ch" }}>{about.headline}</h1>
       </section>
 
       <section style={{ maxWidth: 860, margin: "0 auto", padding: `clamp(40px, 6vw, 64px) ${PAD} 0` }}>
-        <p style={para}>Majestic Roobee is a Nigerian fragrance brand created for men and women who are intentional about what they put on their body.</p>
-        <p style={para}>We believe fragrance is more than smelling good. It should be safe, unique and made intentionally.</p>
-        <p style={para}>That is why we create perfumes, perfume oils, body mists, feminine care and home fragrances designed to make everyday moments feel a little more special.</p>
-        <p style={para}>Our vision is to grow into one of Africa&apos;s leading fragrance houses while creating intentional products you can enjoy, trust and make part of your everyday routine.</p>
+        <Prose blocks={about.intro} para={para} />
       </section>
 
       {/* The founder's story, in full and in her own words — with her
@@ -1089,47 +1078,65 @@ export function AboutPage({ ctx }) {
         <div style={{ display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 340px) minmax(0, 1fr)", gap: "clamp(24px, 4vw, 48px)", alignItems: "center", marginBottom: "clamp(28px, 4vw, 40px)" }}>
           <div style={{ position: "relative" }}>
             <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
-            <ImageSlot src={ctx.settings.founderImage || FOUNDER_PHOTO} shape="rounded" radius={14} name={FOUNDER_NAME} eager
-              sizes="(max-width: 860px) 92vw, 440px" label={`${FOUNDER_NAME} — ${FOUNDER_ROLE}`}
+            <ImageSlot src={about.founderPhoto} shape="rounded" radius={14} name={about.founderName} eager
+              sizes="(max-width: 860px) 92vw, 440px" label={`${about.founderName} — ${about.founderRole}`}
               style={{ width: "100%", aspectRatio: "2 / 3", position: "relative" }} />
           </div>
           <div>
             <Eyebrow>Our story</Eyebrow>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3.4vw, 38px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 14px" }}>{STORY_TITLE}</h2>
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3.4vw, 38px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 14px" }}>{about.storyTitle}</h2>
             <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-              <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{FOUNDER_NAME}</strong>
-              <br />{FOUNDER_ROLE}
+              <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{about.founderName}</strong>
+              <br />{about.founderRole}
             </div>
           </div>
         </div>
         <div style={{ maxWidth: "72ch" }}>
-          {STORY.map((par, i) => <p key={i} style={para}>{par}</p>)}
+          <Prose blocks={about.story} para={para} />
         </div>
       </section>
 
-      <section style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(40px, 6vw, 64px) ${PAD} 0` }}>
-        <SectionHead centred eyebrow="Visit us" title="Our stores" />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
-          {ctx.locations.map((b) => (
-            <div key={b.id} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 22 }}>
-              <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>{b.city}</div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "8px 0 6px" }}>{b.store}</div>
-              <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--text-muted)" }}>{b.address}</div>
-              <div style={{ fontSize: 12.5, color: "var(--text-body)", marginTop: 10 }}>Delivery {b.eta} in {b.city}</div>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* A house trading online only has no addresses to show, so the grid is
+          switchable — and it stays out of the way when there is nothing in it
+          rather than printing a heading over an empty row. */}
+      {about.storesOn && ctx.locations.length > 0 && (
+        <section style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(40px, 6vw, 64px) ${PAD} 0` }}>
+          <SectionHead centred eyebrow="Visit us" title="Our stores" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))", gap: 16 }}>
+            {ctx.locations.map((b) => (
+              <div key={b.id} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 22 }}>
+                <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>{b.city}</div>
+                <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", margin: "8px 0 6px" }}>{b.store}</div>
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: "var(--text-muted)" }}>{b.address}</div>
+                <div style={{ fontSize: 12.5, color: "var(--text-body)", marginTop: 10 }}>Delivery {b.eta} in {b.city}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <CtaBand
-        title="Find something that smells like you"
-        lines={["Perfumes, perfume oils, body mists, feminine care and home fragrances."]}
-        cta="Shop fragrances"
+        title={about.cta.title}
+        lines={[about.cta.sub]}
+        cta={about.cta.label}
         onClick={() => ctx.nav("shop")}
       />
       <div style={{ height: "clamp(32px, 5vw, 48px)" }} />
     </main>
   );
+}
+
+// The story reads as a letter, not as a blog post, so it keeps the editorial
+// face and the wider leading it was set in rather than going through PostBody.
+// What it does borrow is the house's one writing convention: a blank line
+// between paragraphs, and `## ` at the head of a line for a heading — the same
+// thing the blog and the information pages are written with.
+function Prose({ blocks, para }) {
+  return blocks.map((b, i) => (
+    b.startsWith("## ")
+      ? <h2 key={i} style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: i ? "30px 0 14px" : "0 0 14px" }}>{b.slice(3).trim()}</h2>
+      : <p key={i} style={{ ...para, whiteSpace: "pre-line" }}>{b}</p>
+  ));
 }
 
 // A shopper at checkout is answering four questions: where is it going, who
