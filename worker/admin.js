@@ -976,6 +976,14 @@ admin.put("/settings", async (c) => {
     "logoUrl", "logoLightUrl",
     // The founder's portrait, on the home page's story band and the About page.
     "founderImage",
+    // The About page: its heading, what the house says about itself, the
+    // founder's story (which the home page's story band reads too), whether the
+    // stores grid shows, the band at the foot, and the page's own search
+    // result. Empty means "use the copy the store shipped with" — see
+    // `src/lib/about.js`.
+    "aboutEyebrow", "aboutHeadline", "aboutIntro", "storyTitle", "storyBody",
+    "founderName", "founderRole", "aboutStoresOn",
+    "aboutCtaTitle", "aboutCtaSub", "aboutCtaLabel", "aboutSeoTitle", "aboutSeoDesc",
     // Storefront look & behaviour
     "heroDirection", "promoPopup", "defaultCity", "crossCityShipNGN", "crossCityEta", "freeShipAbujaOver", "freeShipCity",
     // Where a bank-transfer shopper is told to send the money. Empty until the

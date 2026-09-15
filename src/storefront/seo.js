@@ -1,6 +1,8 @@
 // Per-page SEO: document head (title, meta, Open Graph, canonical, robots) plus
 // JSON-LD structured data. Client-managed; Googlebot renders JS so this is indexed.
 
+import { aboutContent } from "../lib/about.js";
+
 function upsertMeta(attr, key, content) {
   if (!content) {
     const el = document.head.querySelector(`meta[${attr}="${key}"]`);
@@ -104,6 +106,9 @@ export function headFor({ page, product, variant, settings, categories = [], seg
   const baseDesc = settings.metaDescription
     || "Discover luxurious perfumes, fragrance oils, body mists, feminine care, wellness products and home fragrances from Majestic Roobee. Find your signature scent and shop online in Nigeria.";
   const ogImage = settings.ogImage || "";
+  // The About page's title and description are settings with the shipped copy
+  // behind them, so this reads the same resolver the page itself renders from.
+  const about = aboutContent(settings);
   const org = {
     "@type": "Organization",
     name: siteName,
@@ -246,8 +251,9 @@ export function headFor({ page, product, variant, settings, categories = [], seg
       ] } },
     shop: { title: `Shop Perfumes, Fragrance Oils & Body Mists, Home Fragrance And Feminine Care in Nigeria | ${siteName}`, path: "/shop",
       desc: "Shop perfumes, perfume oils, body mists, candles, diffusers, room sprays, feminine care, and wellness products from Majestic Roobee. Discover your next signature scent." },
-    about: { title: `About Majestic Roobee | Nigerian Fragrance Brand`, path: "/about",
-      desc: "Discover the story behind Majestic Roobee, a Nigerian fragrance brand creating luxury, safe, non-toxic perfumes, fragrance oils, body mists, feminine care, wellness products and home fragrances for modern women." },
+    // The About page writes its own head, the way an information page does —
+    // the house rewrote the page, so the search result should follow it.
+    about: { title: about.seoTitle, path: "/about", desc: about.seoDesc },
     faq: { title: `Frequently Asked Questions | ${siteName}`, path: "/faq", desc: "Answers on choosing a perfume, making it last, perfume oils, layering, storage, delivery across Nigeria and returns." },
     track: { title: `Track Your Order | ${siteName}`, path: "/track", desc: "Follow your Majestic Roobee order with your order number and contact." },
     contact: { title: `Contact Us | ${siteName}`, path: "/contact", desc: "Questions about an order, product or fragrance? Reach Majestic Roobee on WhatsApp, email, Instagram or live chat." },

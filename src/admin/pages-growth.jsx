@@ -4,10 +4,12 @@ import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
 import { fmtN, statusBadge } from "./App.jsx";
 import { ImagePicker } from "./product-form.jsx";
+import { ABOUT_DEFAULTS } from "../lib/about.js";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const th = { padding: "10px 14px", borderTop: "1px solid var(--border-hairline)", fontWeight: 600, color: "var(--text-muted)", fontSize: 11, letterSpacing: "0.06em" };
 const storeLink = { background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-700)", padding: 0 };
+const linkish = { ...storeLink, textDecoration: "underline" };
 
 function StBadge({ tone, children }) {
   const b = statusBadge(tone);
@@ -663,6 +665,12 @@ export function Inquiries({ ctx }) {
 // nobody has to scroll to the foot of the page to keep one edit.
 const SECTION_KEYS = {
   brand: ["logoUrl", "logoLightUrl", "founderImage"],
+  // The portrait is in both panels on purpose: it belongs to the brand mark and
+  // it is the photograph at the head of the About page, and the form is one
+  // object either way, so saving from either panel keeps it.
+  about: ["aboutEyebrow", "aboutHeadline", "aboutIntro", "storyTitle", "storyBody",
+    "founderName", "founderRole", "founderImage", "aboutStoresOn",
+    "aboutCtaTitle", "aboutCtaSub", "aboutCtaLabel", "aboutSeoTitle", "aboutSeoDesc"],
   storefront: ["announcement", "heroHeadline", "heroSub", "heroEyebrow", "heroImage", "heroDirection", "defaultCity", "promoPopup"],
   shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
   inventory: ["lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays", "lowStockAlerts", "lowStockOnStorefront"],
@@ -717,6 +725,22 @@ export function SettingsPage({ ctx }) {
       {saved === id && <span style={{ fontSize: 12.5, color: "#3f6b45" }}>Saved — the storefront reads it on its next load.</span>}
     </div>
   );
+  // An empty box means "keep the shipped copy", which is right — but it also
+  // leaves someone who only wants to change one sentence retyping six hundred
+  // words. This drops them into the box to edit, and clears back to empty.
+  const fillFrom = (key, shipped) => (
+    <div style={{ display: "flex", gap: 14, marginTop: -8 }}>
+      <button type="button" style={linkish}
+        onClick={() => {
+          // Clearing throws away whatever is in the box, so it asks first; the
+          // other direction only fills an empty one and needs no ceremony.
+          if (form[key] && !window.confirm("Clear this box? The page goes back to the words it shipped with, and what is written here is lost.")) return;
+          touch({ [key]: form[key] ? "" : shipped });
+        }}>
+        {form[key] ? "Clear it — go back to the words we shipped with" : "Load the words we shipped with, to edit"}
+      </button>
+    </div>
+  );
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 18, maxWidth: 960 }}>
       <div style={section}>
@@ -759,6 +783,43 @@ export function SettingsPage({ ctx }) {
         )}
         <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => touch({ promoPopup: e.target.checked })} />
         {sectionSave("storefront")}
+      </div>
+      <div style={section}>
+        {sectionHead("About page", <>Everything on <a href="/about" target="_blank" rel="noreferrer">/about</a> — the heading, what the house says about itself, the founder&apos;s story and the band at the foot. Leave a box empty and the page keeps the words it shipped with.</>)}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 12 }}>
+          <Input label="Line above the heading" value={form.aboutEyebrow || ""} onChange={set("aboutEyebrow")} placeholder={ABOUT_DEFAULTS.eyebrow} />
+          <Input label="Heading" value={form.aboutHeadline || ""} onChange={set("aboutHeadline")} placeholder={ABOUT_DEFAULTS.headline} />
+        </div>
+        <Textarea label="Who we are" value={form.aboutIntro || ""} onChange={set("aboutIntro")} rows={7}
+          placeholder="Empty — the page shows the words it shipped with."
+          hint="The paragraphs under the heading. A blank line between paragraphs; start a line with ## for a heading — the same way the blog is written." />
+        {fillFrom("aboutIntro", ABOUT_DEFAULTS.intro)}
+        <ImagePicker ctx={ctx} label="Founder's portrait" value={form.founderImage || ""} onChange={(url) => touch({ founderImage: url })}
+          hint="The same photograph as under Brand mark: at the head of the story here, and beside it on the home page. Portrait shape reads best." />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Whose story it is" value={form.founderName || ""} onChange={set("founderName")} placeholder={ABOUT_DEFAULTS.founderName} />
+          <Input label="Their title" value={form.founderRole || ""} onChange={set("founderRole")} placeholder={ABOUT_DEFAULTS.founderRole} />
+        </div>
+        <Input label="Story heading" value={form.storyTitle || ""} onChange={set("storyTitle")} placeholder={ABOUT_DEFAULTS.storyTitle}
+          hint="Also the heading on the home page's story band, unless that block has been given its own." />
+        <Textarea label="The story in full" value={form.storyBody || ""} onChange={set("storyBody")} rows={14}
+          placeholder="Empty — the page shows the story it shipped with."
+          hint="A blank line between paragraphs. The home page shows the first paragraph and links through, so open with the line you want a shopper to read." />
+        {fillFrom("storyBody", ABOUT_DEFAULTS.story)}
+        <Switch label="Show the stores on this page" checked={form.aboutStoresOn ?? true} onChange={(e) => touch({ aboutStoresOn: e.target.checked })} />
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
+          The addresses and delivery times come from your stores — edit them under <strong>Settings → Stores</strong>, at the foot of this page.
+        </div>
+        <Input label="Closing band — heading" value={form.aboutCtaTitle || ""} onChange={set("aboutCtaTitle")} placeholder={ABOUT_DEFAULTS.ctaTitle} />
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12 }}>
+          <Input label="Closing band — line under it" value={form.aboutCtaSub || ""} onChange={set("aboutCtaSub")} placeholder={ABOUT_DEFAULTS.ctaSub} />
+          <Input label="Closing band — button" value={form.aboutCtaLabel || ""} onChange={set("aboutCtaLabel")} placeholder={ABOUT_DEFAULTS.ctaLabel}
+            hint="It leads to the shop." />
+        </div>
+        <Input label="Search result — title" value={form.aboutSeoTitle || ""} onChange={set("aboutSeoTitle")} placeholder={ABOUT_DEFAULTS.seoTitle} />
+        <Textarea label="Search result — description" value={form.aboutSeoDesc || ""} onChange={set("aboutSeoDesc")} rows={3} placeholder={ABOUT_DEFAULTS.seoDesc}
+          hint="What Google and a shared link show under the title. Around 155 characters reads in full." />
+        {sectionSave("about")}
       </div>
       <div style={section}>
         {sectionHead("Shelves & social proof", "What the header's shelves read from, and whether shoppers see live purchases.")}

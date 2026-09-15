@@ -89,6 +89,7 @@ seven questions the ERP work is blocked on — in
 | 7 | Admin → Insights | ✅ | The funnel in people rather than clicks, with the number who left named at each step · conversion, revenue per visitor, AOV against the period before · seven clickable segments, each opening the visits it found and what they were looking at · **view-to-cart rate**, which is what finally names the products plenty of people open and nobody baskets · traffic sources, first-party so they still count the visitors whose ad-blocker stops a pixel · what shoppers searched for and did not find · what is sold out and still wanted. Everything historical reads the rollup; only today touches a session row and nothing scans the raw log. |
 | 8 | Smart shopping conversion features | ✅ | **Cart-recovery links** — the abandoned-cart chase has been enqueuing "you left something" since Phase 1 and could only drop the shopper on the home page; now one tap puts the cart back, and the link returns the lines only, never the name or address it is keyed on. **Free-delivery progress** in the cart — enforced since the shop opened, never once shown to the person it would move. **"Often opened together"** from a co-view graph rebuilt nightly, replacing a rail that recommended whatever sat near the piece on a shelf. **Pick up where you left off**, read from the shopper's own browser so it works for the anonymous visitor who is most of the traffic. **A leave-behind nudge**, off until the house writes its own words, never over an empty cart or at checkout. **The first-order pop-up can now wait** for somebody who has been in before and not bought — and never appears over a cart. Plus the low-stock urgency line from 3.1 and the sold-out demand board on the Insights screen. 22 assertions in `scripts/affinity.test.mjs`. |
 | 9 | ERPNext connector | 🔑 | Pull (Item / Item Price / Bin), webhook push, order write-back. Runs in parallel with everything above. Blocked on the seven answers in [§7.4](./SPRINT-3-PLAN.md) — reachability first. Client is obtaining access; build proceeds on Track A meanwhile |
+| 10 | The About page becomes a setting | ✅ | Every word on `/about` was typed into `pages.jsx`: the heading, the four lines that say what the house is, the founder's story in full, the band at the foot — so changing one sentence was a deploy. It is **Admin → Settings → About page** now, written the way the blog is written (a blank line between paragraphs, `## ` for a heading), with the stores grid switchable and the page's own search title and description beside it. An empty box is not a blank page: it falls back to the copy the store shipped with, and a button loads those words into the box for someone who only wants to change a sentence. The home page's story band reads the same title, the same opening paragraph and the same name, so the two can no longer drift. 33 assertions in `scripts/about.test.mjs`, including that every key the screen saves is one the server actually accepts. |
 
 ---
 
@@ -151,6 +152,14 @@ These cannot be done from the code, and several unblock work that is already bui
 
 ## Change log
 
+- **15 Sep 2026** — The About page became content. `/about` now reads its
+  heading, its opening paragraphs, the founder's story, her name and title,
+  the closing band and its own search result from settings, with the copy the
+  store shipped with behind every field — clearing a box restores it rather
+  than publishing a hole. The stores grid can be switched off for a house
+  trading online only. The home page's story band reads the same story, so
+  the opening paragraph a shopper meets there is the one the page itself
+  opens with.
 - **11 Sep 2026** — The header's category menu was unusable and is now fixed.
   The dropdown hangs below the purple band while the band owned the
   mouse-leave, so walking the pointer into the list closed it before anything
