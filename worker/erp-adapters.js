@@ -111,7 +111,8 @@ const fieldsFor = (overrides, key) => {
 // admin; getting it wrong produces a 401 the connection test reports verbatim,
 // rather than anything silent.
 export const AUTH_STYLES = {
-  bearer: { label: "Bearer token (Authorization: Bearer <secret>)" },
+  raw: { label: "The token on its own (Authorization: <token>)" },
+  bearer: { label: "Bearer token (Authorization: Bearer <token>)" },
   "key-secret-headers": { label: "Two headers (X-API-KEY / X-API-SECRET)" },
   token: { label: "Token pair (Authorization: token <key>:<secret>)" },
   basic: { label: "HTTP Basic (key as username, secret as password)" },
@@ -129,6 +130,12 @@ export function authFor(style, key, secret) {
       return { headers: { "x-api-key": k, ...(s ? { "x-api-secret": s } : {}) }, query: {} };
     case "query":
       return { headers: {}, query: { api_key: k, ...(s ? { api_secret: s } : {}) } };
+    case "raw":
+      // The header value *is* the token, with no scheme in front of it.
+      // Unusual, and easy to miss: sending `Bearer <token>` to an API that
+      // wants the bare string gets a 401 that reads exactly like a wrong key,
+      // so this is a style of its own rather than something to discover.
+      return { headers: { authorization: s || k }, query: {} };
     case "bearer":
     default:
       // A single-credential API usually issues one long token. The house may
@@ -245,10 +252,21 @@ const genericNormalise = {
 const erprev = {
   id: "erprev",
   label: "ERPRevolution (ERPrev)",
-  note: "Alias-driven. If a field comes back empty, run the probe and name the ERP's own spelling of it below.",
+  note: "Check the endpoint paths against the developer guide before the first pull — the defaults below are placeholders, not something ERPRev told us. Then run the probe: it prints their field names beside the ones the reader matched.",
+  docs: "https://erprev.com/user-guide/developers/",
   defaults: {
-    authStyle: "bearer",
+    // ERPRev's own documentation describes an `Authorization: <token>` header
+    // — the token on its own, no scheme in front of it — and issues a single
+    // API token with a usage log rather than a key/secret pair. Getting this
+    // wrong produces a 401 that reads like a bad credential, which is why it
+    // is the default here rather than something to find out the hard way.
+    authStyle: "raw",
     pageStyle: "page",
+    // Placeholders. ERPRev is multi-tenant on a subdomain
+    // (https://<yourcompany>.erprev.com), and these paths have *not* been
+    // verified against their API reference — a 404 from the connection test
+    // means the real path is in the developer guide, not that anything is
+    // broken. They are here so the first test call has somewhere to go.
     paths: { products: "/api/products", prices: "", stock: "/api/inventory", warehouses: "/api/warehouses", groups: "/api/categories" },
   },
   // Prices usually ride the product row on an ERP like this, so `prices` is
@@ -312,4 +330,4 @@ export const ADAPTERS = { erprev, erpnext, custom };
 export const adapterFor = (vendor) => ADAPTERS[str(vendor)] || ADAPTERS.erprev;
 
 /** For the admin's vendor picker. */
-export const adapterList = () => Object.values(ADAPTERS).map((a) => ({ id: a.id, label: a.label, note: a.note, defaults: a.defaults }));
+export const adapterList = () => Object.values(ADAPTERS).map((a) => ({ id: a.id, label: a.label, note: a.note, docs: a.docs || "", defaults: a.defaults }));

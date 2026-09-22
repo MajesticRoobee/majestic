@@ -272,8 +272,9 @@ works even if the ERP can only be reached *outward* — no inbound path, no
 webhook, no firewall change.
 
 **Push.** The ERP, or anything that can POST JSON, sends a flat SKU feed to
-`POST /api/v1/catalog/sync`, documented below. The way in for an ERP that
-lives only on an office network.
+`POST /api/v1/catalog/sync`, documented below. ERPRev ships outgoing webhooks
+with a delivery log, so this is a live option rather than a fallback — and it
+is the way in for an ERP that lives only on an office network.
 
 ### Turning the pull on
 
@@ -283,8 +284,8 @@ checklist in the order it has to be done.
 | # | Step | Where |
 | --- | --- | --- |
 | 1 | **Which ERP.** ERPrev by default. ERPNext and a blank "type the endpoints in" option are there too. | Admin |
-| 2 | **The credentials.** Generate an API key and secret for a read-only integration user in the ERP, then `wrangler secret put ERP_API_KEY` and `wrangler secret put ERP_API_SECRET` (or add them as GitHub Actions secrets and let the deploy push them). If the ERP issues a single token, either box takes it. They never go in the database and never reach a browser. | Worker secrets |
-| 3 | **Where it is, and how it wants to be asked.** The API root, the authentication style, the paging style, and the list endpoint for each resource. Then **Test the connection**, which reports what every endpoint returned, and **Show me a row**, which prints the ERP's own field names beside the ones the reader matched. | Admin |
+| 2 | **The credentials.** ERPRev issues a single **API token** (with a usage log beside it), so put it in either box: `wrangler secret put ERP_API_KEY` or `wrangler secret put ERP_API_SECRET` — or add them as GitHub Actions secrets and let the deploy push them. They never go in the database and never reach a browser. | Worker secrets |
+| 3 | **Where it is, and how it wants to be asked.** ERPRev is multi-tenant on a subdomain, so the API root is `https://<yourcompany>.erprev.com`. Then the authentication style, the paging style, and the list endpoint for each resource — **take the paths from [ERPRev's developer guide](https://erprev.com/user-guide/developers/); the ones pre-filled are placeholders and have not been checked against it.** Then **Test the connection**, which reports what every endpoint returned, and **Show me a row**, which prints the ERP's own field names beside the ones the reader matched. | Admin |
 | 4 | **Field names**, only if step 3 shows something came back empty. The reader already tries every common spelling; this is for the one it doesn't know. | Admin |
 | 5 | **The location map.** *Fetch locations* lists them from the ERP; assign each to a shop. One with no shop against it is **ignored, not defaulted** — counting unmapped stock into the nearest shop is how one city's bottles end up on another's shelf. | Admin |
 | 6 | **The category map** (optional). Unmapped categories fall to the default category and are reported. | Admin |
@@ -299,8 +300,11 @@ categories. Nothing else, and no write access at all — the pull only reads.
 Most SME ERPs expose much the same REST API wearing different names, so the
 reader is alias-driven rather than schema-bound:
 
-- **Authentication** — Bearer, two headers (`X-API-KEY` / `X-API-SECRET`), a
-  token pair, HTTP Basic, or credentials in the query string.
+- **Authentication** — the token on its own (`Authorization: <token>`, which
+  is the style ERPRev's developer guide describes), Bearer, two headers
+  (`X-API-KEY` / `X-API-SECRET`), a token pair, HTTP Basic, or credentials in
+  the query string. Picking the wrong one produces a 401 that reads exactly
+  like a bad credential, so the connection test's message names the dropdown.
 - **Paging** — `?page=&per_page=`, `?limit=&offset=`, Frappe's
   `limit_page_length`, or an endpoint that just returns everything.
 - **Envelopes** — a bare array, `{data:[…]}`, `{results:[…]}`, `{items:[…]}`,

@@ -282,7 +282,14 @@ function ErpPanel({ erp, ctx, reload }) {
           <select value={form.vendor} onChange={(e) => pickVendor(e.target.value)} style={{ ...selStyle, width: "100%", padding: "9px 12px", fontSize: 13 }}>
             {erp.vendors.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
           </select>
-          {vendor && <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.6 }}>{vendor.note}</div>}
+          {vendor && (
+            <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.6 }}>
+              {vendor.note}
+              {vendor.docs && (
+                <> <a href={vendor.docs} target="_blank" rel="noopener noreferrer" style={{ color: "var(--mr-purple-700)" }}>Their developer guide &rarr;</a></>
+              )}
+            </div>
+          )}
         </div>
       ))}
 

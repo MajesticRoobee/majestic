@@ -49,6 +49,12 @@ check("the catalogue's link tag survives being pointed at a different ERP", ERP_
 // ---- 1. Credentials, paging, envelopes -----------------------------------
 console.log("\nTalking to something we have not seen");
 
+// ERPRev's own documentation shows `Authorization: <token>` — the token on
+// its own, with no scheme in front of it. Sending `Bearer <token>` to an API
+// that wants the bare string gets a 401 indistinguishable from a wrong key,
+// which is exactly the kind of thing that costs a day.
+check("the token on its own, which is what ERPRev asks for", authFor("raw", "k", "s").headers.authorization, "s");
+check("...and it is ERPrev's default, so nobody has to find that out", ADAPTERS.erprev.defaults.authStyle, "raw");
 check("bearer", authFor("bearer", "k", "s").headers.authorization, "Bearer s");
 check("...falling back to the key when the ERP issues only one token",
   authFor("bearer", "only-token", "").headers.authorization, "Bearer only-token");
