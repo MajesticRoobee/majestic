@@ -34,6 +34,7 @@ import { syncCatalogue } from "./integrations.js";
 import {
   adapterFor, adapterList, authFor, signedHeaders, pageQuery, unwrap,
   AUTH_STYLES, PAGE_STYLES, ALIASES, SIGNING_DEFAULTS,
+  SIGNING_HEADER_SETS, SIGNING_SHAPES, SIGNING_PATH_MODES, SIGNING_FORMATS,
 } from "./erp-adapters.js";
 
 /**
@@ -140,7 +141,9 @@ async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) 
   if (auth.signed) {
     Object.assign(headers, await signedHeaders(
       { key: env.ERP_API_KEY, secret: env.ERP_API_SECRET, signing: cfg.signing },
-      { method: "GET", path: url.pathname + (url.search || ""), body: "" }
+      // The URL, not a path string: `pathMode` is the signing contract's to
+      // apply, not this function's to second-guess.
+      { method: "GET", url, body: "" }
     ));
   }
 
@@ -311,6 +314,122 @@ export async function erpPing(env) {
   } catch { /* the reachability answer stands on its own */ }
 
   return { ok: true, vendor: cfg.vendor, ms: Date.now() - started, reached, mapped, ping };
+}
+
+/**
+ * Work out the signing contract by asking the ERP.
+ *
+ * ERPRev's API overview says the signature covers "method, path, timestamp,
+ * nonce and body", but the page that pins the exact bytes was not among the
+ * reference pages we were given. The options were to wait for it, to guess,
+ * or to let the ERP settle it — and the ERP settling it is strictly better
+ * than either, because a signature is a yes/no question with an authoritative
+ * answer one request away.
+ *
+ * **The ERP distinguishes the two failures, and that is what makes this cheap
+ * rather than brute force.** `auth.missing` means it never found the headers;
+ * anything else means it found them and disliked the signature. So:
+ *
+ *   Phase 1 — one request per header set, reading missing-vs-anything-else.
+ *             Three requests name the header set.
+ *   Phase 2 — cross the shapes, path modes and formats under that set alone.
+ *
+ * Three axes crossed rather than a hand-written list of combinations, because
+ * a hand-written list is how you miss the one that was right: the first
+ * version of this listed X-ERPRev-with-full-path and X-ERPRev-with-t,v1 and
+ * the real answer was X-ERPRev with *both*.
+ *
+ * It is careful about four things:
+ *   · **it only ever reads** — every attempt is `GET … ?limit=1`
+ *   · **a fresh nonce each time**, since a replayed one is refused on its own
+ *     merits and would read as a wrong signature
+ *   · **it stops the moment something works**, and writes nothing unless
+ *     asked, so a run is safe to repeat
+ *   · **it checks the clock first**, because outside the ±300s window every
+ *     shape fails identically and "none of them worked" would be a lie
+ */
+export async function erpNegotiateSigning(env, { save = false } = {}) {
+  const cfg = await erpConfig(env);
+  if (!cfg.baseUrl) return { ok: false, error: "No base URL yet." };
+  if (!cfg.hasKey) return { ok: false, error: "No credentials — set ERP_API_KEY and ERP_API_SECRET as Worker secrets first." };
+  if (!cfg.paths.products) return { ok: false, error: "No products endpoint to test against." };
+
+  if (cfg.pingPath) {
+    try {
+      const body = await erpCall(env, cfg, cfg.pingPath, { anonymous: true });
+      const t = body.time || body.server_time || body.timestamp || body.now;
+      const skew = t ? Math.abs(Date.now() - new Date(t).getTime()) / 1000 : 0;
+      if (skew > 300) {
+        return { ok: false, error: `The ERP's clock and this one are ${Math.round(skew)}s apart, past its ±300s window. Every signature would be refused as auth.clock_skew whatever its shape, so there is nothing to learn from trying. Fix the clock first.` };
+      }
+    } catch { /* unreachability is reported by the attempts themselves */ }
+  }
+
+  const attempts = [];
+  const finish = async (signing, note) => {
+    if (save) await putSettings(env.DB, { erpSigning: JSON.stringify(signing) });
+    return { ok: true, saved: !!save, signing, summary: note, attempts };
+  };
+
+  // One attempt. Returns "ok" | "wrong-signature" | "no-headers" | "other".
+  const tryIt = async (signing, label) => {
+    try {
+      const body = await erpCall(env, { ...cfg, signing }, cfg.paths.products, { search: { limit: 1 } });
+      attempts.push({ label, result: `accepted — ${unwrap(body, cfg.envelopeKey).length} row(s)`, ok: true });
+      return "ok";
+    } catch (e) {
+      const msg = String(e.message || e);
+      attempts.push({ label, result: msg.slice(0, 150) });
+      if (/auth\.missing/i.test(msg)) return "no-headers";
+      if (/auth\.|401|403/i.test(msg)) return "wrong-signature";
+      return "other";
+    }
+  };
+
+  // ---- Phase 1: which headers does it even look at? ----
+  const probe = SIGNING_SHAPES[0];
+  let headerSet = null;
+  for (const set of SIGNING_HEADER_SETS) {
+    const signing = { ...SIGNING_DEFAULTS, ...set, canonical: probe };
+    const verdict = await tryIt(signing, `headers ${set.label}`);
+    if (verdict === "ok") return finish(signing, `The ERP accepted the very first shape: ${probe} with ${set.label}.`);
+    if (verdict === "other") {
+      return { ok: false, error: `Stopped: this isn't a signing problem. ${attempts[attempts.length - 1].result}`, attempts };
+    }
+    // It read the headers and disliked the signature — that names the set.
+    if (verdict === "wrong-signature") { headerSet = set; break; }
+  }
+  if (!headerSet) {
+    return {
+      ok: false,
+      error: "The ERP said `auth.missing` for every header name tried, so it is looking for the signature somewhere none of these put it. Its Signing requests page names the four headers — send that and it is a one-field change.",
+      attempts,
+    };
+  }
+
+  // ---- Phase 2: the shape, under the headers it does read ----
+  for (const canonical of SIGNING_SHAPES) {
+    for (const pathMode of SIGNING_PATH_MODES) {
+      for (const signatureFormat of SIGNING_FORMATS) {
+        // Phase 1 already ruled this exact one out.
+        if (canonical === probe && pathMode === "full" && signatureFormat === "hex") continue;
+        const signing = { ...SIGNING_DEFAULTS, ...headerSet, canonical, pathMode, signatureFormat };
+        const verdict = await tryIt(signing, `${canonical} [${pathMode}, ${signatureFormat}]`);
+        if (verdict === "ok") {
+          return finish(signing, `The ERP accepted: ${canonical}, with the path ${pathMode === "pathname" ? "without" : "with"} its query string, the signature as ${signatureFormat === "t,v1" ? "t=<timestamp>,v1=<hex>" : "plain hex"}, in ${headerSet.label}.`);
+        }
+        if (verdict === "other") {
+          return { ok: false, error: `Stopped: this isn't a signing problem. ${attempts[attempts.length - 1].result}`, attempts };
+        }
+      }
+    }
+  }
+
+  return {
+    ok: false,
+    error: `The ERP reads the ${headerSet.label} headers — that much is settled — but refused all ${attempts.length} signatures tried, so the canonical string is a shape not on the list. Send the attempts below to ERPRev support, or their "Signing requests" page to us, and it is one field.`,
+    attempts,
+  };
 }
 
 /**

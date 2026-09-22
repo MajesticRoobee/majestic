@@ -23,6 +23,7 @@ import { buildFeed, groupByUnit, stockGuard, ERP_SOURCE } from "../worker/erp.js
 import {
   adapterFor, authFor, unwrap, pageQuery, ADAPTERS, ALIASES,
   signedHeaders, canonicalString, hmacHex, SIGNING_DEFAULTS,
+  SIGNING_HEADER_SETS, SIGNING_SHAPES, SIGNING_PATH_MODES, SIGNING_FORMATS,
 } from "../worker/erp-adapters.js";
 
 let failures = 0;
@@ -136,6 +137,53 @@ const asWebhook = await signedHeaders(
 );
 check("the t=,v1= shape is available, because their webhooks use it",
   /^t=1000,v1=[0-9a-f]{64}$/.test(asWebhook["X-Signature"]), true);
+
+// The search `erpNegotiateSigning` runs when ERPRev's Signing requests page
+// isn't to hand. Kept as axes rather than a hand-written list of combinations
+// — a hand-written list is how the first version missed the answer, which was
+// X-ERPRev headers with a pathname-only path *and* a t=,v1= signature while
+// the list held each of those with the other two defaults.
+console.log("\nThe shapes it will try when nobody can tell it");
+
+check("the header sets are complete four-header contracts",
+  SIGNING_HEADER_SETS.filter((h) => !(h.timestampHeader && h.nonceHeader && h.signatureHeader && h.label)), []);
+check("...and no two of them collide",
+  new Set(SIGNING_HEADER_SETS.map((h) => h.signatureHeader)).size, SIGNING_HEADER_SETS.length);
+check("the documented order leads the shapes", SIGNING_SHAPES[0], SIGNING_DEFAULTS.canonical);
+check("every shape is a usable template",
+  SIGNING_SHAPES.filter((t) => !/\{method\}|\{timestamp\}/.test(t)), []);
+check("both readings of {path} are searched", SIGNING_PATH_MODES, ["full", "pathname"]);
+check("both signature formats are searched", SIGNING_FORMATS, ["hex", "t,v1"]);
+
+// The corner the hand-written list missed. Crossing the axes cannot miss one,
+// and this is the assertion that says so.
+const corners = [];
+for (const h of SIGNING_HEADER_SETS) for (const c of SIGNING_SHAPES) for (const pm of SIGNING_PATH_MODES) for (const f of SIGNING_FORMATS) {
+  corners.push(`${h.signatureHeader}|${c}|${pm}|${f}`);
+}
+check("the search covers every corner of the three axes",
+  corners.length, SIGNING_HEADER_SETS.length * SIGNING_SHAPES.length * 2 * 2);
+check("...including the one a hand-written list missed: X-ERPRev + pathname + t,v1",
+  corners.includes(`X-ERPRev-Signature|${SIGNING_DEFAULTS.canonical}|pathname|t,v1`), true);
+
+// Each shape has to actually produce a different signature, or searching them
+// is theatre.
+const sigFor = async (over) => (await signedHeaders(
+  { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, ...over } },
+  // A URL, so the signing config's own `pathMode` decides what {path} means.
+  { method: "GET", url: new URL("https://x.erprev.com/api/v2/products?limit=1"), now: 1e12, nonce: "n" }
+))[(over.signatureHeader || SIGNING_DEFAULTS.signatureHeader)];
+// pathMode is part of the contract, so it has to be applied by the signer —
+// a caller that set it and a signer that ignored it would look identical to a
+// working setup right up until the 401.
+check("path-with-query and path-without sign differently",
+  (await sigFor({ pathMode: "full" })) === (await sigFor({ pathMode: "pathname" })), false);
+check("...and two different orderings do too",
+  (await sigFor({ canonical: SIGNING_SHAPES[0] })) === (await sigFor({ canonical: SIGNING_SHAPES[1] })), false);
+check("the signature goes in whichever header the set names",
+  Object.keys(await signedHeaders({ key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, ...SIGNING_HEADER_SETS[1] } },
+    { method: "GET", path: "/x", now: 1e12, nonce: "n" })).sort(),
+  ["X-Api-Key", "X-ERPRev-Nonce", "X-ERPRev-Signature", "X-ERPRev-Timestamp"]);
 
 console.log("\nPaging");
 check("a cursor page sends a limit and nothing else the first time",

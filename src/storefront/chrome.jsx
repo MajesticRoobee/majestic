@@ -146,6 +146,11 @@ const NAV_TABS = [
   // at the top of every page. /about is still there — the menu below names it,
   // the footer links it, and the home page still runs its opening paragraph.
   { label: "Blog", page: "blog", from: 1000 },
+  // The Perfume Studio's booking page earns a tab: it is the one thing on the
+  // site the house sells that isn't a bottle, and a consultation is worth more
+  // than an order. `when` hides it while the studio isn't taking bookings —
+  // the band must never carry a tab that lands on "not at the moment".
+  { label: "Book a consultation", page: "consultation", from: 1180, when: (ctx) => ctx.consultation && ctx.consultation.on },
 ];
 
 // Below this the search box leaves the band and takes its old place in the top
@@ -398,7 +403,7 @@ const ICON_BAG = <svg width="21" height="21" viewBox="0 0 24 24" fill="none" str
 function Header({ ctx }) {
   const [atTop, setAtTop] = useState(true);
   const w = useWindowWidth();
-  const tabs = NAV_TABS.filter((t) => !t.from || w >= t.from);
+  const tabs = NAV_TABS.filter((t) => (!t.from || w >= t.from) && (!t.when || t.when(ctx)));
   const bandSearch = w >= BAND_SEARCH_FROM;
   // The menu stands open on the home page, which is the one layout that leaves
   // it a column of its own, and only while the hero is still on screen — below
@@ -485,7 +490,9 @@ function Header({ ctx }) {
           <div style={{ margin: "8px 24px 12px" }}>{searchBox(false)}</div>
           {/* The drawer has room the band has not, so the story keeps its place
               here rather than disappearing with the header tab. */}
-          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Our story", page: "about" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }]).map((t) => (
+          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Our story", page: "about" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }])
+            .filter((t) => !t.when || t.when(ctx))
+            .map((t) => (
             <a key={t.label} href={routeToPath(t.page, t.extra)} onClick={(e) => { e.preventDefault(); ctx.nav(t.page, t.extra || {}); }} style={{ padding: "12px 24px", fontSize: 15, fontWeight: 500 }}>{t.label}</a>
           ))}
           <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "8px 0", paddingTop: 8 }}>
@@ -652,12 +659,14 @@ function SupportDock({ ctx }) {
           {consult.ctaLabel || "Book a consultation"}
         </a>
       )}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-        <button onClick={ctx.toggleCurrency} title="Switch currency" aria-label={`Prices in ${ctx.currency}. Switch currency.`} style={pill}>
-          {ctx.currency === "NGN" ? "\u20a6 NGN" : "$ USD"}
-        </button>
-        <CitySelect ctx={ctx} style={{ ...pill, paddingRight: 11 }} />
-      </div>
+      {/* Stacked, not side by side: two pills in a row push out from the edge
+          far enough to sit over the page, and the one underneath the thumb on
+          a phone is the one nobody meant to press. Right-aligned so they read
+          as one column with the button above them. */}
+      <button onClick={ctx.toggleCurrency} title="Switch currency" aria-label={`Prices in ${ctx.currency}. Switch currency.`} style={pill}>
+        {ctx.currency === "NGN" ? "\u20a6 NGN" : "$ USD"}
+      </button>
+      <CitySelect ctx={ctx} style={{ ...pill, paddingRight: 11 }} />
     </div>
   );
 }

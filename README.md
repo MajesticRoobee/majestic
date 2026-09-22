@@ -324,15 +324,33 @@ checklist in the order it has to be done.
    from where, with request and response detail. Manage API Access disables a
    compromised key in one click.
 
-### The one thing still to confirm
+### Working out the signature
 
 ERPRev's *Signing requests* page — "the four headers, canonical string, five
-reference clients" — was not among the pages we have. The canonical string is
-built from their API overview's own description ("a signature over its method,
-path, timestamp, nonce and body") and the header names from the same source,
-and both are **editable fields** in the admin rather than constants in a build.
-If every call returns `auth.invalid` while the key is definitely right, that is
-what to correct: paste that page in and it is a one-minute change, no deploy.
+reference clients" — was not among the pages we have, so the exact bytes the
+signature covers are not documented here. **You do not need it.**
+
+**Work out the signing** (Admin → Integrations, next to the connection test)
+signs one harmless read — `GET /products?limit=1` — under each plausible shape
+and keeps whichever one the ERP accepts. It is a yes/no question with an
+authoritative answer one request away, so it is answered with fact rather than
+inference.
+
+It is cheap because ERPRev distinguishes its own failures. `auth.missing`
+means it never found the signature headers; anything else means it found them
+and disliked the signature. So the search is two phases — three requests to
+name the header set, then the orderings, path readings and signature formats
+under that set alone — and it typically lands in **under ten**.
+
+It only ever reads, uses a fresh nonce per attempt so a replay is never
+mistaken for a bad signature, checks the clock first (outside the ±300-second
+window every shape fails identically, and "none worked" would be a lie), and
+stops the moment one is accepted. If none are, it hands back every attempt
+with the ERP's own error code beside it — which is the thing to send ERPRev
+support.
+
+The result is saved into the signing fields, which stay editable: if their
+page later says something different, it is one field and no deploy.
 
 ### What the reader copes with on its own
 
