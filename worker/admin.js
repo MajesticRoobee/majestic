@@ -1062,6 +1062,14 @@ admin.put("/settings", async (c) => {
     // photographs across), so there is nothing here to keep.
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
+    // The Perfume Studio's consultation page: whether the studio is taking
+    // bookings at all, the Calendly link the calendar is framed from, and the
+    // words on the page. Empty copy means "use what the store shipped with" —
+    // see `src/lib/consultation.js`. The Calendly link is a *link*, not a
+    // credential: it is the public booking page, so it lives here rather than
+    // in a Worker secret.
+    "consultOn", "consultCalendlyUrl", "consultEyebrow", "consultHeadline", "consultIntro",
+    "consultBody", "consultCtaLabel", "consultImage", "consultSeoTitle", "consultSeoDesc",
     // Rewards: whether a paid order earns a code, and what that code is worth.
     "rewardsOn", "rewardEarnKind", "rewardEarnValue", "rewardEarnMinSpend", "rewardEarnScope",
     "rewardEarnExpiryDays", "rewardCodePrefix",
@@ -1800,7 +1808,7 @@ async function freePageSlug(db, want) {
 // it would shadow the shop and never be reachable.
 const RESERVED_SLUGS = new Set([
   "shop", "product", "blog", "about", "faq", "track", "contact", "checkout", "confirm",
-  "account", "wishlist", "locations", "reviews", "brand", "brands", "admin", "api", "images",
+  "account", "wishlist", "locations", "reviews", "consultation", "brand", "brands", "admin", "api", "images",
   "new-arrivals", "best-sellers", "deals", "gift-sets", "robots.txt", "sitemap.xml",
 ]);
 

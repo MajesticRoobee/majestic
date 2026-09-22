@@ -4,10 +4,11 @@ import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
 import {
   HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, InfoPage,
-  WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, FaqPage,
+  WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, FaqPage, ConsultationPage,
 } from "./pages.jsx";
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
+import { consultationContent } from "../lib/consultation.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
 import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
 import { startTracking, record as mrRecord, setCity as mrSetCity, optedOut, setOptOut, visitorId, noteViewed, recentlyViewed, clearRecent } from "./track.js";
@@ -911,6 +912,13 @@ export default function App() {
     return true;
   }, []);
 
+  // Resolved from settings, with the words the store shipped with underneath —
+  // see src/lib/consultation.js.
+  const consultation = useMemo(
+    () => consultationContent(settings, typeof window === "undefined" ? "" : window.location.hostname),
+    [settings]
+  );
+
   const ctx = {
     D, settings, locations, products, categories, page, nav, isMobile,
     city, cityName, L,
@@ -926,6 +934,11 @@ export default function App() {
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
     blog, blogTag, setBlogTag, post, postSlug, pageSlug, infoPage, pages: D ? (D.pages || []) : [],
+    // The Perfume Studio's consultation page, resolved once here so the page,
+    // the floating button and the footer all read one answer to "is the studio
+    // taking bookings?". `embed_domain` has to be this host, which is why the
+    // Calendly URL is assembled in the browser rather than on the server.
+    consultation,
     // The home page, as the house arranged it. Empty until the store payload
     // lands — HomePage renders its hero from settings and nothing else, rather
     // than flashing a page in the wrong order.
@@ -981,6 +994,7 @@ export default function App() {
     page === "reviews" ? <ReviewsPage ctx={ctx} /> :
     page === "blog" ? <BlogPage ctx={ctx} /> :
     page === "post" ? <BlogPostPage ctx={ctx} /> :
+    page === "consultation" ? <ConsultationPage ctx={ctx} /> :
     <HomePage ctx={ctx} />;
 
   return <Chrome ctx={ctx}>{pageEl}</Chrome>;

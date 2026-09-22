@@ -1,7 +1,7 @@
 // Path-based routing for the storefront so every page (and every product) has a
 // real, crawlable URL. The Worker serves the SPA shell for all these paths.
 
-const STATIC = ["home", "shop", "about", "faq", "track", "contact", "checkout", "confirm", "account", "wishlist", "locations", "reviews"];
+const STATIC = ["home", "shop", "about", "faq", "track", "contact", "checkout", "confirm", "account", "wishlist", "locations", "reviews", "consultation"];
 
 // The header's merchandising tabs are the shop grid with one filter already
 // applied, so they share its implementation — but each gets its own short URL,

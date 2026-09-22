@@ -541,3 +541,89 @@ export function BlogPostPage({ ctx }) {
     </main>
   );
 }
+
+// ---- The Perfume Studio: book a consultation ------------------------------
+
+// The client's ask, exactly: a page of its own where a customer books an hour
+// in the studio, with the calendar *on* it — "so customers can complete the
+// booking without having to leave the website".
+//
+// The calendar is Calendly in a plain iframe. No Calendly script: the same
+// rule the testimonial embeds follow, which is that nothing third-party runs
+// on this store. Calendly's own page inside the frame does its own work, and
+// `embed_domain` is what makes it size itself to the space rather than to a
+// browser window.
+//
+// It is never a dead end. Consultations can be open for booking before the
+// calendar link exists — that is the normal order, since somebody has to make
+// the Calendly first — so a studio with no link yet shows the same page with
+// the phone and the contact form in place of the frame, rather than an empty
+// rectangle or a 404.
+export function ConsultationPage({ ctx }) {
+  const c = ctx.consultation;
+  const settings = ctx.settings || {};
+  const phone = String(settings.contactPhone || "").trim();
+
+  if (!c.on) {
+    return (
+      <main style={shellStyle}>
+        <PageHead title="Consultations aren’t open at the moment" sub="The studio isn’t taking bookings just now. Send us a message and we’ll tell you when it is." />
+        <Empty title="Nothing to book today.">
+          <Button variant="primary" onClick={() => ctx.nav("contact")}>Send us a message</Button>
+        </Empty>
+      </main>
+    );
+  }
+
+  return (
+    <main style={shellStyle}>
+      <PageHead eyebrow={c.eyebrow} title={c.headline} sub={c.intro} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", gap: "clamp(24px, 4vw, 44px)", alignItems: "start" }}>
+        <div>
+          {c.imageUrl && (
+            <ImageSlot src={c.imageUrl} shape="rounded" radius={16} name={c.headline}
+              sizes="(max-width: 860px) 94vw, 520px" style={{ width: "100%", height: 300, marginBottom: 22 }} />
+          )}
+          <PostBody body={c.blocks.join("\n\n")} />
+          {phone && (
+            <p style={{ fontSize: 13.5, color: "var(--text-muted)", marginTop: 22, lineHeight: 1.7 }}>
+              Rather talk it through first? Call the studio on{" "}
+              <a href={`tel:${phone.replace(/[^+\d]/g, "")}`} style={{ color: "var(--mr-orchid-600)", fontWeight: 500 }}>{phone}</a>.
+            </p>
+          )}
+        </div>
+
+        <div>
+          <GildedRule width="120px" style={{ margin: "0 0 18px" }} />
+          <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--accent-gold-ink)", marginBottom: 14 }}>
+            Pick a date and time
+          </div>
+          {c.hasCalendar ? (
+            <div style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", background: "var(--surface-card)" }}>
+              <iframe
+                src={c.calendarUrl}
+                title={c.ctaLabel}
+                loading="lazy"
+                style={{ width: "100%", height: "min(1100px, 82vh)", minHeight: 620, border: "none", display: "block" }}
+              />
+            </div>
+          ) : (
+            <Empty title={c.fallbackTitle || "The calendar isn’t open yet"}>
+              <p style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "0 0 16px", maxWidth: "44ch", marginInline: "auto" }}>
+                We’re taking consultations — the online calendar just isn’t connected yet. Send us a message with the days that
+                suit you{phone ? ", or call the studio" : ""} and we’ll put you in the book.
+              </p>
+              <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                <Button variant="primary" onClick={() => ctx.nav("contact")}>Ask for a time</Button>
+                {phone && (
+                  <a href={`tel:${phone.replace(/[^+\d]/g, "")}`}><Button variant="secondary">Call {phone}</Button></a>
+                )}
+              </div>
+            </Empty>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}

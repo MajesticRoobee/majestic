@@ -11,7 +11,7 @@ import { variantGallery } from "../lib/gallery.js";
 import { record } from "./track.js";
 
 export { ProductCard };
-export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage } from "./pages-content.jsx";
+export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage, ConsultationPage } from "./pages-content.jsx";
 export { EmbedCard, TestimonialCarousel };
 
 const PAD = "clamp(16px, 4vw, 40px)";

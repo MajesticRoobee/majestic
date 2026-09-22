@@ -9,6 +9,7 @@ import { sweepStock } from "./inventory.js";
 import { rollup } from "./insights.js";
 import { rebuildAffinity } from "./affinity.js";
 import { resolveMedia, readMedia } from "./media.js";
+import { getSettings } from "./util.js";
 
 const app = new Hono();
 
@@ -74,6 +75,13 @@ app.get("/sitemap.xml", async (c) => {
     "/", "/shop", "/new-arrivals", "/best-sellers", "/deals", "/gift-sets",
     "/locations", "/reviews", "/blog", "/about", "/faq", "/track", "/contact",
   ];
+  // The Perfume Studio's booking page is only a page while the studio is
+  // taking bookings — listing it otherwise would send search traffic to a
+  // sentence saying no.
+  try {
+    const settings = await getSettings(c.env.DB);
+    if (String(settings.consultOn) === "1") staticUrls.push("/consultation");
+  } catch {}
   let catUrls = [];
   try {
     const rows = (await c.env.DB.prepare("SELECT id FROM categories WHERE live = 1 ORDER BY sort, id").all()).results;
