@@ -159,9 +159,18 @@ async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) 
   if (!res.ok) {
     // ERPRev's error codes are documented and specific, so say what each one
     // actually means rather than "401, check your key".
-    const code = (text.match(/"(?:code|type)"\s*:\s*"([\w.]+)"/) || [])[1] || "";
+    // ERPRev answers RFC 9457, where `type` is a *URL* whose last segment is
+    // the code — `https://docs.erprev.com/errors/auth.missing`. Matching only
+    // bare word-and-dot values meant every one of those fell through to the
+    // generic "check your key" text, which is the least useful thing we
+    // could have said about the most specific error the ERP knows how to
+    // give. Take the last path segment when the value is a URL.
+    const rawCode = (text.match(/"(?:code|type|error)"\s*:\s*"([^"]+)"/) || [])[1] || "";
+    const code = /^https?:\/\//.test(rawCode)
+      ? (rawCode.split(/[?#]/)[0].replace(/\/+$/, "").split("/").pop() || "")
+      : rawCode;
     const known = {
-      "auth.missing": "No credentials reached the ERP — the signing headers weren't sent.",
+      "auth.missing": "No credentials reached the ERP — it found none in the place it looks. That is a different thing from a wrong signature: the packaging is wrong, not the key. Its own words below usually name the header it wanted.",
       "auth.invalid": "The ERP rejected the key. If it says \"not a v2 key\", the key was issued on an older build — re-issue it from Manage API Access.",
       "auth.clock_skew": "The signature timestamp is outside the ERP's ±300-second window. This machine's clock and the ERP's disagree.",
       "auth.insufficient_scope": "The key's scopes don't cover this. It needs products.read, stocks.read and warehouses.read.",
@@ -176,7 +185,30 @@ async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) 
         : res.status === 404
           ? `The ERP answered 404 for ${url.pathname}. That endpoint path is wrong — check it against the API reference.`
           : `The ERP answered ${res.status}.`;
-    throw new Error(`${hint}${text && text.length < 300 ? ` It said: ${text.trim()}` : ""}`);
+    // ERPRev answers in RFC 9457 problem-detail form, and its `title` and
+    // `detail` are the only place that says what it looked for and didn't
+    // find. The old rule — include the body only if it came in under 300
+    // characters — dropped exactly the long, specific ones and kept the
+    // useless short ones, and cut the rest off mid-field. Pull the two
+    // fields out by name, and keep far more of the raw body behind them.
+    let said = "";
+    try {
+      const prob = JSON.parse(text);
+      const parts = [prob.title, prob.detail, prob.error_description, prob.message]
+        .filter((v) => typeof v === "string" && v.trim());
+      if (parts.length) said = ` It said: ${[...new Set(parts)].join(" — ")}`;
+      // `type` dereferences to the vendor's own page for this exact error.
+      if (typeof prob.type === "string" && /^https?:/.test(prob.type)) said += ` (${prob.type})`;
+    } catch { /* not JSON — fall through to the raw text */ }
+    if (!said && text && text.trim()) said = ` It said: ${text.trim().slice(0, 500)}`;
+    const err = new Error(`${hint}${said}`);
+    // Carried on the error rather than left to be re-read out of the prose.
+    // The negotiator has to tell `auth.missing` (no credentials found) from
+    // every other refusal, and hanging that on a regex over a human sentence
+    // means any rewording of the sentence silently breaks the search.
+    err.code = code;
+    err.status = res.status;
+    throw err;
   }
   try { return JSON.parse(text); }
   catch { throw new Error(`${url.pathname} answered with something that isn't JSON — is that the API address, or a web page?`); }
@@ -379,11 +411,37 @@ export async function erpNegotiateSigning(env, { save = false } = {}) {
       return "ok";
     } catch (e) {
       const msg = String(e.message || e);
-      attempts.push({ label, result: msg.slice(0, 150) });
-      if (/auth\.missing/i.test(msg)) return "no-headers";
-      if (/auth\.|401|403/i.test(msg)) return "wrong-signature";
+      // Not truncated to a stub: the ERP's problem-detail body is the only
+      // thing here that knows what it actually wanted, and cutting it at 150
+      // characters threw that away mid-field.
+      attempts.push({ label, result: msg.slice(0, 600) });
+      if (e.code === "auth.missing" || (!e.code && /auth\.missing/i.test(msg))) return "no-headers";
+      if (e.code?.startsWith("auth.") || e.status === 401 || e.status === 403 || /auth\.|401|403/i.test(msg)) return "wrong-signature";
       return "other";
     }
+  };
+
+  // Every unsigned way of presenting a key/secret pair, in one sweep.
+  // Reached from both dead ends: when no carrier is even looked at, and when
+  // one is looked at but no canonical string satisfies it — because the
+  // second can also mean "that header was read as a malformed bearer token",
+  // which is not a signing problem at all.
+  const tryUnsigned = async () => {
+    for (const style of ["bearer", "key-secret-headers", "token", "basic", "raw", "query"]) {
+      const label = `unsigned — ${AUTH_STYLES[style].label}`;
+      try {
+        const body = await erpCall(env, { ...cfg, authStyle: style }, cfg.paths.products, { search: { limit: 1 } });
+        attempts.push({ label, result: `accepted — ${unwrap(body, cfg.envelopeKey).length} row(s)`, ok: true });
+        if (save) await putSettings(env.DB, { erpAuthStyle: style });
+        return {
+          ok: true, saved: !!save, authStyle: style, attempts,
+          summary: `This API isn't signing requests at all — it accepted ${AUTH_STYLES[style].label}. The auth style has been set to that, so there is no canonical string to get right and the Signing requests page isn't needed.`,
+        };
+      } catch (e) {
+        attempts.push({ label, result: String(e.message || e).slice(0, 600) });
+      }
+    }
+    return null;
   };
 
   // ---- Phase 1: which headers does it even look at? ----
@@ -399,10 +457,21 @@ export async function erpNegotiateSigning(env, { save = false } = {}) {
     // It read the headers and disliked the signature — that names the set.
     if (verdict === "wrong-signature") { headerSet = set; break; }
   }
+  // ---- Phase 1b: is it signed at all? ----
+  //
+  // Every carrier above says `auth.missing`. The reading that costs us a week
+  // is "the header names are wrong, fetch the documentation"; the reading
+  // worth testing first is that this API is not signature-authenticated, and
+  // a bearer token or a key/secret pair is all it ever wanted. `hmac` is what
+  // the ERPRev adapter *defaults* to, inferred from one sentence in their
+  // overview — it is not something the ERP has ever confirmed. Six more reads
+  // settle it, and they are the same harmless `GET …?limit=1`.
   if (!headerSet) {
+    const plain = await tryUnsigned();
+    if (plain) return plain;
     return {
       ok: false,
-      error: "The ERP said `auth.missing` for every header name tried, so it is looking for the signature somewhere none of these put it. Its Signing requests page names the four headers — send that and it is a one-field change.",
+      error: "Every way of presenting the credentials was answered `auth.missing` — signed four ways, and unsigned six ways. `auth.missing` means the ERP found no credentials at all, which after fourteen attempts is more likely to be about the key than about its packaging: check that the key is a v2 key, that \"Allow use of API\" is ticked in company preferences, and that the base URL points at the API root (a gateway in front of the ERP can strip unknown headers before the ERP ever sees them). The full text of each refusal is below — ERPRev's problem-detail body names what it looked for.",
       attempts,
     };
   }
@@ -425,9 +494,15 @@ export async function erpNegotiateSigning(env, { save = false } = {}) {
     }
   }
 
+  // The carrier was read and every shape refused. Before concluding that the
+  // canonical string is exotic, rule out the duller explanation: that the
+  // header was read as a malformed credential of some ordinary kind.
+  const plain = await tryUnsigned();
+  if (plain) return plain;
+
   return {
     ok: false,
-    error: `The ERP reads the ${headerSet.label} headers — that much is settled — but refused all ${attempts.length} signatures tried, so the canonical string is a shape not on the list. Send the attempts below to ERPRev support, or their "Signing requests" page to us, and it is one field.`,
+    error: `The ERP reads the ${headerSet.label} carrier — that much is settled — but refused every signature shape tried, and no unsigned style worked either. The canonical string is a shape not on the list. The refusals below quote the ERP's own problem-detail text, which names what it expected; send those to ERPRev support, or their "Signing requests" page to us, and it is one field.`,
     attempts,
   };
 }

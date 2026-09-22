@@ -145,10 +145,44 @@ check("the t=,v1= shape is available, because their webhooks use it",
 // the list held each of those with the other two defaults.
 console.log("\nThe shapes it will try when nobody can tell it");
 
-check("the header sets are complete four-header contracts",
-  SIGNING_HEADER_SETS.filter((h) => !(h.timestampHeader && h.nonceHeader && h.signatureHeader && h.label)), []);
+// A set is one of two kinds: four headers, one part each, or a single
+// `Authorization` header carrying all four. Both are complete contracts; a
+// set that is neither would send a signature nowhere and read as a wrong
+// canonical string for the rest of the search.
+const isFourHeader = (h) => !!(h.timestampHeader && h.nonceHeader && h.signatureHeader);
+check("every header set is a complete contract — four headers, or one that carries all four",
+  SIGNING_HEADER_SETS.filter((h) => !h.label || !(isFourHeader(h) || h.authTemplate)), []);
 check("...and no two of them collide",
-  new Set(SIGNING_HEADER_SETS.map((h) => h.signatureHeader)).size, SIGNING_HEADER_SETS.length);
+  new Set(SIGNING_HEADER_SETS.map((h) => h.authTemplate || h.signatureHeader)).size, SIGNING_HEADER_SETS.length);
+
+// The reason the carriers exist. A real ERPRev answered `auth.missing` to all
+// three X- sets, and `auth.missing` means *no credentials found* rather than
+// *bad signature* — a verdict an API only reaches about a place that is
+// empty. Every X- set leaves `Authorization` empty, so renaming X- headers
+// forever could never have got past it.
+check("Authorization is searched too, not just X- headers",
+  SIGNING_HEADER_SETS.some((h) => h.authTemplate), true);
+check("...and a carrier puts the signature in one header, not four",
+  Object.keys(await signedHeaders(
+    { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "ERPRev Key={key},Signature={signature}" } },
+    { method: "GET", path: "/x", now: 1000000, nonce: "n" }
+  )), ["Authorization"]);
+check("...with the key and the signature actually in it",
+  /^ERPRev Key=k,Signature=[0-9a-f]{64}$/.test((await signedHeaders(
+    { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "ERPRev Key={key},Signature={signature}" } },
+    { method: "GET", path: "/x", now: 1000000, nonce: "n" }
+  )).Authorization), true);
+check("...and `withHeaders` keeps the key, timestamp and nonce beside it",
+  Object.keys(await signedHeaders(
+    { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "HMAC {key}:{signature}", withHeaders: true } },
+    { method: "GET", path: "/x", now: 1000000, nonce: "n" }
+  )).sort(), ["Authorization", "X-Api-Key", "X-Nonce", "X-Timestamp"]);
+// A carrier signs the same bytes as any other set — only the envelope differs.
+check("a carrier changes where the signature rides, never what it covers",
+  (await signedHeaders({ key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "X {signature}" } },
+    { method: "GET", path: "/x", now: 1000000, nonce: "n" })).Authorization.slice(2),
+  (await signedHeaders({ key: "k", secret: "s", signing: SIGNING_DEFAULTS },
+    { method: "GET", path: "/x", now: 1000000, nonce: "n" }))["X-Signature"]);
 check("the documented order leads the shapes", SIGNING_SHAPES[0], SIGNING_DEFAULTS.canonical);
 check("every shape is a usable template",
   SIGNING_SHAPES.filter((t) => !/\{method\}|\{timestamp\}/.test(t)), []);
@@ -159,7 +193,7 @@ check("both signature formats are searched", SIGNING_FORMATS, ["hex", "t,v1"]);
 // and this is the assertion that says so.
 const corners = [];
 for (const h of SIGNING_HEADER_SETS) for (const c of SIGNING_SHAPES) for (const pm of SIGNING_PATH_MODES) for (const f of SIGNING_FORMATS) {
-  corners.push(`${h.signatureHeader}|${c}|${pm}|${f}`);
+  corners.push(`${h.authTemplate || h.signatureHeader}|${c}|${pm}|${f}`);
 }
 check("the search covers every corner of the three axes",
   corners.length, SIGNING_HEADER_SETS.length * SIGNING_SHAPES.length * 2 * 2);

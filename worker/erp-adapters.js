@@ -162,6 +162,15 @@ export const SIGNING_DEFAULTS = {
   // real ambiguity — both are common, and picking the wrong one is a 401 that
   // looks exactly like a wrong key.
   pathMode: "full",                // "full" | "pathname"
+  // Where the signature is *carried*, which is a separate question from what
+  // it is computed over. Blank means the four headers above. Set it and the
+  // four collapse into one header built from this template — the convention
+  // an API follows when it answers `auth.missing` (rather than "bad
+  // signature") for a request that had no `Authorization` on it at all,
+  // because presence is judged by that one header before anything is
+  // verified. `{key}` `{timestamp}` `{nonce}` `{signature}` are filled in.
+  authTemplate: "",
+  authHeader: "Authorization",
 };
 
 /**
@@ -178,10 +187,39 @@ export const SIGNING_DEFAULTS = {
  * path and X-ERPRev headers with a t=,v1= signature, and the real answer was
  * X-ERPRev headers with *both*. Crossing the axes cannot miss a corner.
  */
+/**
+ * Where the four parts are carried, likeliest first.
+ *
+ * The first three put each part in its own `X-` header. The rest pack them
+ * into `Authorization`, and they are here because of a real result: an ERPRev
+ * that answered `auth.missing` to all three `X-` sets. `auth.missing` means
+ * *no credentials were found*, not *the signature was wrong* — and an API
+ * only reaches that verdict when the place it looks is empty. Every `X-` set
+ * leaves `Authorization` empty, so all three look identical to such an API,
+ * and no amount of renaming `X-` headers would ever have got past it.
+ */
 export const SIGNING_HEADER_SETS = [
   { label: "X-Timestamp / X-Nonce / X-Signature", timestampHeader: "X-Timestamp", nonceHeader: "X-Nonce", signatureHeader: "X-Signature" },
   { label: "X-ERPRev-*", timestampHeader: "X-ERPRev-Timestamp", nonceHeader: "X-ERPRev-Nonce", signatureHeader: "X-ERPRev-Signature" },
   { label: "X-Api-*", timestampHeader: "X-Api-Timestamp", nonceHeader: "X-Api-Nonce", signatureHeader: "X-Api-Signature" },
+  {
+    label: "Authorization: ERPRev Key=…,Timestamp=…,Nonce=…,Signature=…",
+    authTemplate: "ERPRev Key={key},Timestamp={timestamp},Nonce={nonce},Signature={signature}",
+  },
+  {
+    label: "Authorization: HMAC-SHA256 Key=…,Timestamp=…,Nonce=…,Signature=…",
+    authTemplate: "HMAC-SHA256 Key={key},Timestamp={timestamp},Nonce={nonce},Signature={signature}",
+  },
+  {
+    label: "Authorization: HMAC <key>:<signature>",
+    authTemplate: "HMAC {key}:{signature}",
+    withHeaders: true, timestampHeader: "X-Timestamp", nonceHeader: "X-Nonce",
+  },
+  {
+    label: "Authorization: Signature keyId=…,signature=…",
+    authTemplate: `Signature keyId="{key}",algorithm="hmac-sha256",signature="{signature}"`,
+    withHeaders: true, timestampHeader: "X-Timestamp", nonceHeader: "X-Nonce",
+  },
 ];
 
 /** The orderings and separators worth trying, likeliest first. */
@@ -240,11 +278,27 @@ export async function signedHeaders(cfg, { method, path, url, body = "", now = D
     method: String(method || "GET").toUpperCase(), path: signedPath, timestamp, nonce: n, body,
   });
   const mac = await hmacHex(cfg.secret, message);
+  const signature = sign.signatureFormat === "t,v1" ? `t=${timestamp},v1=${mac}` : mac;
+  // One header carrying all four parts, when the API judges credentials
+  // present or absent by `Authorization` alone.
+  if (sign.authTemplate) {
+    const one = {
+      [sign.authHeader || "Authorization"]: canonicalString(sign.authTemplate, {
+        key: cfg.key, timestamp, nonce: n, signature, mac,
+      }),
+    };
+    // Some APIs carry only the signature in `Authorization` and still expect
+    // the key, timestamp and nonce as headers of their own. `withHeaders`
+    // says so; without it the one header is the whole of it.
+    return sign.withHeaders
+      ? { ...one, [sign.keyHeader]: cfg.key, [sign.timestampHeader]: timestamp, [sign.nonceHeader]: n }
+      : one;
+  }
   return {
     [sign.keyHeader]: cfg.key,
     [sign.timestampHeader]: timestamp,
     [sign.nonceHeader]: n,
-    [sign.signatureHeader]: sign.signatureFormat === "t,v1" ? `t=${timestamp},v1=${mac}` : mac,
+    [sign.signatureHeader]: signature,
   };
 }
 
