@@ -39,6 +39,7 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `ADMIN_TOKEN_SECRET` | Random string that signs admin session tokens |
 | `CLOUDFLARE_ACCOUNT_ID` | Only needed if the token can see multiple accounts |
 | `PAYSTACK_SECRET_KEY` | Enables card payment — see below |
+| `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERP link — see below |
 
 To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above.
 
@@ -202,7 +203,7 @@ POST /api/admin/rewards/:code/void | /restore
 GET  /api/v1/rewards           → read-only, for a CRM or loyalty dashboard
 ```
 
-## Wishlist, the About page, journal, reviews and purchase notes
+## Wishlist, the About page, the blog, reviews and purchase notes
 
 - **Wishlist** — guest-first. Saving something never demands an account: the
   list lives in the shopper's browser and is handed to the server the moment
@@ -216,12 +217,27 @@ GET  /api/v1/rewards           → read-only, for a CRM or loyalty dashboard
   copy the store shipped with, so an emptied box restores those words rather
   than publishing a blank page, and the home page's story band reads the same
   story — one story, two places, never out of step.
-- **The journal** (`/blog`) — written in Admin → Blog as plain text: a blank
+- **The blog** (`/blog`) — written in Admin → Blog as plain text: a blank
   line between paragraphs, `## ` for a heading, `> ` for a pull quote, and a
   bare image URL on its own line for a picture. Drafts are invisible until
   published; the publish date is stamped once, so editing a live post doesn't
-  reorder the journal. Posts carry `BlogPosting` markup and appear in the
-  sitemap.
+  reorder the blog. Posts carry `BlogPosting` markup and appear in the
+  sitemap. Two boxes are capped, because both decide how the blog *looks*
+  rather than what it says: the **heading** (70 characters, with a word count
+  beside it, so a card doesn't wrap to four lines) and the **preview** (220
+  characters — two or three sentences, which is all a reader sees before they
+  open the story). The limit is enforced in the editor, again in the API, and
+  again on the way out, so a post written before any of it existed still shows
+  short. An empty preview falls back to the story's first *paragraph*, skipping
+  a heading, a quote or a photograph.
+- **Book a consultation** (`/consultation`) — the Perfume Studio's page, with
+  Calendly's calendar framed on it so the booking is completed without leaving
+  the site. No Calendly script is loaded; only `frame-src` names calendly.com,
+  and only calendly.com is accepted. Every word is in Admin → Settings → The
+  Perfume Studio, and the switch there also controls the floating button, the
+  footer link and whether the page is in the sitemap at all. With bookings on
+  but no Calendly link yet, the page asks people to call or message instead of
+  showing an empty frame.
 - **Reviews & testimonials** (`/reviews`) — the customer's own post. Paste an
   Instagram post or reel, a TikTok, a YouTube video or a direct video file and
   the server reduces it to the post's id, so a copied link with tracking on it
@@ -238,6 +254,101 @@ GET  /api/v1/rewards           → read-only, for a CRM or loyalty dashboard
   that visit.
 
 ## Connecting the ERP
+
+The house runs **ERPRevolution (ERPrev)**. Nothing in the connector is welded
+to it: which ERP it talks to is a setting, the vendor-shaped part is one file
+(`worker/erp-adapters.js`) behind four neutral row shapes, and the sync engine
+(`worker/erp.js`) knows about none of it. An earlier plan had guessed ERPNext
+from the abbreviation and been wrong; that is why the seam exists, and why
+correcting it now costs a dropdown rather than a rewrite.
+
+Two directions exist, and only one of them needs anything built on the ERP's
+side.
+
+**Pull (the default, and what the house asked for).** The Worker calls the ERP
+on a schedule, reads products, prices and stock, and writes prices and
+per-shop stock into the shop. Nothing has to be built inside the ERP, and it
+works even if the ERP can only be reached *outward* — no inbound path, no
+webhook, no firewall change.
+
+**Push.** The ERP, or anything that can POST JSON, sends a flat SKU feed to
+`POST /api/v1/catalog/sync`, documented below. ERPRev ships outgoing webhooks
+with a delivery log, so this is a live option rather than a fallback — and it
+is the way in for an ERP that lives only on an office network.
+
+### Turning the pull on
+
+Everything is in **Admin → Integrations → Inventory & catalogue link**, as a
+checklist in the order it has to be done.
+
+| # | Step | Where |
+| --- | --- | --- |
+| 1 | **Which ERP.** ERPrev by default. ERPNext and a blank "type the endpoints in" option are there too. | Admin |
+| 2 | **The credentials.** ERPRev issues a single **API token** (with a usage log beside it), so put it in either box: `wrangler secret put ERP_API_KEY` or `wrangler secret put ERP_API_SECRET` — or add them as GitHub Actions secrets and let the deploy push them. They never go in the database and never reach a browser. | Worker secrets |
+| 3 | **Where it is, and how it wants to be asked.** ERPRev is multi-tenant on a subdomain, so the API root is `https://<yourcompany>.erprev.com`. Then the authentication style, the paging style, and the list endpoint for each resource — **take the paths from [ERPRev's developer guide](https://erprev.com/user-guide/developers/); the ones pre-filled are placeholders and have not been checked against it.** Then **Test the connection**, which reports what every endpoint returned, and **Show me a row**, which prints the ERP's own field names beside the ones the reader matched. | Admin |
+| 4 | **Field names**, only if step 3 shows something came back empty. The reader already tries every common spelling; this is for the one it doesn't know. | Admin |
+| 5 | **The location map.** *Fetch locations* lists them from the ERP; assign each to a shop. One with no shop against it is **ignored, not defaulted** — counting unmapped stock into the nearest shop is how one city's bottles end up on another's shelf. | Admin |
+| 6 | **The category map** (optional). Unmapped categories fall to the default category and are reported. | Admin |
+| 7 | **Dry run.** Every read, every check, nothing written. Run it before the real one, and again whenever the mapping changes. | Admin |
+| 8 | **Let it run.** A switch, a cadence (15 minutes at the fastest — that is how often the cron fires) and the empty-feed guard. | Admin |
+
+The integration user needs **read** on products, prices, stock, locations and
+categories. Nothing else, and no write access at all — the pull only reads.
+
+### What the reader copes with on its own
+
+Most SME ERPs expose much the same REST API wearing different names, so the
+reader is alias-driven rather than schema-bound:
+
+- **Authentication** — the token on its own (`Authorization: <token>`, which
+  is the style ERPRev's developer guide describes), Bearer, two headers
+  (`X-API-KEY` / `X-API-SECRET`), a token pair, HTTP Basic, or credentials in
+  the query string. Picking the wrong one produces a 401 that reads exactly
+  like a bad credential, so the connection test's message names the dropdown.
+- **Paging** — `?page=&per_page=`, `?limit=&offset=`, Frappe's
+  `limit_page_length`, or an endpoint that just returns everything.
+- **Envelopes** — a bare array, `{data:[…]}`, `{results:[…]}`, `{items:[…]}`,
+  Laravel's paginated `{data:{data:[…]}}`, or a key you name yourself.
+- **Field names** — every common spelling of each field (`sku` / `item_code` /
+  `product_code` / …), with a per-field override for anything it misses.
+- **Prices formatted for humans** — `"₦35,000.00"` parses. An ERP that renders
+  money before putting it in JSON is common, and silently dropping those rows
+  would read as "these products have no price".
+- **`disabled` or `active`, either way round**, including `status: "Active"`.
+  A row that says neither is for sale.
+- **Prices and stock on the product row**, for an ERP with no separate
+  endpoints — though a quantity on the product row is only trusted while
+  exactly one shop is mapped, since a single unlabelled number says nothing
+  about which shop it is in.
+
+### What the pull does, and what it will not do
+
+- **The ERP owns price and stock. The shop owns everything else.** Names,
+  descriptions, photographs, categories and shelf order are only ever written
+  for an item the shop has never seen; after that the pull leaves them alone.
+  Otherwise the first sync would flatten every piece of merchandising in the
+  admin, and the second would do it again an hour later.
+- **Stock is on-hand less reserved.** A bottle promised to an open order is
+  not a bottle the shop can sell.
+- **An item the ERP has never stocked sends no stock at all** — which is not
+  the same as sending zero. The ingest sets counts absolutely, so the
+  difference is whether a shelf the shop is holding gets emptied.
+- **The empty-feed guard.** Any pull that would cut more than the configured
+  share (25% by default) off the stock *this connector manages* is refused and
+  logged, and nothing is written. The denominator matters: measured against
+  the whole shop instead, an ERP managing a corner of the catalogue could zero
+  that entire corner and the drop would round to nothing. The failure this
+  prevents is silent and total — an expired key, a renamed endpoint or a
+  filter that matches nothing makes the ERP answer `[]` with a 200.
+- **New items arrive as drafts** unless the house switches that off, so a
+  mis-mapped import can never dump straight onto the storefront.
+- **Idempotent.** A re-run updates in place; it never duplicates.
+- **Nothing is written back yet.** Creating a sales order or invoice in the
+  ERP when an order is paid is the obvious next step, and it is not built,
+  because which of the two a house uses is a question about their accounting
+  process rather than about software.
+
+### Pushing a feed instead
 
 The ERP is the system of record for what exists and what it costs. It pushes a flat list of SKU rows to `POST /api/v1/catalog/sync`, authenticated with an API key issued in *Admin → Integrations* with the **write** scope. Each row carries the parent/style code that groups it with its siblings, which is what turns the feed into variable products here.
 
@@ -281,7 +392,9 @@ Behaviour worth knowing:
 ```
 migrations/        D1 schema + seed
 worker/            Hono API (shop.js public, admin.js authed, util.js helpers,
-                   rewards.js reward codes, payments.js Paystack settlement)
+                   rewards.js reward codes, payments.js Paystack settlement,
+                   erp.js the ERP pull engine,
+                   erp-adapters.js the per-ERP transports)
 src/ds/            Design system (tokens + components ported from the handoff)
 src/storefront/    Storefront SPA
 src/admin/         Admin SPA

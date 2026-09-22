@@ -10,3 +10,18 @@ ADMIN_TOKEN_SECRET=dev-only-change-me
 # Leave it unset and the card option is hidden at checkout entirely, so bank
 # transfer and WhatsApp still work.
 # PAYSTACK_SECRET_KEY=sk_test_xxx
+
+# The ERP — ERPRevolution (ERPrev) for this store, though which one is a
+# setting rather than a build. The API key and secret of a dedicated
+# integration user with *read* access to products, prices, stock and
+# locations; the pull never writes. If the ERP issues a single token rather
+# than a pair, put it in either box.
+#
+# Everything else about the link — which ERP, its address, how it authenticates,
+# its endpoint paths, and which of its locations is which shop — is configured
+# in Admin → Integrations → Inventory & catalogue link, not here.
+#
+# Leave them unset and the connector reports itself as not connected and never
+# calls out.
+# ERP_API_KEY=xxxxxxxxxxxxxxx
+# ERP_API_SECRET=xxxxxxxxxxxxxxx

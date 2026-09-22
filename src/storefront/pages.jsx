@@ -7,10 +7,11 @@ import { EmbedCard, TestimonialCarousel, PostBody } from "./pages-content.jsx";
 import { DailyDealCard } from "./daily-deal.jsx";
 import { catFamily, catPath, countIn } from "../lib/categories.js";
 import { aboutContent } from "../lib/about.js";
+import { variantGallery } from "../lib/gallery.js";
 import { record } from "./track.js";
 
 export { ProductCard };
-export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage } from "./pages-content.jsx";
+export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage, ConsultationPage } from "./pages-content.jsx";
 export { EmbedCard, TestimonialCarousel };
 
 const PAD = "clamp(16px, 4vw, 40px)";
@@ -521,7 +522,7 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
             <div>
               <Eyebrow>{eyebrow}</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {title || settings.blogHeadline || "From the blog"}
+                {title || settings.blogHeadline || "Blog"}
               </h2>
             </div>
             <BlockLink ctx={ctx} block={block} />
@@ -534,7 +535,9 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
                 <div style={{ padding: "16px 18px 20px" }}>
                   <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>{p.published || "Blog"}</div>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>
-                  {p.excerpt && <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.65, margin: "6px 0 0" }}>{p.excerpt}</p>}
+                  {p.excerpt && (
+                    <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.65, margin: "6px 0 0", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.excerpt}</p>
+                  )}
                 </div>
               </a>
             ))}
@@ -872,13 +875,22 @@ export function ProductPage({ ctx }) {
   // *variation*, so a payload written by an older Worker (mid-deploy, or a
   // stale edge) must degrade to the shop rather than white-screen the SPA.
   const variants = (pr && pr.variants) || [];
-  if (!pr || !variants.length) return <ShopPage ctx={ctx} />;
 
   // The selected variation: whatever the shopper picked, else the SKU the URL
-  // asked for, else the first one in stock in their city.
+  // asked for, else the first one in stock in their city. Resolved *before* the
+  // bail-out below so the thumbnail reset beneath it is an unconditional hook.
   const prV = variants.find((v) => v.id === ctx.prVariantId)
     || (ctx.prSku && variants.find((v) => v.sku === ctx.prSku))
     || ctx.defaultVariant(variants);
+  const prVId = prV ? prV.id : null;
+  // Changing size changes the gallery, so the thumbnail that was open goes back
+  // to the first. `selectVariant` does this for a click; this catches the ways
+  // the variation changes without one — the back button, a shared ?variant=
+  // link, or a card that opened this page on a different size.
+  useEffect(() => { setShot(0); }, [prVId]);
+
+  if (!pr || !variants.length) return <ShopPage ctx={ctx} />;
+
   const prA = ctx.variantAvail(prV);
   const { cityName, L } = ctx;
   const soldOut = prA.soldOut;
@@ -891,17 +903,9 @@ export function ProductPage({ ctx }) {
   // slug it the same way the server does.
   const brandSlug = (pr.brand || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-  // The gallery for this variation: its own shots first, then the shots shared
-  // across the product, so switching size changes the picture where there is a
-  // picture to change to and holds steady where there isn't.
-  const gallery = (() => {
-    const shots = pr.images || [];
-    const own = shots.filter((im) => im.variantId === prV.id);
-    const shared = shots.filter((im) => !im.variantId);
-    const urls = [...own, ...shared].map((im) => ({ url: im.url, alt: im.alt }));
-    if (!urls.length && (prV.imageUrl || pr.imageUrl)) urls.push({ url: prV.imageUrl || pr.imageUrl, alt: pr.name });
-    return urls;
-  })();
+  // The gallery for this variation — see `src/lib/gallery.js` for why the
+  // listing photo has to lead it.
+  const gallery = variantGallery(pr, prV);
   const hero = gallery[Math.min(shot, Math.max(0, gallery.length - 1))];
 
   const selectVariant = (v) => {

@@ -19,7 +19,7 @@ settings:
 | 1 | Smart shopping & insights — abandoned cart, "clicked but never added", "other features that convert" | **A new foundation.** The store has no record of a *visit*. It records orders, and it records an abandoned cart only once someone has typed their name and contact into checkout. Everything asked for here needs a behavioural stream that does not exist yet. |
 | 5 | Curate "Best sellers" and "Ready at your store" | **One feature with #6.** Both are homepage shelves that compute themselves. What is missing is a *source* switch — automatic, curated, or automatic-with-pins. |
 | 6 | Home Fragrance band should look like the Feminine Care band; banner images editable; ability to create and replace banners | Same feature. `ProductBand` (Feminine care) and `CtaBand` (Home fragrance) are two components with hardcoded copy. The real ask is that **the home page becomes data**. |
-| 3 | ERPNext link — update inventory from their ERP | **Half-built already.** `POST /api/v1/catalog/sync` accepts an ERP feed today, upserts idempotently on the ERP's own ids, and sets stock absolutely. What is missing is the *ERPNext-shaped* adapter, the pull direction, the warehouse↔store map, and the write-back. |
+| 3 | ERP link — update inventory from their ERP | **Half-built already.** `POST /api/v1/catalog/sync` accepts an ERP feed today, upserts idempotently on the ERP's own ids, and sets stock absolutely. What is missing is the *pull* direction, an adapter that reads the ERP's own shapes, the warehouse↔store map, and the write-back. |
 | 2 | Customisable low-stock level | **Two lines of UI and a real alert.** `lowStockThreshold` already exists in `settings` and is already on the PUT allow-list in `worker/admin.js:933`. Nothing renders it. And "low stock" is only a *number on the dashboard* — nobody is notified. |
 | 4 | Replace About Us with the blog | Navigation + a decision about the founder's story (below). |
 | — | Privacy policy and other admin-side details | **The legal pages are hardcoded JSX** (`PrivacyPage`, `pages.jsx:1478`). They need to be content, like the blog already is. |
@@ -321,12 +321,37 @@ on one page), and the tag chips it already has.
 
 ---
 
-## 7. ERPNext ⬜🔑
+## 7. The ERP link — pull ✅, write-back 🔑
 
-**Assumption:** "ERPrev" is **ERPNext** (the Frappe-framework ERP). Everything
-below is written against its REST API. The adapter is built behind a generic
-interface, so if it turns out to be Odoo, Zoho or SAP Business One, the transport
-changes and the sync engine does not.
+**The assumption that stood here was wrong, and the scar is worth leaving.**
+This section used to open: *"'ERPrev' is **ERPNext** (the Frappe-framework
+ERP). Everything below is written against its REST API."* It isn't. ERPrev is
+**ERPRevolution** — a different product, from a different company, with a
+different API. The client corrected it on 22 Sep, after a first version of the
+connector had been built end to end against Frappe.
+
+Two things went wrong and only one of them was the guess:
+
+1. **Nobody asked.** An abbreviation was expanded by inference, and the
+   inference was written down as a premise rather than as a question. It then
+   sat in a planning document long enough to read as settled.
+2. **The same paragraph promised the mitigation, and the build didn't deliver
+   it** — "the adapter is built behind a generic interface, so if it turns out
+   to be Odoo, Zoho or SAP Business One, the transport changes and the sync
+   engine does not". There was no interface. Frappe's field names were spread
+   through the engine, and correcting the vendor meant rewriting the module.
+
+There is one now, and it is the real thing: `worker/erp-adapters.js` holds
+everything vendor-shaped behind four neutral rows, `worker/erp.js` knows
+nothing about any ERP, and the tests prove each half separately so the engine
+cannot quietly re-acquire a vendor's schema. **Which ERP is a setting, not a
+deploy.** The generic adapter is alias-driven and reads most SME REST APIs
+without being told anything; where it guesses wrong, the admin's probe prints
+the ERP's own keys, so the answer is read rather than guessed a second time.
+
+Everything from §7.1 to §7.3 below describes the machinery in ERPNext's terms
+because that is the vocabulary it was written in. The machinery is unchanged;
+substitute ERPRev's names for Frappe's DocTypes and it still reads true.
 
 ### 7.1 What already exists
 
@@ -387,20 +412,68 @@ doesn't silently lose a sale from the ledger.
 | **Sync log** | `catalog_syncs` exists. Extend with direction, duration, and per-row errors readable by a human |
 | **Credentials** | Worker secrets (`ERP_API_KEY`, `ERP_API_SECRET`), like `PAYSTACK_SECRET_KEY`. Base URL, price list, warehouse map and cadence in settings, so the house configures everything except the secret without a deploy |
 
-### 7.4 What we need from the client before this can start 🔑
+### 7.4 The seven questions, answered ✅ (and the eighth, which nobody asked)
 
-1. ERPNext **version** (v14 / v15) and **hosting** — Frappe Cloud, a self-hosted
-   VPS, or on-premise.
-2. **Is it reachable from the internet?** If it sits behind an office firewall,
-   pull is impossible and the webhook push becomes the only transport. This
-   changes the build, so it is the first question.
-3. An **API key and secret** on a dedicated integration user with read on Item,
-   Item Price and Bin (and write on Sales Order if we push orders back).
-4. Which **price list** is the web price.
-5. Which **warehouses** map to which stores.
-6. **Do orders go back into ERPNext?** As a Sales Order, or a Sales Invoice?
-7. **Who owns product copy and photographs** — ERPNext or the website? (Strong
-   recommendation: the website. ERP item descriptions are not shop copy.)
+**0. Which ERP is it?** ERPRevolution (ERPrev), at erprev.com. Not ERPNext.
+This question was never on the list, which is why it took a build to surface.
+It is now a dropdown, so the cost of getting it wrong again is a click.
+
+Seven things were needed before this could start. The connector shipped by
+turning five of them into screens rather than emails — a question somebody has
+to answer once is better asked by the software that needs the answer.
+
+| | | Where it stands |
+|---|---|---|
+| 1 | Version and hosting | **Doesn't matter.** The reader takes a base URL and a set of endpoint paths; where the ERP is hosted and which release it is on change neither. |
+| 2 | **Is it reachable from the internet?** | **Answered by a button.** Admin → Integrations → Inventory & catalogue link → *Test the connection* says yes or no in five seconds, and reports what each endpoint returned. If the answer is no, the push transport at `POST /api/v1/catalog/sync` is still there, and anything in ERPRev that can POST JSON on a schedule can drive it. |
+| 3 | An API key and secret | **The client has them.** They go in as Worker secrets — `ERP_API_KEY`, `ERP_API_SECRET` — never the database. Read access to products, prices, stock, locations and categories is all the pull ever needs; it does not write. If ERPRev issues a single token rather than a pair, either box takes it. |
+| 4 | Which price list is the web price | **A field**, and only relevant if ERPRev keeps more than one. Where the price rides the product row — the usual shape — the price endpoint is left empty and the reader takes it from there. |
+| 5 | Which locations map to which shops | **A screen.** Locations are listed *from* the ERP — or collected from the names seen on stock rows, for an ERP with no location endpoint — and assigned to shops from a dropdown, because the name has to match character for character. An unmapped location is ignored rather than defaulted; that default is how one city's stock lands on another's shelf. |
+| 6 | **Do orders go back?** As a Sales Order or a Sales Invoice? | **Still open, and the only thing still blocked.** It is a question about their accounting process, not about software. |
+| 7 | Who owns product copy and photographs | **Decided, and enforced in code.** The website. The pull writes name, description, image and category only for an item the shop has never seen; after that it writes price and stock and nothing else. Otherwise the first sync flattens the merchandising and the second does it again an hour later. |
+
+### 7.5 What shipped
+
+Two modules on top of the ingest that has existed since Sprint 2.
+
+**`worker/erp-adapters.js` — everything vendor-shaped.** Five authentication
+styles, four paging styles, envelope detection for the shapes SME APIs
+actually return, and an alias-driven reader that tries every common spelling
+of each field it needs. Three adapters: **ERPrev** (the default), ERPNext (for
+anyone whose warehouse system is Frappe even though their ERP isn't) and a
+blank one for typing endpoints into.
+
+**`worker/erp.js` — the engine, which knows about none of that.**
+
+- Reads products, prices and stock, with prices and stock optional because
+  plenty of ERPs carry both on the product row.
+- Maps locations to shops, summing several into one, and counts on-hand less
+  reserved — a bottle promised to an open order is not one we can sell.
+- **The empty-feed guard**, measured against *what this connector manages*
+  rather than the whole shop. That denominator is not a detail: with the whole
+  shop as the divisor, an ERP managing 37 units beside a 5,600-unit catalogue
+  zeroed every one of them and the guard called it a 1% change and let it
+  through. Caught in a live run against a fake ERP, before it could ever
+  happen for real.
+- A **dry run** that does every read and every check and writes nothing, and a
+  **probe** that prints the ERP's own keys next to what the reader matched —
+  which is how a schema gets mapped without its documentation.
+- An eight-step checklist in Admin → Integrations, in the order the steps have
+  to happen, with the connection test, the probe and the sync log on it.
+- 78 assertions in `scripts/erp.test.mjs`: the engine on neutral rows, each
+  adapter on its own vendor's shapes, and every branch of the guard.
+
+**Verified end to end** against a purpose-built fake ERP whose schema the
+connector had never been told — Bearer auth, a `{status,data:[…]}` envelope,
+`?page=&per_page=` paging and field names like `product_code`, `variant_name`,
+`selling_price: "₦35,000.00"`, `branch_name`, `available_qty`, `committed`,
+`status: "Active"`. With nothing configured but the endpoint paths: prices
+parsed out of formatted naira, a parent and two variations built into one
+listing, a simple item made a one-size listing, an inactive item left out,
+reserved units deducted, stock in an unmapped location not counted anywhere,
+an unmapped category filed under the default *and reported*, new products
+landed as drafts, a re-run updating in place rather than duplicating, and the
+guard refusing a feed that claimed everything was gone.
 
 ---
 

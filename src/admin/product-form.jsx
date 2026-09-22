@@ -2,7 +2,7 @@
 // its own SKU, price, photo and opening stock per store, under one parent that
 // the storefront presents as a single listing with a picker (or as separate
 // cards, when "list each variation as its own card" is on).
-import React, { useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { uploadImage } from "../lib/images.js";
@@ -101,6 +101,79 @@ function VariantRows({ ctx, variants, setVariants, stores, showStock = true, opt
         style={{ alignSelf: "flex-start", background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>
         + Add another variation
       </button>
+    </div>
+  );
+}
+
+// Every photograph filed against a product, and which variation each belongs to.
+//
+// These rows existed from the start — the product page draws its gallery from
+// them — but nothing in the admin had ever shown them, so a shot that was wrong
+// or left over from a photo that had since been replaced was invisible to the
+// house and visible to every shopper. That is most of what "the pictures have
+// swapped round" turned out to be. This is the screen that lets someone look.
+function GalleryPanel({ ctx, product }) {
+  const [shots, setShots] = useState(null);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api.get(`/api/admin/products/${encodeURIComponent(product.id)}/images`, ctx.token);
+      setShots(d.images || []);
+    } catch (e) { ctx.authFail(e); setErr(e.message); }
+  }, [ctx, product.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const add = async (url) => {
+    if (!url) return;
+    try { await api.post(`/api/admin/products/${encodeURIComponent(product.id)}/images`, { url }, ctx.token); await load(); ctx.loadProducts(); }
+    catch (e) { ctx.authFail(e); setErr(e.message); }
+  };
+  const retag = async (im, variantId) => {
+    try { await api.patch(`/api/admin/images/${im.id}`, { variantId: variantId || null }, ctx.token); await load(); ctx.loadProducts(); }
+    catch (e) { ctx.authFail(e); setErr(e.message); }
+  };
+  const remove = async (im) => {
+    if (!window.confirm("Remove this photograph from the product? The file itself is kept.")) return;
+    try { await api.del(`/api/admin/images/${im.id}`, ctx.token); await load(); ctx.loadProducts(); }
+    catch (e) { ctx.authFail(e); setErr(e.message); }
+  };
+
+  const primary = product.imageUrl || "";
+  return (
+    <div>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 4 }}>Every photograph on this product</div>
+      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
+        The product page shows these in order, opening on the one the shop&rsquo;s cards use. A shot tagged to a variation only appears when
+        that variation is chosen; an untagged one is shared by all of them. If a picture here belongs to something else, remove it.
+      </div>
+      {shots === null ? (
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Looking…</div>
+      ) : !shots.length ? (
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Nothing filed beyond the photos above.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {shots.map((im) => (
+            <div key={im.id} style={{ display: "flex", gap: 10, alignItems: "center", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 8 }}>
+              <img src={im.url} alt="" style={{ width: 46, height: 46, objectFit: "cover", borderRadius: "var(--radius-sm)", background: "var(--surface-sunken)", flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <select value={im.variantId || ""} onChange={(e) => retag(im, e.target.value ? parseInt(e.target.value, 10) : null)}
+                  style={{ fontFamily: "var(--font-sans)", fontSize: 12, padding: "5px 8px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-sm)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer", maxWidth: "100%" }}>
+                  <option value="">Shared by every variation</option>
+                  {product.variants.map((v) => <option key={v.id} value={v.id}>Only on {v.size}</option>)}
+                </select>
+                {im.url === primary && <div style={{ fontSize: 10.5, color: "var(--mr-purple-700)", marginTop: 4 }}>This is the listing photo.</div>}
+              </div>
+              <button onClick={() => remove(im)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)" }}>Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <ImagePicker ctx={ctx} value="" clearAfterPick onChange={add} label="Add another photograph"
+          hint="Filed as a shared shot — tag it to one variation above if it only belongs to that size." />
+      </div>
+      {err && <div style={{ fontSize: 12, color: "#c0587a", marginTop: 8 }}>{err}</div>}
     </div>
   );
 }
@@ -307,6 +380,8 @@ export function EditProductPanel({ ctx, product, onClose }) {
           <button onClick={() => setAddV(blankVariant())} style={{ marginTop: 10, background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ Add a variation</button>
         )}
       </div>
+
+      <GalleryPanel ctx={ctx} product={product} />
 
       <div>
         <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />

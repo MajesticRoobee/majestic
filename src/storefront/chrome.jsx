@@ -425,11 +425,6 @@ function Header({ ctx }) {
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mr-mute)" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></svg>
     </div>
   );
-  const bandControl = {
-    alignSelf: "center", background: "transparent", border: "1px solid rgba(255,255,255,0.28)", borderRadius: "var(--radius-sm)",
-    padding: "8px 12px", fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", color: "var(--mr-cream)", cursor: "pointer", flex: "none", outline: "none",
-  };
-
   return (
     <header style={{ position: "sticky", top: 0, zIndex: 100, background: "rgba(250,246,241,0.94)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--border-hairline)" }}>
       <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 clamp(16px, 4vw, 40px)", display: "flex", alignItems: "center", gap: 16, height: ctx.isMobile ? 66 : 78, minWidth: 0 }}>
@@ -475,11 +470,12 @@ function Header({ ctx }) {
               ))}
             </nav>
             <div style={{ flex: 1, minWidth: 12 }} />
+            {/* Currency and city used to sit here, at the right-hand end of
+                the band — which is the one place on the page a shopper is not
+                looking once they have started shopping, and nowhere at all on
+                a phone until they opened the menu. They float with the support
+                buttons now; see SupportDock. */}
             {bandSearch && searchBox(true)}
-            <button onClick={ctx.toggleCurrency} title="Switch currency" style={{ ...bandControl, marginLeft: 12 }}>
-              {ctx.currency === "NGN" ? "₦ NGN" : "$ USD"}
-            </button>
-            <CitySelect ctx={ctx} style={{ ...bandControl, marginLeft: 8, padding: "8px" }} />
           </div>
         </div>
       )}
@@ -513,12 +509,6 @@ function Header({ ctx }) {
                 ))}
               </div>
             ))}
-          </div>
-          <div style={{ display: "flex", gap: 10, padding: "12px 24px", alignItems: "center" }}>
-            <button onClick={ctx.toggleCurrency} style={{ background: "none", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", padding: "8px 14px", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-purple-800)", cursor: "pointer" }}>
-              {ctx.currency === "NGN" ? "₦ NGN" : "$ USD"}
-            </button>
-            <CitySelect ctx={ctx} style={{ fontSize: 13, padding: "8px 10px" }} />
           </div>
         </nav>
       )}
@@ -624,6 +614,54 @@ function LeaveNudge({ ctx }) {
   );
 }
 
+// The floating dock: currency, city, and the way into the Perfume Studio's
+// calendar — a horizontal row sitting just above the support button.
+//
+// Currency and city were at the right-hand end of the purple band, which is
+// the last place a shopper looks once they have started shopping and is not on
+// the page at all on a phone until they open the menu. The house asked for
+// them to float instead, with "Book a consultation" beside them. That turns
+// out to be the right place for all three: a shopper works out halfway down a
+// product page that the price is in the wrong currency, or that they are
+// looking at Lagos stock, and the control is under their thumb rather than a
+// scroll away.
+//
+// It stands down for the chat panel, which occupies the same corner when open.
+function SupportDock({ ctx }) {
+  if (ctx.chat.open) return null;
+  const consult = ctx.consultation || {};
+  // The chat button is 56px at bottom:20. The consent banner owns the bottom of
+  // the screen until it is answered, and on a phone it is full width, so the
+  // dock climbs over it rather than hiding behind it.
+  const bottom = ctx.showConsent ? 168 : 88;
+  const pill = {
+    display: "inline-flex", alignItems: "center", gap: 6, background: "var(--surface-card)",
+    border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)",
+    padding: "8px 13px", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500,
+    color: "var(--mr-purple-800)", cursor: "pointer", boxShadow: "var(--shadow-sm)", outline: "none",
+    appearance: "none", lineHeight: 1.2,
+  };
+  return (
+    <div style={{ position: "fixed", right: 20, bottom, zIndex: 158, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, maxWidth: "calc(100vw - 40px)" }}>
+      {consult.on && (
+        <a href="/consultation" onClick={(e) => { e.preventDefault(); ctx.nav("consultation"); }}
+          style={{ ...pill, background: "var(--accent-gold)", borderColor: "transparent", color: "var(--mr-purple-950)", fontWeight: 600, boxShadow: "var(--shadow-gold)", textDecoration: "none" }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" />
+          </svg>
+          {consult.ctaLabel || "Book a consultation"}
+        </a>
+      )}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <button onClick={ctx.toggleCurrency} title="Switch currency" aria-label={`Prices in ${ctx.currency}. Switch currency.`} style={pill}>
+          {ctx.currency === "NGN" ? "\u20a6 NGN" : "$ USD"}
+        </button>
+        <CitySelect ctx={ctx} style={{ ...pill, paddingRight: 11 }} />
+      </div>
+    </div>
+  );
+}
+
 function ChatWidget({ ctx }) {
   const { chat, setChat } = ctx;
   return (
@@ -724,6 +762,9 @@ function Footer({ ctx }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
             {link("Our story", "about")}
             {link("Our stores", "locations")}
+            {/* Only while the studio is taking bookings — a footer link to a
+                page that says "not at the moment" is a link nobody wanted. */}
+            {ctx.consultation && ctx.consultation.on && link("Book a consultation", "consultation")}
             {link("Blog", "blog")}
             {link("Reviews", "reviews")}
             {link("Contact us", "contact")}
@@ -873,6 +914,7 @@ export function Chrome({ ctx, children }) {
       <CartDrawer ctx={ctx} />
       <LeaveNudge ctx={ctx} />
       <PurchaseProof ctx={ctx} />
+      <SupportDock ctx={ctx} />
       <ChatWidget ctx={ctx} />
       <Footer ctx={ctx} />
     </div>

@@ -2,6 +2,7 @@
 // JSON-LD structured data. Client-managed; Googlebot renders JS so this is indexed.
 
 import { aboutContent } from "../lib/about.js";
+import { consultationContent } from "../lib/consultation.js";
 
 function upsertMeta(attr, key, content) {
   if (!content) {
@@ -109,6 +110,8 @@ export function headFor({ page, product, variant, settings, categories = [], seg
   // The About page's title and description are settings with the shipped copy
   // behind them, so this reads the same resolver the page itself renders from.
   const about = aboutContent(settings);
+  // Same arrangement for the Perfume Studio's booking page.
+  const consult = consultationContent(settings);
   const org = {
     "@type": "Organization",
     name: siteName,
@@ -261,6 +264,25 @@ export function headFor({ page, product, variant, settings, categories = [], seg
     locations: { title: `Our Stores | ${siteName}`, path: "/locations", desc: "Where to find Majestic Roobee — addresses, opening hours and phone numbers for every store." },
     reviews: { title: `Reviews | ${siteName}`, path: "/reviews", desc: "What customers say about Majestic Roobee, in their own posts and their own words." },
     blog: { title: `Blog | ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from Majestic Roobee." },
+    // The booking page describes itself from settings, like About does — and
+    // drops out of search entirely while the studio isn't taking bookings,
+    // rather than ranking for a service nobody can have.
+    consultation: {
+      title: consult.seoTitle.includes(siteName) ? consult.seoTitle : `${consult.seoTitle} | ${siteName}`,
+      path: "/consultation",
+      desc: consult.seoDesc,
+      noindex: !consult.on,
+      jsonLd: consult.on ? {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        name: consult.headline,
+        serviceType: "Perfume consultation",
+        description: consult.intro,
+        provider: org,
+        areaServed: "NG",
+        url: `${origin()}/consultation`,
+      } : null,
+    },
     post: { title: `Blog | ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from Majestic Roobee." },
     checkout: { title: `Checkout | ${siteName}`, path: "/checkout", desc: "", noindex: true },
     confirm: { title: `Order Confirmed | ${siteName}`, path: "/confirm", desc: "", noindex: true },

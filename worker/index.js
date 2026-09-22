@@ -9,6 +9,8 @@ import { sweepStock } from "./inventory.js";
 import { rollup } from "./insights.js";
 import { rebuildAffinity } from "./affinity.js";
 import { resolveMedia, readMedia } from "./media.js";
+import { getSettings } from "./util.js";
+import { runErpPull } from "./erp.js";
 
 const app = new Hono();
 
@@ -42,10 +44,11 @@ app.get("/images/:id", async (c) => {
   return new Response(bytes, {
     headers: {
       "content-type": row.mime,
+      // Content-addressed: an id is minted per upload and its bytes never
+      // change, so this can cache forever. Each width is a distinct URL
+      // (`?w=`), which is what keeps a phone's copy out of a desktop's cache —
+      // there is no content negotiation here, so nothing to Vary on.
       "cache-control": "public, max-age=31536000, immutable",
-      // Same id, different bytes per width — say so, or a shared cache can
-      // hand a phone's copy to a desktop.
-      "vary": "Accept",
     },
   });
 });
@@ -73,6 +76,13 @@ app.get("/sitemap.xml", async (c) => {
     "/", "/shop", "/new-arrivals", "/best-sellers", "/deals", "/gift-sets",
     "/locations", "/reviews", "/blog", "/about", "/faq", "/track", "/contact",
   ];
+  // The Perfume Studio's booking page is only a page while the studio is
+  // taking bookings — listing it otherwise would send search traffic to a
+  // sentence saying no.
+  try {
+    const settings = await getSettings(c.env.DB);
+    if (String(settings.consultOn) === "1") staticUrls.push("/consultation");
+  } catch {}
   let catUrls = [];
   try {
     const rows = (await c.env.DB.prepare("SELECT id FROM categories WHERE live = 1 ORDER BY sort, id").all()).results;
@@ -130,6 +140,11 @@ async function cron(env) {
   // next one.
   try { await sweepStock(env); } catch (e) { console.error("stock sweep failed", e); }
   try { await runScheduled(env); } catch (e) { console.error("automation run failed", e); }
+  // The ERP link. It decides for itself whether this cadence is its turn — the
+  // house sets how often it calls out, and this cron fires every 15 minutes
+  // for everything else. Never throws: a pull that fails is a row in the sync
+  // log, not a cron that stops sweeping stock.
+  try { await runErpPull(env); } catch (e) { console.error("erp pull failed", e); }
   // Fold yesterday into the rollups the admin reads, and prune raw events past
   // the window. Last, because it is the only job here nobody is waiting on.
   try { await rollup(env); } catch (e) { console.error("insight rollup failed", e); }

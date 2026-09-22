@@ -15,6 +15,8 @@ import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lo
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
 import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
+import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
+import { erpStatus, erpPing, erpProbe, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -450,6 +452,52 @@ admin.delete("/variants/:id", async (c) => {
 // ---- Product gallery ----
 // Images belong to the product; tagging one to a variation makes it the shot
 // shown when that variation is selected. Untagged shots are shared by all.
+//
+// The listing photo and the gallery are two records of the same picture:
+// creating a product writes its photo into `products.image_url` *and* into
+// `product_images`, and the product page draws its hero from the gallery while
+// every card draws it from the column. Change one without the other and the
+// two disagree — the shop shows the new bottle and the product page still shows
+// the one it replaced, which is the "the pictures have swapped" the house has
+// been reporting. `syncGalleryPhoto` is what keeps the pair honest: it moves
+// the *existing* row rather than adding a second one, so a gallery the house
+// has curated by hand never quietly grows a ghost of every photo ever replaced.
+export async function syncGalleryPhoto(db, productId, variantId, oldUrl, newUrl) {
+  const from = String(oldUrl || "").trim();
+  const to = String(newUrl || "").trim();
+  if (from === to) return;
+  const tagged = variantId ? "variant_id=?" : "variant_id IS NULL";
+  const bindTag = variantId ? [variantId] : [];
+  // Is the new picture already filed here? Then the old row is a duplicate to
+  // retire, not a row to repoint.
+  const already = to
+    ? await db.prepare(`SELECT id FROM product_images WHERE product_id=? AND ${tagged} AND url=?`)
+        .bind(productId, ...bindTag, to).first()
+    : null;
+  const stale = from
+    ? await db.prepare(`SELECT id FROM product_images WHERE product_id=? AND ${tagged} AND url=? ORDER BY sort, id LIMIT 1`)
+        .bind(productId, ...bindTag, from).first()
+    : null;
+
+  if (stale && already) {
+    await db.prepare("DELETE FROM product_images WHERE id=?").bind(stale.id).run();
+    return;
+  }
+  if (stale) {
+    if (to) await db.prepare("UPDATE product_images SET url=? WHERE id=?").bind(to, stale.id).run();
+    else await db.prepare("DELETE FROM product_images WHERE id=?").bind(stale.id).run();
+    return;
+  }
+  if (to && !already) {
+    // No row to move — the photo was set on a product whose gallery was built
+    // by hand. Lead with it, since it is the one the listing is using.
+    const first = await db.prepare("SELECT COALESCE(MIN(sort), 0) - 1 AS n FROM product_images WHERE product_id=?").bind(productId).first();
+    const name = await db.prepare("SELECT name FROM products WHERE id=?").bind(productId).first();
+    await db.prepare("INSERT INTO product_images (product_id, variant_id, url, alt, sort) VALUES (?, ?, ?, ?, ?)")
+      .bind(productId, variantId || null, to, (name && name.name) || "", first ? first.n : 0).run();
+  }
+}
+
 admin.get("/products/:id/images", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT * FROM product_images WHERE product_id=? ORDER BY sort, id").bind(c.req.param("id")).all()).results;
   return c.json({ images: rows.map((r) => ({ id: r.id, url: r.url, alt: r.alt, variantId: r.variant_id, sort: r.sort })) });
@@ -509,7 +557,10 @@ admin.delete("/images/:id", async (c) => {
   await db.prepare("DELETE FROM product_images WHERE id=?").bind(id).run();
   // Drop the reference from anything still pointing at it, then re-point the
   // product at whatever shot is left so a listing never loses its picture.
-  await db.prepare("UPDATE variants SET image_url=NULL WHERE image_url=?").bind(img.url).run();
+  // Scoped to *this* product: two products can share an address (the same
+  // upload reused, or an ERP feed handing the same URL to a pair of items), and
+  // an unscoped blanking took the photo off the other one too.
+  await db.prepare("UPDATE variants SET image_url=NULL WHERE image_url=? AND product_id=?").bind(img.url, img.product_id).run();
   const rest = await db.prepare("SELECT url FROM product_images WHERE product_id=? ORDER BY sort, id LIMIT 1").bind(img.product_id).first();
   await db.prepare("UPDATE products SET image_url=? WHERE id=? AND image_url=?").bind(rest ? rest.url : null, img.product_id, img.url).run();
   return c.json({ ok: true });
@@ -519,6 +570,8 @@ admin.delete("/images/:id", async (c) => {
 // description, image). Only the fields present in the body are changed.
 admin.patch("/products/:id", async (c) => {
   const b = await c.req.json();
+  const id = c.req.param("id");
+  const db = c.env.DB;
   const map = { live: "live", name: "name", cat: "cat", brand: "brand", family: "family", gender: "gender", notes: "notes", desc: "descr", imageUrl: "image_url", splitListing: "split_listing", pinNew: "pin_new", pinBest: "pin_best" };
   const flags = ["live", "splitListing", "pinNew", "pinBest"];
   const sets = [], vals = [];
@@ -527,8 +580,13 @@ admin.patch("/products/:id", async (c) => {
   }
   if (b.optionNames !== undefined) { sets.push("option_names=?"); vals.push(JSON.stringify(normaliseOptionNames(b.optionNames))); }
   if (!sets.length) return c.json({ ok: true });
-  vals.push(c.req.param("id"));
-  await c.env.DB.prepare(`UPDATE products SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  // Read the photo it is replacing before the write, so the gallery can follow.
+  const before = b.imageUrl !== undefined
+    ? await db.prepare("SELECT image_url FROM products WHERE id=?").bind(id).first()
+    : null;
+  vals.push(id);
+  await db.prepare(`UPDATE products SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  if (b.imageUrl !== undefined) await syncGalleryPhoto(db, id, null, before && before.image_url, b.imageUrl);
   return c.json({ ok: true });
 });
 
@@ -566,6 +624,9 @@ admin.patch("/variants/:id", async (c) => {
   }
   if (b.sku !== undefined) put("sku", await freeSku(db, String(b.sku || "").trim() || makeSku(cur.product_id, cur.size), vid));
   if (b.imageUrl !== undefined) put("image_url", String(b.imageUrl || "").trim() || null);
+  // Same pairing as the product's own photo: the shot tagged to this variation
+  // in the gallery is the one the product page draws, so it moves with it.
+  const photoMoved = b.imageUrl !== undefined;
   if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
   if (b.active !== undefined) put("active", b.active ? 1 : 0);
   // The line for this one piece. Empty means "whatever the store's is".
@@ -577,6 +638,7 @@ admin.patch("/variants/:id", async (c) => {
   if (!sets.length) return c.json({ ok: true });
   vals.push(vid);
   await db.prepare(`UPDATE variants SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  if (photoMoved) await syncGalleryPhoto(db, cur.product_id, vid, cur.image_url, b.imageUrl);
   return c.json({ ok: true });
 });
 
@@ -1001,6 +1063,24 @@ admin.put("/settings", async (c) => {
     // photographs across), so there is nothing here to keep.
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
+    // The ERP link. The credentials are Worker secrets and are not here; these
+    // are the settings that say which ERP, where it is, how to read it, and
+    // how brave the connector is allowed to be. Which ERP is a *setting*
+    // rather than a deploy, which is the whole lesson of the first version of
+    // this connector being written against the wrong one. `erpLastSync` is
+    // written by the connector rather than by a person, so it is absent.
+    "erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle",
+    "erpPaths", "erpFields", "erpEnvelopeKey",
+    "erpPriceList", "erpPublish", "erpDefaultCat",
+    "erpEmptyGuardPct", "erpSyncEveryMins",
+    // The Perfume Studio's consultation page: whether the studio is taking
+    // bookings at all, the Calendly link the calendar is framed from, and the
+    // words on the page. Empty copy means "use what the store shipped with" —
+    // see `src/lib/consultation.js`. The Calendly link is a *link*, not a
+    // credential: it is the public booking page, so it lives here rather than
+    // in a Worker secret.
+    "consultOn", "consultCalendlyUrl", "consultEyebrow", "consultHeadline", "consultIntro",
+    "consultBody", "consultCtaLabel", "consultImage", "consultSeoTitle", "consultSeoDesc",
     // Rewards: whether a paid order earns a code, and what that code is worth.
     "rewardsOn", "rewardEarnKind", "rewardEarnValue", "rewardEarnMinSpend", "rewardEarnScope",
     "rewardEarnExpiryDays", "rewardCodePrefix",
@@ -1739,7 +1819,7 @@ async function freePageSlug(db, want) {
 // it would shadow the shop and never be reachable.
 const RESERVED_SLUGS = new Set([
   "shop", "product", "blog", "about", "faq", "track", "contact", "checkout", "confirm",
-  "account", "wishlist", "locations", "reviews", "brand", "brands", "admin", "api", "images",
+  "account", "wishlist", "locations", "reviews", "consultation", "brand", "brands", "admin", "api", "images",
   "new-arrivals", "best-sellers", "deals", "gift-sets", "robots.txt", "sitemap.xml",
 ]);
 
@@ -1807,6 +1887,13 @@ admin.delete("/pages/:slug", async (c) => {
 // The slug is the URL, so it is derived from the title once and then only ever
 // changed deliberately: renaming a post must not silently break a link someone
 // has shared.
+//
+// A preview is a preview, and a heading fits on a card. The screen shows the
+// writer a count as they type, but a limit only a browser enforces is not one:
+// the API holds the same line, and the storefront clamps once more on the way
+// out so the posts written before any of this existed come back short too.
+const clampPreview = (v) => clampText(String(v ?? ""), PREVIEW_MAX);
+const clampTitle = (v) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, TITLE_MAX);
 
 const blogOut = (r) => ({
   id: r.id, slug: r.slug, title: r.title, excerpt: r.excerpt, body: r.body,
@@ -1832,14 +1919,14 @@ admin.get("/blog", async (c) => {
 admin.post("/blog", async (c) => {
   const b = await c.req.json();
   const db = c.env.DB;
-  const title = String(b.title || "").trim();
+  const title = clampTitle(b.title);
   if (!title) return c.json({ error: "Give the story a title." }, 400);
   const slug = await freeSlug(db, b.slug || title);
   const status = b.status === "published" ? "published" : "draft";
   const r = await db.prepare(
     "INSERT INTO blog_posts (slug, title, excerpt, body, cover_url, author, tags, status, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
-    slug, title, String(b.excerpt || "").trim(), String(b.body || ""), String(b.coverUrl || "").trim() || null,
+    slug, title, clampPreview(b.excerpt), String(b.body || ""), String(b.coverUrl || "").trim() || null,
     String(b.author || "").trim() || "Majestic Roobee", String(b.tags || "").trim(), status,
     status === "published" ? (isoDate(b.publishedAt) || new Date().toISOString().slice(0, 19).replace("T", " ")) : null
   ).run();
@@ -1854,9 +1941,13 @@ admin.patch("/blog/:id", async (c) => {
   if (!cur) return c.json({ error: "No such post." }, 404);
   const sets = [], vals = [];
   const push = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
-  if (b.title !== undefined) push("title", String(b.title).trim());
+  if (b.title !== undefined) {
+    const t = clampTitle(b.title);
+    if (!t) return c.json({ error: "Give the story a title." }, 400);
+    push("title", t);
+  }
   if (b.slug !== undefined && String(b.slug).trim() && String(b.slug).trim() !== cur.slug) push("slug", await freeSlug(db, b.slug, id));
-  if (b.excerpt !== undefined) push("excerpt", String(b.excerpt).trim());
+  if (b.excerpt !== undefined) push("excerpt", clampPreview(b.excerpt));
   if (b.body !== undefined) push("body", String(b.body));
   if (b.coverUrl !== undefined) push("cover_url", String(b.coverUrl).trim() || null);
   if (b.author !== undefined) push("author", String(b.author).trim() || "Majestic Roobee");
@@ -2205,4 +2296,87 @@ admin.post("/purge", requireSuper, async (c) => {
   for (const s of want) for (const sql of PURGE[s]) stmts.push(c.env.DB.prepare(sql));
   await c.env.DB.batch(stmts);
   return c.json({ ok: true, cleared: want });
+});
+
+// ---- The ERP link ----
+//
+// The connector is worker/erp.js and the vendor-specific part is
+// worker/erp-adapters.js; these are the buttons on them. Super only: a wrong
+// location map puts one city's stock on another city's shelf, and a pull with
+// the guard turned down can empty the shop.
+//
+// The API key and secret are *not* here and never will be. They are Worker
+// secrets (`wrangler secret put ERP_API_KEY`), like the Paystack key — an
+// admin screen that can read a credential back is a credential one compromised
+// admin session hands over.
+
+admin.get("/erp", requireSuper, async (c) => c.json(await erpStatus(c.env)));
+
+// "Can we reach it?" — the first of the questions the ERP work was blocked on,
+// answered in five seconds rather than an email thread. It reports what each
+// endpoint actually returned, because the useful failure is not "no" but
+// "yes, and none of the fields are where the connector looked".
+admin.post("/erp/test", requireSuper, async (c) => c.json(await erpPing(c.env)));
+
+// Show one raw row, exactly as the ERP sent it, with the field the reader
+// matched for each thing it needs.
+//
+// This is the answer to not having a vendor's API reference to hand: read the
+// keys off a real response instead of guessing them. Guessing is what produced
+// a connector aimed at the wrong ERP entirely.
+admin.post("/erp/probe", requireSuper, async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  return c.json(await erpProbe(c.env, { resource: b.resource, path: b.path }));
+});
+
+// Pull the lists the house maps against. Locations are discovered rather than
+// typed because the name has to match the ERP's exactly, character for
+// character, or the stock lands nowhere — and where the ERP has no location
+// endpoint, the names seen on stock rows serve instead.
+admin.post("/erp/discover", requireSuper, async (c) => {
+  try {
+    const w = await erpSyncWarehouses(c.env);
+    const g = await erpSyncItemGroups(c.env);
+    return c.json({ ok: true, warehouses: w.found, itemGroups: g.found });
+  } catch (e) { return c.json({ error: String(e.message || e) }, 502); }
+});
+
+admin.patch("/erp/warehouses/:name", requireSuper, async (c) => {
+  const { locationId } = await c.req.json();
+  const db = c.env.DB;
+  const name = decodeURIComponent(c.req.param("name"));
+  if (!(await db.prepare("SELECT warehouse FROM erp_warehouses WHERE warehouse=?").bind(name).first())) {
+    return c.json({ error: "No such warehouse — run Discover first." }, 404);
+  }
+  const loc = String(locationId || "").trim() || null;
+  if (loc && !(await db.prepare("SELECT id FROM locations WHERE id=?").bind(loc).first())) {
+    return c.json({ error: "That isn't one of the stores." }, 400);
+  }
+  await db.prepare("UPDATE erp_warehouses SET location_id=? WHERE warehouse=?").bind(loc, name).run();
+  return c.json({ ok: true });
+});
+
+admin.patch("/erp/item-groups/:name", requireSuper, async (c) => {
+  const { cat } = await c.req.json();
+  const db = c.env.DB;
+  const name = decodeURIComponent(c.req.param("name"));
+  if (!(await db.prepare("SELECT item_group FROM erp_item_groups WHERE item_group=?").bind(name).first())) {
+    return c.json({ error: "No such item group — run Discover first." }, 404);
+  }
+  const id = String(cat || "").trim() || null;
+  if (id && !(await db.prepare("SELECT id FROM categories WHERE id=?").bind(id).first())) {
+    return c.json({ error: "That isn't one of the categories." }, 400);
+  }
+  await db.prepare("UPDATE erp_item_groups SET cat=? WHERE item_group=?").bind(id, name).run();
+  return c.json({ ok: true });
+});
+
+// Run one now. `dryRun` does every read and every check and writes nothing,
+// which is the only honest way to answer "what would this do to my catalogue".
+// It defaults to a dry run: the destructive one has to be asked for.
+admin.post("/erp/pull", requireSuper, async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  try {
+    return c.json(await erpPull(c.env, { dryRun: b.dryRun !== false }));
+  } catch (e) { return c.json({ error: String(e.message || e) }, 502); }
 });

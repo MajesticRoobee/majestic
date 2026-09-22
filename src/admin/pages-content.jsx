@@ -5,6 +5,7 @@ import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { ImagePicker } from "./product-form.jsx";
 import { catTree, countIn } from "../lib/categories.js";
+import { PREVIEW_MAX, TITLE_MAX, TITLE_MAX_WORDS, words } from "../lib/blog.js";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const linkBtn = { background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-700)", padding: 0 };
@@ -347,6 +348,26 @@ export function DealsPage({ ctx }) {
 
 // ---- The blog -------------------------------------------------------------
 
+// The count under a box the writer has to stay inside.
+//
+// Shown while typing rather than reported on save, because "your heading is
+// too long, here it is again" after the fact is how a writer learns to resent
+// a form. It turns amber at four fifths and red at the line, and the box
+// itself will not take another character past it.
+function Counter({ value, max, unit = "characters", extra = "" }) {
+  const n = String(value || "").length;
+  const share = max ? n / max : 0;
+  const tone = n >= max ? "#c0587a" : share >= 0.8 ? "var(--mr-gold-600)" : "var(--text-muted)";
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: tone, marginTop: -2 }}>
+      <span>{extra}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+        {n} / {max} {unit}{n >= max ? " — that's the limit" : ""}
+      </span>
+    </div>
+  );
+}
+
 export function BlogPage({ ctx }) {
   const [editing, setEditing] = useState(null);
   const [f, setF] = useState(null);
@@ -399,6 +420,10 @@ export function BlogPage({ ctx }) {
           blank line between paragraphs, start a line with <code>## </code> for a heading or <code>&gt; </code> for a pull quote, and put an
           image on its own line to drop a picture in — upload it with the picker in the editor, or paste an address. Pictures are
           optional, cover included. A draft is invisible until you publish it.
+          <br /><br />
+          Two boxes have a limit on them, and both are about how the blog <em>looks</em>: a heading has to sit on a card without
+          wrapping to four lines, and the <strong>preview</strong> is the two or three sentences a reader sees before they open the
+          story — not the story itself. Publishing asks for a preview; saving a draft does not.
         </Intro>
         {!ctx.posts.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
@@ -415,7 +440,9 @@ export function BlogPage({ ctx }) {
               <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>/blog/{p.slug}</span>
             </div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginTop: 8 }}>{p.title}</div>
-            {p.excerpt && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{p.excerpt}</div>}
+            {p.excerpt && (
+              <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.excerpt}</div>
+            )}
             <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
               {p.author}{p.tags ? ` · ${p.tags}` : ""}{p.publishedAt ? ` · ${String(p.publishedAt).slice(0, 10)}` : ""}
             </div>
@@ -439,13 +466,44 @@ export function BlogPage({ ctx }) {
           </>
         ) : (
           <>
-            <Input label="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="How to make an extrait last all day" />
+            <Input label="Heading" value={f.title} maxLength={TITLE_MAX}
+              onChange={(e) => setF({ ...f, title: e.target.value })}
+              placeholder="How to make an extrait last all day" />
+            <Counter value={f.title} max={TITLE_MAX}
+              extra={`${words(f.title)} word${words(f.title) === 1 ? "" : "s"}${words(f.title) > TITLE_MAX_WORDS ? " — long for a card" : ""}`} />
             {editing !== "new" && (
               <Input label="URL slug" value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })}
                 hint="Changing this breaks any link already shared to the old address." />
             )}
-            <Textarea label="Excerpt" value={f.excerpt} onChange={(e) => setF({ ...f, excerpt: e.target.value })} rows={2}
-              hint="The line under the title on the cards and in search results." />
+            <Textarea label="Preview" value={f.excerpt} maxLength={PREVIEW_MAX} rows={3}
+              onChange={(e) => setF({ ...f, excerpt: e.target.value })}
+              hint="Two or three sentences — this is all a reader sees before they open the story, on the blog, on the home page and in search results. It is not the opening of the article: write the line that makes someone want to read it." />
+            <Counter value={f.excerpt} max={PREVIEW_MAX}
+              extra={f.excerpt.trim() ? "" : "Empty — we'll use the story's first paragraph, cut short."} />
+            {/* A post written before the limit existed can arrive holding the
+                whole article in this box — which is the "the preview is the
+                entire story" the house reported. Shoppers already see it cut
+                short, but saving would cut the stored text too, so say so
+                first. And where the story itself is empty, this box is the
+                only copy of that writing: offer to move it rather than let
+                somebody trim it away. */}
+            {f.excerpt.length > PREVIEW_MAX && (
+              <div style={{ fontSize: 12, color: "#c0587a", lineHeight: 1.6, background: "#f7e3ea", borderRadius: "var(--radius-md)", padding: "10px 12px", marginTop: -4 }}>
+                This preview is {f.excerpt.length} characters — readers are already only shown the first {PREVIEW_MAX}, and saving
+                will trim it to there.
+                {!f.body.trim() && (
+                  <>
+                    {" "}The story below is empty, so this box is the only copy of that writing.
+                    <button
+                      onClick={() => setF((cur) => ({ ...cur, body: cur.body.trim() ? `${cur.body.trim()}\n\n${cur.excerpt.trim()}` : cur.excerpt.trim(), excerpt: "" }))}
+                      style={{ ...linkBtn, color: "#c0587a", fontWeight: 600, marginLeft: 4, textDecoration: "underline" }}>
+                      Move it into the story
+                    </button>
+                    {" "}and write a short preview here instead.
+                  </>
+                )}
+              </div>
+            )}
             <ImagePicker ctx={ctx} label="Cover image (optional)" value={f.coverUrl} onChange={(url) => setF({ ...f, coverUrl: url })}
               hint="Optional — a story without one still publishes. Wide images look best on the cards." />
             {/* A picture inside the story is just its address on a line of its
@@ -460,9 +518,12 @@ export function BlogPage({ ctx }) {
             </div>
             <Textarea label="The story" value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={14}
               placeholder={"Open with the thing worth knowing.\n\n## A heading\n\nAnother paragraph.\n\n> A line worth pulling out.\n\nhttps://…/an-image.jpg"} />
-            <div style={{ display: "flex", gap: 10 }}>
-              <Button variant="primary" disabled={busy || !f.title.trim()} onClick={() => save("published")}>{busy ? "Saving…" : "Publish"}</Button>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <Button variant="primary" disabled={busy || !f.title.trim() || !f.excerpt.trim()} onClick={() => save("published")}>{busy ? "Saving…" : "Publish"}</Button>
               <Button variant="secondary" disabled={busy || !f.title.trim()} onClick={() => save("draft")}>Save as draft</Button>
+              {f.title.trim() && !f.excerpt.trim() && (
+                <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Write the preview to publish.</span>
+              )}
             </div>
             {err && <div style={{ fontSize: 12, color: "#c0587a" }}>{err}</div>}
           </>

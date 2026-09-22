@@ -7,6 +7,7 @@ import { loadHomeBlocks, resolveHomeBlocks } from "./home.js";
 import { ingest, stitchVisitor } from "./insights.js";
 import { loadAffinity } from "./affinity.js";
 import { planFulfilment } from "./fulfilment.js";
+import { previewOf } from "../src/lib/blog.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
 import { getReward, rewardRefusal, computeRewardDiscount, claimReward, releaseReward, freeItemName } from "./rewards.js";
@@ -138,7 +139,7 @@ shop.get("/store", async (c) => {
   // Three most recent posts, for the strip on the home page. The blog page
   // fetches its own, paged list.
   const blog = (await db.prepare(
-    "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
+    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).all()).results.map(blogCard);
 
   // The home page, as the house arranged it. Each block arrives carrying the
@@ -216,7 +217,13 @@ function publicTestimonials(rows) {
 
 function blogCard(r) {
   return {
-    slug: r.slug, title: r.title, excerpt: r.excerpt, coverUrl: r.cover_url || null,
+    slug: r.slug, title: r.title,
+    // A *preview*, not the article. Clamped on the way out as well as on the
+    // way in, so the posts written before the limit existed come back short
+    // without anyone having to re-edit them — and derived from the opening of
+    // the story for a post whose writer left the box empty. See src/lib/blog.js.
+    excerpt: previewOf(r.excerpt, r.body_head !== undefined ? r.body_head : r.body),
+    coverUrl: r.cover_url || null,
     author: r.author, tags: (r.tags || "").split(",").map((s) => s.trim()).filter(Boolean),
     publishedAt: r.published_at || "",
     published: r.published_at ? displayDate(new Date(String(r.published_at).replace(" ", "T") + "Z")) : "",
@@ -230,7 +237,7 @@ shop.get("/blog", async (c) => {
   const tag = String(c.req.query("tag") || "").trim().toLowerCase();
   const limit = Math.max(1, Math.min(50, parseInt(c.req.query("limit"), 10) || 24));
   const rows = (await db.prepare(
-    "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT ?"
+    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT ?"
   ).bind(limit).all()).results.map(blogCard);
   const tags = [...new Set(rows.flatMap((r) => r.tags))].sort();
   return c.json({ posts: tag ? rows.filter((r) => r.tags.some((t) => t.toLowerCase() === tag)) : rows, tags });
@@ -241,7 +248,7 @@ shop.get("/blog/:slug", async (c) => {
   const row = await db.prepare("SELECT * FROM blog_posts WHERE slug=? AND status='published'").bind(c.req.param("slug")).first();
   if (!row) return c.json({ error: "That story isn't here." }, 404);
   const more = (await db.prepare(
-    "SELECT slug, title, excerpt, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' AND slug<>? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
+    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' AND slug<>? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).bind(row.slug).all()).results.map(blogCard);
   return c.json({ post: { ...blogCard(row), body: row.body }, more });
 });

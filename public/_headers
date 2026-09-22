@@ -2,6 +2,11 @@
 # YouTube — through that platform's own /embed URL in an iframe. No third-party
 # script is loaded for it, so only frame-src needs to name them. media-src
 # covers a testimonial that is a plain video file rather than a post.
+#
+# The Perfume Studio's booking calendar is Calendly, framed the same way and
+# for the same reason: the shopper completes the booking on this site, and no
+# Calendly script runs here. Only frame-src names it — everything the calendar
+# itself loads is inside Calendly's own document, under Calendly's own policy.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
@@ -9,7 +14,7 @@
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
   Cross-Origin-Opener-Policy: same-origin
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.googletagmanager.com https://connect.facebook.net https://analytics.tiktok.com https://*.tiktokcdn.com https://www.clarity.ms https://*.clarity.ms; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://connect.facebook.net https://*.facebook.com https://analytics.tiktok.com https://*.clarity.ms; frame-src 'self' https://checkout.paystack.com https://www.instagram.com https://www.tiktok.com https://www.youtube.com https://www.youtube-nocookie.com; form-action 'self' https://checkout.paystack.com; frame-ancestors 'self'; base-uri 'self'; object-src 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.googletagmanager.com https://connect.facebook.net https://analytics.tiktok.com https://*.tiktokcdn.com https://www.clarity.ms https://*.clarity.ms; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://connect.facebook.net https://*.facebook.com https://analytics.tiktok.com https://*.clarity.ms; frame-src 'self' https://checkout.paystack.com https://calendly.com https://*.calendly.com https://www.instagram.com https://www.tiktok.com https://www.youtube.com https://www.youtube-nocookie.com; form-action 'self' https://checkout.paystack.com; frame-ancestors 'self'; base-uri 'self'; object-src 'none'; upgrade-insecure-requests
 
 /admin/*
   X-Robots-Tag: noindex, nofollow

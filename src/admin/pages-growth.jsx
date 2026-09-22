@@ -5,6 +5,7 @@ import { Button, Input, Select, Switch, Textarea, EmptyRow } from "../ds/compone
 import { fmtN, statusBadge } from "./App.jsx";
 import { ImagePicker } from "./product-form.jsx";
 import { ABOUT_DEFAULTS } from "../lib/about.js";
+import { CONSULT_DEFAULTS, isCalendlyUrl } from "../lib/consultation.js";
 
 const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-sm)" };
 const th = { padding: "10px 14px", borderTop: "1px solid var(--border-hairline)", fontWeight: 600, color: "var(--text-muted)", fontSize: 11, letterSpacing: "0.06em" };
@@ -678,6 +679,8 @@ const SECTION_KEYS = {
   convert: ["nudgeOn", "nudgeTitle", "nudgeBody", "nudgeCta", "nudgeCode", "nudgeEveryDays",
     "promoPopupWhen", "recentlyViewedOn", "alsoViewedOn"],
   editorial: ["blogHeadline", "reviewsHeadline", "blogIntro", "reviewsIntro"],
+  consult: ["consultOn", "consultCalendlyUrl", "consultEyebrow", "consultHeadline", "consultIntro",
+    "consultBody", "consultCtaLabel", "consultImage", "consultSeoTitle", "consultSeoDesc"],
   contact: ["contactPhone", "contactEmail", "contactHours", "bankDetails"],
   footer: ["footerTagline", "igUrl", "igHandle", "tiktokUrl", "facebookUrl"],
   seo: ["siteName", "siteUrl", "metaDescription", "ogImage"],
@@ -901,12 +904,54 @@ export function SettingsPage({ ctx }) {
       <div style={section}>
         {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Blog heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="The blog" />
+          <Input label="Blog heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="Blog" />
           <Input label="Reviews heading" value={form.reviewsHeadline || ""} onChange={set("reviewsHeadline")} placeholder="Reviews & testimonials" />
         </div>
         <Textarea label="Blog intro" value={form.blogIntro || ""} onChange={set("blogIntro")} rows={2} />
         <Textarea label="Reviews intro" value={form.reviewsIntro || ""} onChange={set("reviewsIntro")} rows={2} />
         {sectionSave("editorial")}
+      </div>
+      <div style={{ ...section, gap: 14 }}>
+        {sectionHead("The Perfume Studio — consultations",
+          "A page of its own at /consultation where a customer books an hour in the studio, with the calendar on the page so they never leave the site. The button floats above the support bubble on every page.")}
+        <Switch label="The studio is taking consultation bookings"
+          checked={form.consultOn === "1"} onChange={(e) => touch({ consultOn: e.target.checked ? "1" : "0" })} />
+        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
+          Off: the button disappears, the footer link goes, the page says bookings aren&rsquo;t open, and it leaves the sitemap.
+          A page inviting someone to book an hour nobody will keep is worse than no page.
+        </div>
+        <Input label="Calendly link" value={form.consultCalendlyUrl || ""} onChange={set("consultCalendlyUrl")}
+          placeholder="https://calendly.com/majestic-roobee/consultation"
+          hint="The public booking link from Calendly — Event Types → the event → Copy link. The calendar is framed on the page itself, so nobody is sent to Calendly to finish." />
+        {form.consultCalendlyUrl && !isCalendlyUrl(form.consultCalendlyUrl) && (
+          <div style={{ fontSize: 12, color: "#c0587a", marginTop: -8 }}>
+            That isn&rsquo;t a calendly.com address. Only Calendly can be framed here — anything else would draw an empty
+            rectangle. Paste the link Calendly gives you, or leave this empty and the page asks people to get in touch instead.
+          </div>
+        )}
+        {form.consultOn === "1" && !form.consultCalendlyUrl && (
+          <div style={{ fontSize: 12, color: "var(--mr-gold-600)", marginTop: -8 }}>
+            No calendar yet — the page will ask people to message or call for a time. Add the link when Calendly is set up.
+          </div>
+        )}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Line above the heading" value={form.consultEyebrow || ""} onChange={set("consultEyebrow")} placeholder={CONSULT_DEFAULTS.eyebrow} />
+          <Input label="Button label" value={form.consultCtaLabel || ""} onChange={set("consultCtaLabel")} placeholder={CONSULT_DEFAULTS.ctaLabel}
+            hint="On the floating button and the page." />
+        </div>
+        <Input label="Heading" value={form.consultHeadline || ""} onChange={set("consultHeadline")} placeholder={CONSULT_DEFAULTS.headline} />
+        <Textarea label="The line under it" value={form.consultIntro || ""} onChange={set("consultIntro")} rows={2} placeholder={CONSULT_DEFAULTS.intro} />
+        <ImagePicker ctx={ctx} label="Photograph (optional)" value={form.consultImage || ""} onChange={(url) => touch({ consultImage: url })}
+          hint="Sits above the copy. A wide shot of the studio works best." />
+        <Textarea label="What a consultation is" value={form.consultBody || ""} onChange={set("consultBody")} rows={10}
+          placeholder={CONSULT_DEFAULTS.body}
+          hint="Written the way the blog is written: a blank line between paragraphs, ## for a heading." />
+        {fillFrom("consultBody", CONSULT_DEFAULTS.body)}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Search result title" value={form.consultSeoTitle || ""} onChange={set("consultSeoTitle")} placeholder={CONSULT_DEFAULTS.seoTitle} />
+          <Input label="Search result description" value={form.consultSeoDesc || ""} onChange={set("consultSeoDesc")} placeholder={CONSULT_DEFAULTS.seoDesc} />
+        </div>
+        {sectionSave("consult")}
       </div>
       <StoresSection ctx={ctx} />
       <div style={{ ...section, gap: 14 }}>
