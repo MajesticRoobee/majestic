@@ -155,25 +155,33 @@ function MediaPanel({ media, ctx, reload }) {
   );
 }
 
-// ERPNext — the catalogue link.
+// The ERP link — inventory and catalogue.
 //
-// The connector is worker/erp.js; this is the six things a person has to do to
-// turn it on, in the order they have to do them. Deliberately a checklist
-// rather than a form: the order matters, and the failure that follows getting
-// it wrong (stock from one city on another city's shelf, or a shop emptied by
-// an expired key) is silent.
+// A checklist rather than a form, because the order matters and the failures
+// that follow getting it wrong are silent: stock from one city on another
+// city's shelf, or a shop emptied by an expired key.
+//
+// Which ERP is a setting here, not a deploy. The first version of this
+// connector was built against ERPNext because a planning note had guessed
+// that "ERPrev" meant ERPNext; it means ERPRevolution. Correcting that now
+// costs one dropdown.
 function ErpPanel({ erp, ctx, reload }) {
   const [busy, setBusy] = useState("");
   const [result, setResult] = useState(null);
   const [form, setForm] = useState(null);
+  const [showFields, setShowFields] = useState(false);
   useEffect(() => { if (erp && !form) setForm({ ...erp.config }); }, [erp]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!erp || !form) return null;
 
   const cfg = erp.config;
+  const vendor = erp.vendors.find((v) => v.id === form.vendor) || erp.vendors[0];
   const mapped = erp.warehouses.filter((w) => w.locationId).length;
+  const paths = { ...(vendor ? vendor.defaults.paths : {}), ...(form.paths || {}) };
+  const fields = form.fields || {};
+
   const step = (n, label, done, children) => (
     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: "14px 0", borderTop: "1px solid var(--border-hairline)" }}>
-      <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: done ? "#e4efe4" : "var(--surface-sunken)", color: done ? "#3f6b45" : "var(--text-muted)" }}>{done ? "\u2713" : n}</span>
+      <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 600, background: done ? "#e4efe4" : "var(--surface-sunken)", color: done ? "#3f6b45" : "var(--text-muted)" }}>{done ? "✓" : n}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>{label}</div>
         {children}
@@ -186,20 +194,33 @@ function ErpPanel({ erp, ctx, reload }) {
     catch (e) { ctx.authFail(e); setResult({ id, data: { error: e.message } }); }
     finally { setBusy(""); }
   };
+  const SAVED = ["erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle", "erpPaths", "erpFields",
+    "erpEnvelopeKey", "erpPriceList", "erpPublish", "erpDefaultCat", "erpEmptyGuardPct", "erpSyncEveryMins"];
   const saveConfig = async () => {
     setBusy("config");
     try {
-      const keys = ["erpOn", "erpBaseUrl", "erpPriceList", "erpPublish", "erpDefaultCat", "erpEmptyGuardPct", "erpSyncEveryMins"];
       const patch = {
-        erpOn: form.on ? "1" : "0", erpBaseUrl: form.baseUrl, erpPriceList: form.priceList,
+        erpVendor: form.vendor, erpOn: form.on ? "1" : "0", erpBaseUrl: form.baseUrl,
+        erpAuthStyle: form.authStyle, erpPageStyle: form.pageStyle,
+        erpPaths: JSON.stringify(form.paths || {}), erpFields: JSON.stringify(form.fields || {}),
+        erpEnvelopeKey: form.envelopeKey || "", erpPriceList: form.priceList || "",
         erpPublish: form.publish ? "1" : "0", erpDefaultCat: form.defaultCat,
         erpEmptyGuardPct: form.emptyGuardPct, erpSyncEveryMins: form.syncEveryMins,
       };
-      await api.put("/api/admin/settings", { settings: Object.fromEntries(keys.map((k) => [k, patch[k]])) }, ctx.token);
-      ctx.flash("ERPNext settings saved");
+      await api.put("/api/admin/settings", { settings: Object.fromEntries(SAVED.map((k) => [k, patch[k]])) }, ctx.token);
+      ctx.flash("Saved");
       reload();
     } catch (e) { ctx.authFail(e); window.alert(e.message); } finally { setBusy(""); }
   };
+  // Switching ERP takes that adapter's defaults with it, rather than leaving
+  // the last one's endpoint paths pointing at a site that has never heard of
+  // them.
+  const pickVendor = (id) => {
+    const v = erp.vendors.find((x) => x.id === id);
+    setForm((f) => ({ ...f, vendor: id, ...(v ? { authStyle: v.defaults.authStyle, pageStyle: v.defaults.pageStyle, paths: { ...v.defaults.paths } } : {}) }));
+  };
+  const setPath = (k, v) => setForm((f) => ({ ...f, paths: { ...paths, [k]: v } }));
+  const setField = (k, v) => setForm((f) => ({ ...f, fields: { ...fields, [k]: v } }));
   const setMap = async (w, locationId) => {
     try { await api.patch(`/api/admin/erp/warehouses/${encodeURIComponent(w.warehouse)}`, { locationId }, ctx.token); reload(); }
     catch (e) { ctx.authFail(e); window.alert(e.message); }
@@ -209,72 +230,148 @@ function ErpPanel({ erp, ctx, reload }) {
     catch (e) { ctx.authFail(e); window.alert(e.message); }
   };
   const out = (id) => (result && result.id === id ? result.data : null);
-  const note = (d) => d && (
-    <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6, borderRadius: "var(--radius-md)", padding: "10px 12px", background: d.error || d.ok === false ? "#f7e3ea" : "#e4efe4", color: d.error || d.ok === false ? "#c0587a" : "#3f6b45", whiteSpace: "pre-wrap" }}>
-      {d.error || d.note || (d.user
-        ? `Reached it as ${d.user} in ${d.ms}ms. ${Object.entries(d.doctypes || {}).map(([k, v]) => `${k}: ${v}`).join(" · ")}`
-        : d.warehouses !== undefined && d.rows === undefined
-          ? `Found ${d.warehouses} warehouse(s) and ${d.itemGroups} item group(s).`
-          : `${d.dryRun ? "Dry run — nothing was written. " : ""}${d.rows} SKU(s) read · ${d.variantsCreated || 0} created · ${d.variantsUpdated || 0} updated · ${d.productsCreated || 0} new product(s), ${d.productsAdopted || 0} adopted${d.readErrors && d.readErrors.length ? `\n\nSkipped:\n${d.readErrors.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}${d.warnings && d.warnings.length ? `\n\nWorth a look:\n${d.warnings.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}`)}
-    </div>
+  const bad = (d) => !!(d && (d.error || d.ok === false));
+  const noteBox = (d, body) => d && (
+    <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6, borderRadius: "var(--radius-md)", padding: "10px 12px", background: bad(d) ? "#f7e3ea" : "#e4efe4", color: bad(d) ? "#c0587a" : "#3f6b45", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{body}</div>
   );
+  const testNote = (d) => noteBox(d, d && (d.error || [
+    `Reached it in ${d.ms}ms.`,
+    ...Object.entries(d.reached || {}).map(([k, v]) => `· ${k}: ${v}`),
+    d.mapped ? `\nFirst product read as: code "${d.mapped.code || "—"}", name "${d.mapped.name || "—"}"${d.mapped.missing.length ? ` — couldn't find ${d.mapped.missing.join(" or ")}, so run the probe and name them below` : ""}.${d.mapped.sawPrice ? " Price is on the product row." : ""}${d.mapped.sawStock ? " Stock is on the product row." : ""}` : "",
+  ].filter(Boolean).join("\n")));
+  const probeNote = (d) => noteBox(d, d && (d.error || (d.count === 0
+    ? `${d.note}\n\n${d.body}`
+    : [
+      `${d.path} — ${d.count} row(s). The first one has these keys:`,
+      d.keys.join(", "),
+      "",
+      "What the reader matched:",
+      ...Object.entries(d.resolved || {}).map(([k, v]) => `· ${k}: ${v || "— nothing matched"}`),
+      "",
+      d.sample,
+    ].join("\n"))));
+  const pullNote = (d) => noteBox(d, d && (d.error || `${d.dryRun ? "Dry run — nothing was written. " : ""}${d.rows} SKU(s) read · ${d.variantsCreated || 0} created · ${d.variantsUpdated || 0} updated · ${d.productsCreated || 0} new product(s), ${d.productsAdopted || 0} adopted${d.readErrors && d.readErrors.length ? `\n\nSkipped:\n${d.readErrors.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}${d.warnings && d.warnings.length ? `\n\nWorth a look:\n${d.warnings.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}`));
+  const discoverNote = (d) => noteBox(d, d && (d.error || `Found ${d.warehouses} location(s) and ${d.itemGroups} categor${d.itemGroups === 1 ? "y" : "ies"}.`));
+
   const b = statusBadge(cfg.on && cfg.configured ? "good" : cfg.configured ? "warn" : "mute");
   const label = cfg.on && cfg.configured ? "Syncing" : cfg.configured ? "Configured, not running" : "Not connected";
-  const selStyle = { fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "6px 10px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-sm)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer" };
+  const selStyle = { fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "6px 10px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-sm)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer", maxWidth: "100%" };
+  const PATHS = [
+    ["products", "Products / items", "The list of everything sellable. Required."],
+    ["prices", "Prices", "Leave empty if the price is on the product row — which it usually is."],
+    ["stock", "Stock / inventory", "Per location. Leave empty if the quantity is on the product row."],
+    ["warehouses", "Locations / warehouses", "Optional — otherwise the names seen on stock rows are used."],
+    ["groups", "Categories", "Optional."],
+  ];
 
   return (
     <div style={{ ...card, padding: 22 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>ERPNext — catalogue &amp; stock</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Inventory &amp; catalogue link</div>
         <span style={{ fontSize: 11.5, fontWeight: 500, padding: "3px 11px", borderRadius: "var(--radius-pill)", background: b.bg, color: b.fg }}>{label}</span>
       </div>
       <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0 6px", lineHeight: 1.6 }}>
-        ERPNext owns price and stock; the shop owns names, descriptions, photographs, categories and shelf order. A pull never
+        The ERP owns price and stock; the shop owns names, descriptions, photographs, categories and shelf order. A pull never
         overwrites the second set — it only fills them in for an item the shop has never seen.
         {cfg.lastSync ? ` Last pull: ${cfg.lastSync} UTC.` : " Never pulled."}
-        {erp.linkedVariants ? ` ${erp.linkedVariants} SKU(s) are linked to ERPNext.` : ""}
+        {erp.linkedVariants ? ` ${erp.linkedVariants} SKU(s) are linked.` : ""}
       </div>
 
-      {step(1, "The credentials", cfg.hasKey, (
-        <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7 }}>
-          {cfg.hasKey
-            ? "Set. They are Worker secrets, so nothing here can read them back."
-            : <>Not set. In ERPNext: <strong>User → the integration user → API Access → Generate Keys</strong>. Then, from the project:
-              <br /><code style={{ fontFamily: "monospace", fontSize: 11.5 }}>wrangler secret put ERP_API_KEY</code>
-              {" · "}<code style={{ fontFamily: "monospace", fontSize: 11.5 }}>wrangler secret put ERP_API_SECRET</code>
-              <br />They never go in the database and never reach a browser — the same rule as the Paystack key.</>}
+      {step(1, "Which ERP", true, (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <select value={form.vendor} onChange={(e) => pickVendor(e.target.value)} style={{ ...selStyle, width: "100%", padding: "9px 12px", fontSize: 13 }}>
+            {erp.vendors.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+          </select>
+          {vendor && <div style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.6 }}>{vendor.note}</div>}
         </div>
       ))}
 
-      {step(2, "Where it lives, and which price is the web price", !!cfg.baseUrl, (
+      {step(2, "The credentials", cfg.hasKey, (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7 }}>
+          {cfg.hasKey
+            ? "Set. They are Worker secrets, so nothing on this screen can read them back."
+            : <>Not set. Generate an API key and secret for a read-only integration user in the ERP, then from the project:
+              <br /><code style={{ fontFamily: "monospace", fontSize: 11.5 }}>wrangler secret put ERP_API_KEY</code>
+              {" · "}<code style={{ fontFamily: "monospace", fontSize: 11.5 }}>wrangler secret put ERP_API_SECRET</code>
+              <br />If the ERP issues only one token, put it in either box. They never go in the database and never reach a
+              browser — the same rule as the Paystack key.</>}
+        </div>
+      ))}
+
+      {step(3, "Where it is, and how it wants to be asked", !!cfg.baseUrl, (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Input label="Base URL" value={form.baseUrl || ""} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-            placeholder="https://yourcompany.erpnext.com" hint="The site root — not a page inside it, no trailing slash." />
+            placeholder="https://yourcompany.erprev.com" hint="The API root — no trailing slash, no endpoint on the end." />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Input label="Price list" value={form.priceList || ""} onChange={(e) => setForm({ ...form, priceList: e.target.value })}
-              placeholder="Standard Selling" hint="Exactly as ERPNext names it. Quoting the cost list on a storefront is how money is lost." />
+            <div>
+              <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Authentication</div>
+              <select value={form.authStyle} onChange={(e) => setForm({ ...form, authStyle: e.target.value })} style={{ ...selStyle, width: "100%", padding: "10px 12px" }}>
+                {erp.authStyles.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+              </select>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>Whatever the ERP&rsquo;s API documentation asks for.</div>
+            </div>
+            <div>
+              <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Paging</div>
+              <select value={form.pageStyle} onChange={(e) => setForm({ ...form, pageStyle: e.target.value })} style={{ ...selStyle, width: "100%", padding: "10px 12px" }}>
+                {erp.pageStyles.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+              </select>
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>Wrong here means only the first 200 rows arrive.</div>
+            </div>
+          </div>
+          {PATHS.map(([key, label, hint]) => (
+            <Input key={key} label={label} value={paths[key] || ""} onChange={(e) => setPath(key, e.target.value)}
+              placeholder={key === "products" ? "/api/products" : "—"} hint={hint} />
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Input label="Price list (optional)" value={form.priceList || ""} onChange={(e) => setForm({ ...form, priceList: e.target.value })}
+              placeholder="Retail" hint="Only for an ERP that keeps several. Quoting the cost list on a storefront is how money is lost." />
             <Input label="Category for unmapped items" value={form.defaultCat || ""} onChange={(e) => setForm({ ...form, defaultCat: e.target.value })}
-              placeholder="perfumes" hint="Where a new product lands when its item group isn't mapped below." />
+              placeholder="perfumes" hint="Where a new product lands when its category isn't mapped below." />
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>{busy === "config" ? "Saving…" : "Save"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "test"} onClick={() => run("test", "/api/admin/erp/test", {})}>{busy === "test" ? "Calling…" : "Test the connection"}</Button>
+            <Button variant="secondary" size="sm" disabled={busy === "probe"} onClick={() => run("probe", "/api/admin/erp/probe", { resource: "products" })}>{busy === "probe" ? "Reading…" : "Show me a row"}</Button>
           </div>
-          {note(out("test"))}
+          {testNote(out("test"))}
+          {probeNote(out("probe"))}
         </div>
       ))}
 
-      {step(3, "Which warehouse is which shop", mapped > 0, (
+      {step(4, "What the ERP calls each thing (only if it guessed wrong)", false, (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
-            This is the mapping that matters most, and it cannot be guessed. A warehouse with no shop against it is
+            The reader already tries every common spelling — <code>sku</code>, <code>item_code</code>, <code>product_code</code>, and so
+            on for each field. Use <strong>Show me a row</strong> above: it prints the ERP&rsquo;s own keys and says which one it matched
+            for each thing it needs. Fill in only the ones that came back empty.
+          </div>
+          <button onClick={() => setShowFields(!showFields)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-700)", padding: 0, alignSelf: "flex-start", textDecoration: "underline" }}>
+            {showFields ? "Hide the field names" : "Name a field by hand"}
+          </button>
+          {showFields && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 }}>
+              {erp.fieldNames.map((f) => (
+                <Input key={f} label={f} value={fields[f] || ""} onChange={(e) => setField(f, e.target.value)} placeholder="auto" />
+              ))}
+              <Input label="envelope key" value={form.envelopeKey || ""} onChange={(e) => setForm({ ...form, envelopeKey: e.target.value })}
+                placeholder="auto" />
+            </div>
+          )}
+          {showFields && <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>{busy === "config" ? "Saving…" : "Save"}</Button>}
+        </div>
+      ))}
+
+      {step(5, "Which location is which shop", mapped > 0, (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
+            This is the mapping that matters most, and it cannot be guessed. A location with no shop against it is
             <strong> ignored</strong>, not defaulted — counting unmapped stock into the nearest shop is exactly the mistake
             that puts Lagos&rsquo;s bottles on Abuja&rsquo;s shelf.
           </div>
           <Button variant="secondary" size="sm" disabled={busy === "discover"} onClick={() => run("discover", "/api/admin/erp/discover", {})}>
-            {busy === "discover" ? "Reading…" : erp.warehouses.length ? "Refresh the lists from ERPNext" : "Fetch warehouses & item groups"}
+            {busy === "discover" ? "Reading…" : erp.warehouses.length ? "Refresh the lists from the ERP" : "Fetch locations & categories"}
           </Button>
-          {note(out("discover"))}
+          {discoverNote(out("discover"))}
           {erp.warehouses.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
               {erp.warehouses.map((w) => (
@@ -293,7 +390,7 @@ function ErpPanel({ erp, ctx, reload }) {
         </div>
       ))}
 
-      {erp.itemGroups.length > 0 && step(4, "Which item group is which category (optional)", erp.itemGroups.some((g) => g.cat), (
+      {erp.itemGroups.length > 0 && step(6, "Which category is which (optional)", erp.itemGroups.some((g) => g.cat), (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
           {erp.itemGroups.map((g) => (
             <div key={g.itemGroup} style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", fontSize: 12.5 }}>
@@ -307,29 +404,29 @@ function ErpPanel({ erp, ctx, reload }) {
         </div>
       ))}
 
-      {step(5, "See what a pull would do", false, (
+      {step(7, "See what a pull would do", false, (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
             A dry run does every read and every check and writes nothing. Run it before the real one, every time the mapping
             changes.
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Button variant="secondary" size="sm" disabled={busy === "dry"} onClick={() => run("dry", "/api/admin/erp/pull", { dryRun: true, full: true })}>
-              {busy === "dry" ? "Reading…" : "Dry run — read everything"}
+            <Button variant="secondary" size="sm" disabled={busy === "dry"} onClick={() => run("dry", "/api/admin/erp/pull", { dryRun: true })}>
+              {busy === "dry" ? "Reading…" : "Dry run"}
             </Button>
             <Button variant="primary" size="sm" disabled={busy === "live"}
-              onClick={() => window.confirm("Pull from ERPNext for real? Prices and stock on linked SKUs are overwritten with ERPNext's.") && run("live", "/api/admin/erp/pull", { dryRun: false, full: true })}>
+              onClick={() => window.confirm("Pull from the ERP for real? Prices and stock on linked SKUs are overwritten with the ERP's.") && run("live", "/api/admin/erp/pull", { dryRun: false })}>
               {busy === "live" ? "Syncing…" : "Pull for real"}
             </Button>
           </div>
-          {note(out("dry"))}
-          {note(out("live"))}
+          {pullNote(out("dry"))}
+          {pullNote(out("live"))}
         </div>
       ))}
 
-      {step(6, "Let it run on its own", cfg.on, (
+      {step(8, "Let it run on its own", cfg.on, (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <Switch label="Pull from ERPNext on a schedule" checked={!!form.on} onChange={(e) => setForm({ ...form, on: e.target.checked })} />
+          <Switch label="Pull from the ERP on a schedule" checked={!!form.on} onChange={(e) => setForm({ ...form, on: e.target.checked })} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Input label="Every (minutes)" value={form.syncEveryMins ?? ""} onChange={(e) => setForm({ ...form, syncEveryMins: e.target.value.replace(/\D/g, "") })}
               placeholder="60" hint="15 at the fastest — that is how often the cron runs." />
@@ -338,7 +435,7 @@ function ErpPanel({ erp, ctx, reload }) {
           </div>
           <Switch label="Items new to the shop go live immediately" checked={!!form.publish} onChange={(e) => setForm({ ...form, publish: e.target.checked })} />
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -4 }}>
-            Off (recommended): they arrive as drafts with ERPNext&rsquo;s own description, and somebody writes the shop copy and adds
+            Off (recommended): they arrive as drafts with the ERP&rsquo;s own description, and somebody writes the shop copy and adds
             the photography before a shopper sees them.
           </div>
           <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>{busy === "config" ? "Saving…" : "Save"}</Button>

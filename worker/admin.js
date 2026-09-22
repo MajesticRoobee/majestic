@@ -16,7 +16,7 @@ import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } 
 import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
 import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
-import { erpStatus, erpPing, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
+import { erpStatus, erpPing, erpProbe, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -1063,11 +1063,15 @@ admin.put("/settings", async (c) => {
     // photographs across), so there is nothing here to keep.
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
-    // The ERPNext link. The credentials are Worker secrets and are not here;
-    // these are the settings that say which site, which price list, and how
-    // brave the connector is allowed to be. `erpLastSync` is written by the
-    // connector rather than by a person, so it is deliberately absent.
-    "erpOn", "erpBaseUrl", "erpPriceList", "erpPublish", "erpDefaultCat",
+    // The ERP link. The credentials are Worker secrets and are not here; these
+    // are the settings that say which ERP, where it is, how to read it, and
+    // how brave the connector is allowed to be. Which ERP is a *setting*
+    // rather than a deploy, which is the whole lesson of the first version of
+    // this connector being written against the wrong one. `erpLastSync` is
+    // written by the connector rather than by a person, so it is absent.
+    "erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle",
+    "erpPaths", "erpFields", "erpEnvelopeKey",
+    "erpPriceList", "erpPublish", "erpDefaultCat",
     "erpEmptyGuardPct", "erpSyncEveryMins",
     // The Perfume Studio's consultation page: whether the studio is taking
     // bookings at all, the Calendly link the calendar is framed from, and the
@@ -2294,11 +2298,12 @@ admin.post("/purge", requireSuper, async (c) => {
   return c.json({ ok: true, cleared: want });
 });
 
-// ---- ERPNext ----
+// ---- The ERP link ----
 //
-// The connector itself is worker/erp.js; these are the buttons on it. Super
-// only: a wrong warehouse map puts one city's stock on another city's shelf,
-// and a pull with the guard turned down can empty the shop.
+// The connector is worker/erp.js and the vendor-specific part is
+// worker/erp-adapters.js; these are the buttons on them. Super only: a wrong
+// location map puts one city's stock on another city's shelf, and a pull with
+// the guard turned down can empty the shop.
 //
 // The API key and secret are *not* here and never will be. They are Worker
 // secrets (`wrangler secret put ERP_API_KEY`), like the Paystack key — an
@@ -2308,12 +2313,26 @@ admin.post("/purge", requireSuper, async (c) => {
 admin.get("/erp", requireSuper, async (c) => c.json(await erpStatus(c.env)));
 
 // "Can we reach it?" — the first of the questions the ERP work was blocked on,
-// answered in five seconds rather than an email thread.
+// answered in five seconds rather than an email thread. It reports what each
+// endpoint actually returned, because the useful failure is not "no" but
+// "yes, and none of the fields are where the connector looked".
 admin.post("/erp/test", requireSuper, async (c) => c.json(await erpPing(c.env)));
 
-// Pull the lists the house maps against. Warehouses are discovered rather than
-// typed because the name has to match ERPNext's exactly, character for
-// character, or the stock lands nowhere.
+// Show one raw row, exactly as the ERP sent it, with the field the reader
+// matched for each thing it needs.
+//
+// This is the answer to not having a vendor's API reference to hand: read the
+// keys off a real response instead of guessing them. Guessing is what produced
+// a connector aimed at the wrong ERP entirely.
+admin.post("/erp/probe", requireSuper, async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  return c.json(await erpProbe(c.env, { resource: b.resource, path: b.path }));
+});
+
+// Pull the lists the house maps against. Locations are discovered rather than
+// typed because the name has to match the ERP's exactly, character for
+// character, or the stock lands nowhere — and where the ERP has no location
+// endpoint, the names seen on stock rows serve instead.
 admin.post("/erp/discover", requireSuper, async (c) => {
   try {
     const w = await erpSyncWarehouses(c.env);
@@ -2354,9 +2373,10 @@ admin.patch("/erp/item-groups/:name", requireSuper, async (c) => {
 
 // Run one now. `dryRun` does every read and every check and writes nothing,
 // which is the only honest way to answer "what would this do to my catalogue".
+// It defaults to a dry run: the destructive one has to be asked for.
 admin.post("/erp/pull", requireSuper, async (c) => {
   const b = await c.req.json().catch(() => ({}));
   try {
-    return c.json(await erpPull(c.env, { dryRun: b.dryRun !== false, full: !!b.full }));
+    return c.json(await erpPull(c.env, { dryRun: b.dryRun !== false }));
   } catch (e) { return c.json({ error: String(e.message || e) }, 502); }
 });

@@ -39,7 +39,7 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `ADMIN_TOKEN_SECRET` | Random string that signs admin session tokens |
 | `CLOUDFLARE_ACCOUNT_ID` | Only needed if the token can see multiple accounts |
 | `PAYSTACK_SECRET_KEY` | Enables card payment — see below |
-| `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERPNext link — see below |
+| `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERP link — see below |
 
 To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above.
 
@@ -253,63 +253,94 @@ GET  /api/v1/rewards           → read-only, for a CRM or loyalty dashboard
   off-switch are in Settings; a shopper who dismisses it doesn't see it again
   that visit.
 
-## Connecting ERPNext
+## Connecting the ERP
 
-Two directions exist, and only one of them needs anything from the ERP's side.
+The house runs **ERPRevolution (ERPrev)**. Nothing in the connector is welded
+to it: which ERP it talks to is a setting, the vendor-shaped part is one file
+(`worker/erp-adapters.js`) behind four neutral row shapes, and the sync engine
+(`worker/erp.js`) knows about none of it. An earlier plan had guessed ERPNext
+from the abbreviation and been wrong; that is why the seam exists, and why
+correcting it now costs a dropdown rather than a rewrite.
 
-**Pull (the default, and what the house asked for).** The Worker calls ERPNext
-on a schedule, reads `Item`, `Item Price` and `Bin`, and writes prices and
-per-store stock into the shop. Nothing has to be built inside ERPNext, and it
-works even if ERPNext can only be reached *outward* — no inbound path, no
+Two directions exist, and only one of them needs anything built on the ERP's
+side.
+
+**Pull (the default, and what the house asked for).** The Worker calls the ERP
+on a schedule, reads products, prices and stock, and writes prices and
+per-shop stock into the shop. Nothing has to be built inside the ERP, and it
+works even if the ERP can only be reached *outward* — no inbound path, no
 webhook, no firewall change.
 
-**Push.** ERPNext (or any other system) posts a flat SKU feed to
-`POST /api/v1/catalog/sync`, documented further down. Still supported, and
-still the right answer for a system that isn't ERPNext.
+**Push.** The ERP, or anything that can POST JSON, sends a flat SKU feed to
+`POST /api/v1/catalog/sync`, documented below. The way in for an ERP that
+lives only on an office network.
 
 ### Turning the pull on
 
-Everything is in **Admin → Integrations → ERPNext**, as a six-step checklist,
-in the order it has to be done.
+Everything is in **Admin → Integrations → Inventory & catalogue link**, as a
+checklist in the order it has to be done.
 
 | # | Step | Where |
 | --- | --- | --- |
-| 1 | **The credentials.** In ERPNext: *User → your integration user → API Access → Generate Keys*. Then `wrangler secret put ERP_API_KEY` and `wrangler secret put ERP_API_SECRET` (or add them as GitHub Actions secrets and let the deploy push them). They never go in the database and never reach a browser. | Worker secrets |
-| 2 | **The base URL and the price list.** The site root, e.g. `https://yourcompany.erpnext.com`. The price list is whichever ERPNext list carries the **web** price, named exactly as ERPNext names it. Then **Test the connection** — it reports who the key logs in as and whether each DocType is readable. | Admin |
-| 3 | **The warehouse map.** *Fetch warehouses* lists them from ERPNext; assign each to a shop. A warehouse with no shop against it is **ignored, not defaulted** — counting unmapped stock into the nearest shop is how one city's bottles end up on another's shelf. | Admin |
-| 4 | **The item-group map** (optional). ERPNext item group → our category. Unmapped groups fall to the default category and are reported. | Admin |
-| 5 | **Dry run.** Does every read and every check and writes nothing. Run it before the real one, and again whenever the mapping changes. | Admin |
-| 6 | **Let it run.** A switch, a cadence (15 minutes at the fastest — that is how often the cron fires) and the empty-feed guard. | Admin |
+| 1 | **Which ERP.** ERPrev by default. ERPNext and a blank "type the endpoints in" option are there too. | Admin |
+| 2 | **The credentials.** Generate an API key and secret for a read-only integration user in the ERP, then `wrangler secret put ERP_API_KEY` and `wrangler secret put ERP_API_SECRET` (or add them as GitHub Actions secrets and let the deploy push them). If the ERP issues a single token, either box takes it. They never go in the database and never reach a browser. | Worker secrets |
+| 3 | **Where it is, and how it wants to be asked.** The API root, the authentication style, the paging style, and the list endpoint for each resource. Then **Test the connection**, which reports what every endpoint returned, and **Show me a row**, which prints the ERP's own field names beside the ones the reader matched. | Admin |
+| 4 | **Field names**, only if step 3 shows something came back empty. The reader already tries every common spelling; this is for the one it doesn't know. | Admin |
+| 5 | **The location map.** *Fetch locations* lists them from the ERP; assign each to a shop. One with no shop against it is **ignored, not defaulted** — counting unmapped stock into the nearest shop is how one city's bottles end up on another's shelf. | Admin |
+| 6 | **The category map** (optional). Unmapped categories fall to the default category and are reported. | Admin |
+| 7 | **Dry run.** Every read, every check, nothing written. Run it before the real one, and again whenever the mapping changes. | Admin |
+| 8 | **Let it run.** A switch, a cadence (15 minutes at the fastest — that is how often the cron fires) and the empty-feed guard. | Admin |
 
-The integration user needs **read** on `Item`, `Item Price`, `Bin`,
-`Warehouse` and `Item Group`. Nothing else, and no write access at all —
-the pull only reads.
+The integration user needs **read** on products, prices, stock, locations and
+categories. Nothing else, and no write access at all — the pull only reads.
+
+### What the reader copes with on its own
+
+Most SME ERPs expose much the same REST API wearing different names, so the
+reader is alias-driven rather than schema-bound:
+
+- **Authentication** — Bearer, two headers (`X-API-KEY` / `X-API-SECRET`), a
+  token pair, HTTP Basic, or credentials in the query string.
+- **Paging** — `?page=&per_page=`, `?limit=&offset=`, Frappe's
+  `limit_page_length`, or an endpoint that just returns everything.
+- **Envelopes** — a bare array, `{data:[…]}`, `{results:[…]}`, `{items:[…]}`,
+  Laravel's paginated `{data:{data:[…]}}`, or a key you name yourself.
+- **Field names** — every common spelling of each field (`sku` / `item_code` /
+  `product_code` / …), with a per-field override for anything it misses.
+- **Prices formatted for humans** — `"₦35,000.00"` parses. An ERP that renders
+  money before putting it in JSON is common, and silently dropping those rows
+  would read as "these products have no price".
+- **`disabled` or `active`, either way round**, including `status: "Active"`.
+  A row that says neither is for sale.
+- **Prices and stock on the product row**, for an ERP with no separate
+  endpoints — though a quantity on the product row is only trusted while
+  exactly one shop is mapped, since a single unlabelled number says nothing
+  about which shop it is in.
 
 ### What the pull does, and what it will not do
 
-- **ERPNext owns price and stock. The shop owns everything else.** Names,
+- **The ERP owns price and stock. The shop owns everything else.** Names,
   descriptions, photographs, categories and shelf order are only ever written
   for an item the shop has never seen; after that the pull leaves them alone.
   Otherwise the first sync would flatten every piece of merchandising in the
   admin, and the second would do it again an hour later.
-- **Stock is `actual_qty` less `reserved_qty`.** A bottle promised to an open
-  sales order is not a bottle the shop can sell.
-- **An item ERPNext has never stocked sends no stock at all** — which is not
+- **Stock is on-hand less reserved.** A bottle promised to an open order is
+  not a bottle the shop can sell.
+- **An item the ERP has never stocked sends no stock at all** — which is not
   the same as sending zero. The ingest sets counts absolutely, so the
   difference is whether a shelf the shop is holding gets emptied.
-- **The empty-feed guard.** Any pull that would cut catalogue stock by more
-  than the configured share (25% by default) is refused and logged, and
-  nothing is written. This exists because the failure it prevents is silent
-  and total: an expired key, a renamed price list or a filter that matches
-  nothing makes ERPNext answer `[]` with a 200, and the shop sells nothing
-  until somebody notices.
-- **Incremental.** Reads on Frappe's `modified` stamp, so an hourly run is
-  cheap. Price and stock changes are picked up even when the item itself
-  hasn't been touched.
+- **The empty-feed guard.** Any pull that would cut more than the configured
+  share (25% by default) off the stock *this connector manages* is refused and
+  logged, and nothing is written. The denominator matters: measured against
+  the whole shop instead, an ERP managing a corner of the catalogue could zero
+  that entire corner and the drop would round to nothing. The failure this
+  prevents is silent and total — an expired key, a renamed endpoint or a
+  filter that matches nothing makes the ERP answer `[]` with a 200.
 - **New items arrive as drafts** unless the house switches that off, so a
   mis-mapped import can never dump straight onto the storefront.
-- **Nothing is written back yet.** Creating a Sales Order or Sales Invoice in
-  ERPNext when an order is paid is the obvious next step, and it is not built,
+- **Idempotent.** A re-run updates in place; it never duplicates.
+- **Nothing is written back yet.** Creating a sales order or invoice in the
+  ERP when an order is paid is the obvious next step, and it is not built,
   because which of the two a house uses is a question about their accounting
   process rather than about software.
 
@@ -358,7 +389,8 @@ Behaviour worth knowing:
 migrations/        D1 schema + seed
 worker/            Hono API (shop.js public, admin.js authed, util.js helpers,
                    rewards.js reward codes, payments.js Paystack settlement,
-                   erp.js the ERPNext pull connector)
+                   erp.js the ERP pull engine,
+                   erp-adapters.js the per-ERP transports)
 src/ds/            Design system (tokens + components ported from the handoff)
 src/storefront/    Storefront SPA
 src/admin/         Admin SPA
