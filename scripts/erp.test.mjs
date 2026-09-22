@@ -19,8 +19,11 @@
 // `buildFeed` (wrong, and variations land under the wrong parent or stock in
 // the wrong city) and `stockGuard` (wrong, and an expired key empties the
 // shop silently).
-import { buildFeed, stockGuard, ERP_SOURCE } from "../worker/erp.js";
-import { adapterFor, authFor, unwrap, pageQuery, ADAPTERS, ALIASES } from "../worker/erp-adapters.js";
+import { buildFeed, groupByUnit, stockGuard, ERP_SOURCE } from "../worker/erp.js";
+import {
+  adapterFor, authFor, unwrap, pageQuery, ADAPTERS, ALIASES,
+  signedHeaders, canonicalString, hmacHex, SIGNING_DEFAULTS,
+} from "../worker/erp-adapters.js";
 
 let failures = 0;
 const check = (label, got, want) => {
@@ -49,12 +52,14 @@ check("the catalogue's link tag survives being pointed at a different ERP", ERP_
 // ---- 1. Credentials, paging, envelopes -----------------------------------
 console.log("\nTalking to something we have not seen");
 
-// ERPRev's own documentation shows `Authorization: <token>` — the token on
-// its own, with no scheme in front of it. Sending `Bearer <token>` to an API
-// that wants the bare string gets a 401 indistinguishable from a wrong key,
-// which is exactly the kind of thing that costs a day.
-check("the token on its own, which is what ERPRev asks for", authFor("raw", "k", "s").headers.authorization, "s");
-check("...and it is ERPrev's default, so nobody has to find that out", ADAPTERS.erprev.defaults.authStyle, "raw");
+// ERPRev's v2 API signs each request rather than sending a token, so `hmac`
+// is its default — see "Signing a request" below. `raw` stays for an API that
+// wants the token as the bare Authorization value with no scheme in front of
+// it, which is a real shape and one that produces a 401 indistinguishable
+// from a wrong key when you get it wrong.
+check("the token on its own, for an API that wants it that way", authFor("raw", "k", "s").headers.authorization, "s");
+check("ERPrev signs instead, and that is its default", ADAPTERS.erprev.defaults.authStyle, "hmac");
+check("...and a signed style sends no credential header of its own", authFor("hmac", "k", "s"), { headers: {}, query: {}, signed: true });
 check("bearer", authFor("bearer", "k", "s").headers.authorization, "Bearer s");
 check("...falling back to the key when the ERP issues only one token",
   authFor("bearer", "only-token", "").headers.authorization, "Bearer only-token");
@@ -63,6 +68,80 @@ check("frappe's token pair", authFor("token", "k", "s").headers.authorization, "
 check("basic", authFor("basic", "k", "s").headers.authorization, `Basic ${btoa("k:s")}`);
 check("query string keeps credentials out of headers", authFor("query", "k", "s").query, { api_key: "k", api_secret: "s" });
 
+// ---- ERPRev's own contract, from its API reference ----------------------
+console.log("\nThe things ERPRev's documentation actually specifies");
+
+const rev = ADAPTERS.erprev.defaults;
+check("everything lives under the signed v2 API", rev.authStyle, "hmac");
+check("lists are cursor-paged, not numbered", rev.pageStyle, "cursor");
+check("the endpoints are the ones the reference names",
+  [rev.paths.products, rev.paths.stock, rev.paths.warehouses, rev.paths.groups],
+  ["/products", "/stocks", "/warehouses", "/product-categories"]);
+// Prices ride the product row on ERPRev — there is no price list endpoint to
+// point at, and naming one would make every product look unpriced.
+check("...and there is no separate price endpoint", rev.paths.prices, "");
+check("the envelope and the cursor are where the reference says",
+  [rev.envelopeKey, rev.cursorKey], ["data", "page.next_cursor"]);
+check("a list caps at 200 rows", rev.pageSize, 200);
+check("reachability has an endpoint that needs no key at all", rev.pingPath, "/ping");
+check("and the API publishes its own spec, so the guesswork has an answer", rev.specPath, "/docs");
+
+// The signature is computed, never sent. Getting the canonical string wrong
+// is a 401 on every call, which is why it is configuration and why it is
+// pinned here against what the reference says it covers.
+console.log("\nSigning a request");
+
+check("the canonical string covers method, path, timestamp, nonce and body",
+  ["method", "path", "timestamp", "nonce", "body"].filter((k) => !SIGNING_DEFAULTS.canonical.includes(`{${k}}`)), []);
+check("the key goes in the header the reference names", SIGNING_DEFAULTS.keyHeader, "X-Api-Key");
+check("\\n in the template becomes one real newline in the signed string",
+  canonicalString(String.raw`{method}\n{path}`, { method: "GET", path: "/products" }), "GET\n/products");
+// The template is edited in a one-line text field, so it is *stored* with a
+// visible backslash-n. A real newline there would show as nothing, and the
+// first person to retype the box would drop the separators and 401 every
+// request from then on.
+check("...and the default is stored visibly, not as an invisible newline",
+  SIGNING_DEFAULTS.canonical.includes("\n"), false);
+check("...while still signing exactly the same bytes",
+  canonicalString(SIGNING_DEFAULTS.canonical, { method: "GET", path: "/p", timestamp: "1", nonce: "n", body: "" }),
+  "GET\n/p\n1\nn\n");
+check("a placeholder nobody filled in is empty, not the word undefined",
+  canonicalString("{method}|{nothing}", { method: "GET" }), "GET|");
+
+// HMAC-SHA256, hex — checked against a published RFC 4231 test vector, so
+// this is right in the absolute rather than merely self-consistent.
+check("HMAC-SHA256 is HMAC-SHA256",
+  await hmacHex("key", "The quick brown fox jumps over the lazy dog"),
+  "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8");
+
+const signed = await signedHeaders(
+  { key: "k_pub", secret: "s_sec", signing: SIGNING_DEFAULTS },
+  { method: "get", path: "/api/v2/products?limit=200", now: 1751620522000, nonce: "n-1" }
+);
+check("the four headers are sent", Object.keys(signed).sort(),
+  ["X-Api-Key", "X-Nonce", "X-Signature", "X-Timestamp"]);
+check("the timestamp is unix seconds, which is what the ±300s window compares",
+  signed["X-Timestamp"], "1751620522");
+check("the method is upper-cased before it is signed, whatever the caller passed",
+  signed["X-Signature"],
+  await hmacHex("s_sec", "GET\n/api/v2/products?limit=200\n1751620522\nn-1\n"));
+check("the secret itself is never in a header",
+  Object.values(signed).some((v) => String(v).includes("s_sec")), false);
+check("...and the key id is, because the server needs to know which secret to use",
+  signed["X-Api-Key"], "k_pub");
+
+const asWebhook = await signedHeaders(
+  { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, signatureFormat: "t,v1" } },
+  { method: "GET", path: "/x", now: 1000000, nonce: "n" }
+);
+check("the t=,v1= shape is available, because their webhooks use it",
+  /^t=1000,v1=[0-9a-f]{64}$/.test(asWebhook["X-Signature"]), true);
+
+console.log("\nPaging");
+check("a cursor page sends a limit and nothing else the first time",
+  pageQuery("cursor", { page: 0, pageSize: 200, cursor: "" }), { limit: 200 });
+check("...and the cursor the last response gave, after that",
+  pageQuery("cursor", { page: 1, pageSize: 200, cursor: "abc" }), { limit: 200, cursor: "abc" });
 check("page numbering", pageQuery("page", { page: 2, pageSize: 200 }), { page: 3, per_page: 200 });
 check("row offset", pageQuery("offset", { page: 2, pageSize: 200 }), { limit: 200, offset: 400 });
 check("frappe", pageQuery("frappe", { page: 2, pageSize: 200 }), { limit_page_length: 200, limit_start: 400 });
@@ -116,18 +195,59 @@ check("a named override beats every alias",
 check("...and an override naming a field that isn't there falls back rather than blanking",
   read({ sku: "still-here" }, { code: "not_a_field" }).code, "still-here");
 
+// The shapes ERPRev's reference actually documents, read with nothing
+// configured — which is the test that this adapter is set up from the
+// documentation rather than from hope.
+console.log("\nERPRev's own product row");
+const revRow = {
+  id: 1042, name: "Ball Pen Blue", description: "<p>Blue ink</p>", measure: "pcs",
+  price: 250, cost_price: 150, reorder_level: 20, category_name: "Stationery",
+  barcode: "0123", thumb_image_url: "https://x/p.jpg", qty: 100,
+};
+check("its id, name and price", (() => { const p = read(revRow); return [p.code, p.name, p.inlinePrice]; })(), ["1042", "Ball Pen Blue", 250]);
+check("its category", read(revRow).group, "Stationery");
+check("its picture", read(revRow).image, "https://x/p.jpg");
+check("its description, with the HTML taken out", read(revRow).description, "Blue ink");
+// `measure` is the closest thing ERPRev has to a variation label — "pcs",
+// "30ml" — so it becomes the option rather than being dropped.
+check("its unit becomes the variation label", read(revRow).options, ["pcs"]);
+check("a quantity on the product row is noticed", read(revRow).inlineStock, 100);
+
 console.log("\nPrices, stock and locations");
 check("a price row", erprev.price({ sku: "A", price: "1,200", valid_from: "2026-01-01" }), { code: "A", price: 1200, validFrom: "2026-01-01" });
 check("a stock row", erprev.stock({ sku: "A", branch: "Abuja Main", available_qty: 9, committed: 2 }),
   { code: "A", warehouse: "Abuja Main", onHand: 9, reserved: 2 });
-check("a location list that is just strings", erprev.warehouse("Abuja Main"), { name: "Abuja Main", isGroup: false, disabled: false });
-check("...and one that is objects", erprev.warehouse({ location_name: "Lagos VI", disabled: 1 }), { name: "Lagos VI", isGroup: false, disabled: true });
 
-// These two readers have to agree on spelling. A location discovered under one
-// name and referenced under another is a location the house maps and the stock
+// **The join that would silently ruin everything.** On a stock row, `id` is
+// the stock record's own id — reading it as the product would attach every
+// quantity to the wrong product, and nothing anywhere would report an error.
+check("a stock row joins on product_id, never on its own id",
+  erprev.stock({ id: 77, product_id: 1042, warehouse_id: 3, qty: 12 }),
+  { code: "1042", warehouse: "3", onHand: 12, reserved: 0 });
+
+// ...and the location map has to be keyed on what the stock row says. ERPRev
+// lists `{id, name}` and its stock rows carry `warehouse_id`, so a map keyed
+// on the name is a map nothing matches and every shop comes back empty.
+check("a location is keyed on its id and labelled with its name",
+  erprev.warehouse({ id: 3, name: "Main Store", location_id: 1 }),
+  { key: "3", label: "Main Store", isGroup: false, disabled: false });
+check("...and the key it produces is the one a stock row carries",
+  erprev.warehouse({ id: 3, name: "Main Store" }).key,
+  erprev.stock({ product_id: 1, warehouse_id: 3, qty: 1 }).warehouse);
+check("an ERP that names its locations instead still keys on the name",
+  erprev.warehouse({ name: "Abuja Main" }).key, "Abuja Main");
+check("a location list that is just strings", erprev.warehouse("Abuja Main"),
+  { key: "Abuja Main", label: "Abuja Main", isGroup: false, disabled: false });
+check("...and one that is objects", erprev.warehouse({ location_name: "Lagos VI", disabled: 1 }),
+  { key: "Lagos VI", label: "Lagos VI", isGroup: false, disabled: true });
+
+// These two readers have to agree. A location discovered under one spelling
+// and referenced under another is a location the house maps and the stock
 // never reaches — and nothing about that failure is visible from the admin.
-check("the location list and the stock rows read the same spellings",
-  ALIASES.warehouse.filter((k) => erprev.warehouse({ [k]: "Abuja Main" }).name !== "Abuja Main"), []);
+check("every name a location list might use is one the reader recognises",
+  ALIASES.warehouse.filter((k) => erprev.warehouse({ [k]: "Abuja Main" }).key !== "Abuja Main"), []);
+check("...and every name a stock row might use, too",
+  ALIASES.stockWarehouse.filter((k) => erprev.stock({ product_id: "p", [k]: "Abuja Main" }).warehouse !== "Abuja Main"), []);
 
 console.log("\nThe ERPNext adapter still reads ERPNext");
 const frappe = adapterFor("erpnext").normalise;
@@ -189,6 +309,46 @@ check("...and with nothing to go on, the code, never nothing",
 check("a second and third option become the other axes",
   (() => { const r = feed({ products: [TEMPLATE, prod({ code: "D-A", name: "Dynasty", parentCode: "DYNASTY", options: ["50ml", "Gold"] })], prices: [price("D-A", 9)] }).rows[0];
     return [r.option1, r.option2]; })(), ["50ml", "Gold"]);
+
+// ---- 3b. One fragrance, three sizes --------------------------------------
+console.log("\nGrouping a flat catalogue back into listings");
+
+// ERPRev's products are flat: three sizes of one perfume are three rows with
+// no parent between them. Imported faithfully that is three cards in the shop
+// for one fragrance.
+const flat = [
+  prod({ code: "1042", name: "Velvet Reign 30ml", options: ["30ml"], inlinePrice: 35000 }),
+  prod({ code: "1043", name: "Velvet Reign 50ml", options: ["50ml"], inlinePrice: 52000 }),
+  prod({ code: "1044", name: "Amber Candle", options: ["pcs"], inlinePrice: 14000 }),
+];
+check("left alone, each row is its own listing",
+  feed({ products: flat }).rows.map((r) => r.parentId), ["1042", "1043", "1044"]);
+
+const grouped = buildFeed({ products: flat, prices: [], stock: [], warehouses: WAREHOUSES, groups: {}, defaultCat: "perfumes", known: new Set(), groupUnits: true });
+check("switched on, the two sizes become one listing",
+  grouped.rows.map((r) => [r.parentId, r.option1]),
+  [["stem:velvet reign", "30ml"], ["stem:velvet reign", "50ml"], ["1044", "pcs"]]);
+check("...named for the fragrance, not for one of its bottles", grouped.rows[0].parentName, "Velvet Reign");
+check("...and each size keeps its own price and its own code",
+  grouped.rows.map((r) => [r.externalId, r.priceNgn]), [["1042", 35000], ["1043", 52000], ["1044", 14000]]);
+
+// The guards on the heuristic. Merging two products that only look related is
+// worse than leaving them apart, so it only fires on an exact unit suffix.
+check("a name that doesn't end in its own unit is never merged",
+  groupByUnit([prod({ code: "a", name: "30ml Travel Atomiser", options: ["pcs"] }),
+    prod({ code: "b", name: "Refill Funnel", options: ["pcs"] })]).map((p) => p.parentCode), ["", ""]);
+check("a stem only one product has is left alone",
+  groupByUnit([prod({ code: "a", name: "Velvet Reign 30ml", options: ["30ml"] })])[0].parentCode, "");
+check("case and the separator before the unit don't matter",
+  groupByUnit([prod({ code: "a", name: "Velvet Reign - 30ML", options: ["30ml"] }),
+    prod({ code: "b", name: "Velvet Reign 50ml", options: ["50ml"] })]).map((p) => p.parentCode),
+  ["stem:velvet reign", "stem:velvet reign"]);
+check("a product that already has a parent is not re-parented",
+  groupByUnit([prod({ code: "a", name: "X 30ml", options: ["30ml"], parentCode: "REAL" }),
+    prod({ code: "b", name: "X 50ml", options: ["50ml"], parentCode: "REAL" })]).map((p) => p.parentCode), ["REAL", "REAL"]);
+check("a name that is only its unit leaves nothing to group on",
+  groupByUnit([prod({ code: "a", name: "30ml", options: ["30ml"] }), prod({ code: "b", name: "30ml", options: ["30ml"] })])
+    .map((p) => p.parentCode), ["", ""]);
 
 // ---- 4. Stock lands in the right city, or nowhere ------------------------
 console.log("\nStock, through the location map");

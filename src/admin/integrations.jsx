@@ -205,6 +205,7 @@ function ErpPanel({ erp, ctx, reload }) {
         erpPaths: JSON.stringify(form.paths || {}), erpFields: JSON.stringify(form.fields || {}),
         erpEnvelopeKey: form.envelopeKey || "", erpPriceList: form.priceList || "",
         erpPublish: form.publish ? "1" : "0", erpDefaultCat: form.defaultCat,
+        erpGroupUnits: form.groupUnits ? "1" : "0",
         erpEmptyGuardPct: form.emptyGuardPct, erpSyncEveryMins: form.syncEveryMins,
       };
       await api.put("/api/admin/settings", { settings: Object.fromEntries(SAVED.map((k) => [k, patch[k]])) }, ctx.token);
@@ -220,6 +221,8 @@ function ErpPanel({ erp, ctx, reload }) {
     setForm((f) => ({ ...f, vendor: id, ...(v ? { authStyle: v.defaults.authStyle, pageStyle: v.defaults.pageStyle, paths: { ...v.defaults.paths } } : {}) }));
   };
   const setPath = (k, v) => setForm((f) => ({ ...f, paths: { ...paths, [k]: v } }));
+  const sign = { ...(erp.signingDefaults || {}), ...(form.signing || {}) };
+  const setSign = (k, v) => setForm((f) => ({ ...f, signing: { ...sign, [k]: v } }));
   const setField = (k, v) => setForm((f) => ({ ...f, fields: { ...fields, [k]: v } }));
   const setMap = async (w, locationId) => {
     try { await api.patch(`/api/admin/erp/warehouses/${encodeURIComponent(w.warehouse)}`, { locationId }, ctx.token); reload(); }
@@ -234,8 +237,23 @@ function ErpPanel({ erp, ctx, reload }) {
   const noteBox = (d, body) => d && (
     <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6, borderRadius: "var(--radius-md)", padding: "10px 12px", background: bad(d) ? "#f7e3ea" : "#e4efe4", color: bad(d) ? "#c0587a" : "#3f6b45", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{body}</div>
   );
+  // What the ERP's own published specification says — worth more than
+  // anything written in this repo about a vendor's API.
+  const specNote = (d) => noteBox(d, d && (d.error || [
+    `${d.title || "The API"} ${d.version} — ${d.pathCount} endpoints published.`,
+    "",
+    "How it says requests are authenticated:",
+    ...(d.security.length
+      ? d.security.map((x) => `\u00b7 ${x.name}: ${x.type}${x.header ? ` — header ${x.header}` : ""}${x.scheme ? ` (${x.scheme})` : ""}${x.description ? `\n   ${x.description}` : ""}`)
+      : ["\u00b7 it names none — the signing settings above have to be confirmed from the Signing requests page"]),
+    "",
+    "Endpoints it publishes for what we need:",
+    ...Object.entries(d.found || {}).map(([k, v]) => `\u00b7 ${k}: ${v.length ? v.join(", ") : "— none found"}`),
+  ].join("\n")));
   const testNote = (d) => noteBox(d, d && (d.error || [
     `Reached it in ${d.ms}ms.`,
+    d.ping ? `\u00b7 ping: ${d.ping.status}${d.ping.version ? ` (${d.ping.version})` : ""}${typeof d.ping.clockSkewSeconds === "number" ? `, clocks ${d.ping.clockSkewSeconds}s apart` : ""}` : "",
+    d.ping && d.ping.clockWarning ? `  \u26a0 ${d.ping.clockWarning}` : "",
     ...Object.entries(d.reached || {}).map(([k, v]) => `· ${k}: ${v}`),
     d.mapped ? `\nFirst product read as: code "${d.mapped.code || "—"}", name "${d.mapped.name || "—"}"${d.mapped.missing.length ? ` — couldn't find ${d.mapped.missing.join(" or ")}, so run the probe and name them below` : ""}.${d.mapped.sawPrice ? " Price is on the product row." : ""}${d.mapped.sawStock ? " Stock is on the product row." : ""}` : "",
   ].filter(Boolean).join("\n")));
@@ -335,12 +353,40 @@ function ErpPanel({ erp, ctx, reload }) {
             <Input label="Category for unmapped items" value={form.defaultCat || ""} onChange={(e) => setForm({ ...form, defaultCat: e.target.value })}
               placeholder="perfumes" hint="Where a new product lands when its category isn't mapped below." />
           </div>
+          {form.authStyle === "hmac" && (
+            <div style={{ border: "1px solid var(--mr-gold-400)", background: "var(--mr-gold-200)", borderRadius: "var(--radius-md)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontSize: 12, color: "var(--mr-gold-600)", lineHeight: 1.6 }}>
+                <strong>Signed requests.</strong> The secret is never sent &mdash; each call carries an HMAC-SHA256 signature over its
+                method, path, timestamp, nonce and body. The header names and order below come from ERPRev&rsquo;s API overview; the
+                exact byte order lives on their <em>Signing requests</em> page. If every call comes back <code>auth.invalid</code>
+                {" "}while the key is definitely right, this is what to correct &mdash; and{" "}
+                <strong>Read the API&rsquo;s own spec</strong> asks the ERP itself.
+              </div>
+              <Input label="Canonical string" value={sign.canonical} onChange={(e) => setSign("canonical", e.target.value)}
+                hint={"\\n is a newline. Placeholders: {method} {path} {timestamp} {nonce} {body}"} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+                <Input label="Key header" value={sign.keyHeader} onChange={(e) => setSign("keyHeader", e.target.value)} />
+                <Input label="Timestamp header" value={sign.timestampHeader} onChange={(e) => setSign("timestampHeader", e.target.value)} />
+                <Input label="Nonce header" value={sign.nonceHeader} onChange={(e) => setSign("nonceHeader", e.target.value)} />
+                <Input label="Signature header" value={sign.signatureHeader} onChange={(e) => setSign("signatureHeader", e.target.value)} />
+              </div>
+              <div>
+                <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Signature format</div>
+                <select value={sign.signatureFormat} onChange={(e) => setSign("signatureFormat", e.target.value)} style={{ ...selStyle, width: "100%", padding: "9px 12px" }}>
+                  <option value="hex">The hex digest on its own</option>
+                  <option value="t,v1">t=&lt;timestamp&gt;,v1=&lt;hex&gt; (the shape their webhooks use)</option>
+                </select>
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>{busy === "config" ? "Saving…" : "Save"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "test"} onClick={() => run("test", "/api/admin/erp/test", {})}>{busy === "test" ? "Calling…" : "Test the connection"}</Button>
+            <Button variant="secondary" size="sm" disabled={busy === "spec"} onClick={() => run("spec", "/api/admin/erp/spec", {})}>{busy === "spec" ? "Reading…" : "Read the API’s own spec"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "probe"} onClick={() => run("probe", "/api/admin/erp/probe", { resource: "products" })}>{busy === "probe" ? "Reading…" : "Show me a row"}</Button>
           </div>
           {testNote(out("test"))}
+          {specNote(out("spec"))}
           {probeNote(out("probe"))}
         </div>
       ))}
@@ -384,7 +430,7 @@ function ErpPanel({ erp, ctx, reload }) {
               {erp.warehouses.map((w) => (
                 <div key={w.warehouse} style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", fontSize: 12.5 }}>
                   <span style={{ color: w.disabled ? "var(--text-muted)" : "var(--text-body)", textDecoration: w.disabled ? "line-through" : "none", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {w.warehouse}{w.isGroup ? " (group)" : ""}
+                    {w.label || w.warehouse}{w.label && w.label !== w.warehouse ? ` (#${w.warehouse})` : ""}{w.isGroup ? " · group" : ""}
                   </span>
                   <select value={w.locationId || ""} onChange={(e) => setMap(w, e.target.value)} style={selStyle}>
                     <option value="">Not counted</option>
@@ -439,6 +485,15 @@ function ErpPanel({ erp, ctx, reload }) {
               placeholder="60" hint="15 at the fastest — that is how often the cron runs." />
             <Input label="Empty-feed guard (%)" value={form.emptyGuardPct ?? ""} onChange={(e) => setForm({ ...form, emptyGuardPct: e.target.value.replace(/\D/g, "") })}
               placeholder="25" hint="Refuse a pull that would cut catalogue stock by more than this. An expired key returns nothing, and nothing must not empty the shop." />
+          </div>
+          <Switch label="Group sizes of one product into a single listing"
+            checked={!!form.groupUnits} onChange={(e) => setForm({ ...form, groupUnits: e.target.checked })} />
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -4, lineHeight: 1.6 }}>
+            ERPRev keeps one row per sellable thing, so three sizes of a fragrance arrive as three products &mdash; three cards in
+            the shop. On, a product whose name <em>ends with its own unit</em> has that unit taken off, and rows that then match
+            become one listing with a size picker: &ldquo;Velvet Reign 30ml&rdquo; and &ldquo;Velvet Reign 50ml&rdquo; become
+            Velvet Reign, 30ml and 50ml. It never merges on a near-match, and never on a name only one product has.
+            <strong> Dry-run it first</strong> and read what it would group.
           </div>
           <Switch label="Items new to the shop go live immediately" checked={!!form.publish} onChange={(e) => setForm({ ...form, publish: e.target.checked })} />
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -4 }}>

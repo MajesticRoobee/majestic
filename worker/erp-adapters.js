@@ -84,15 +84,22 @@ export const ALIASES = {
   name: ["item_name", "itemName", "name", "product_name", "productName", "title", "description_short"],
   parentCode: ["variant_of", "variantOf", "parent", "parent_code", "parentCode", "parent_id", "parentId", "template", "template_code", "style_code", "styleCode", "group_code", "model"],
   isTemplate: ["has_variants", "hasVariants", "is_template", "isTemplate", "is_parent", "has_children"],
-  group: ["item_group", "itemGroup", "category", "category_name", "categoryName", "product_group", "productGroup", "class", "department", "cat"],
+  group: ["item_group", "itemGroup", "category", "category_name", "categoryName", "product_group", "productGroup", "class", "class_name", "department", "cat"],
   description: ["description", "descr", "details", "long_description", "notes", "body"],
-  image: ["image", "image_url", "imageUrl", "photo", "picture", "thumbnail", "img"],
+  image: ["image", "image_url", "imageUrl", "thumb_image_url", "thumbImageUrl", "photo", "picture", "thumbnail", "img"],
   disabled: ["disabled", "is_disabled", "inactive", "is_deleted", "deleted", "archived"],
   active: ["active", "enabled", "is_active", "status"],
-  option: ["variant", "variant_name", "variantName", "option", "option1", "size", "unit", "uom", "attribute_value", "spec"],
+  option: ["variant", "variant_name", "variantName", "option", "option1", "size", "measure", "unit", "uom", "attribute_value", "spec"],
   price: ["price_list_rate", "priceListRate", "price", "unit_price", "unitPrice", "selling_price", "sellingPrice", "sale_price", "salePrice", "rate", "amount", "retail_price"],
   validFrom: ["valid_from", "validFrom", "effective_from", "effectiveFrom", "start_date", "starts_at"],
   warehouse: ["warehouse", "warehouse_name", "warehouseName", "location", "location_name", "locationName", "store", "store_name", "branch", "branch_name", "site", "outlet"],
+  // A stock row points *at* a product and *at* a location, and on an ERP that
+  // uses numeric ids — ERPRev does — the row's own `id` is the stock row's,
+  // not the product's. Reading `id` there would join every stock row to the
+  // wrong product, so these two lists exist separately and put the foreign
+  // keys first.
+  stockCode: ["product_id", "productId", "sku", "item_code", "itemCode", "product_code", "productCode", "code", "item_id", "barcode"],
+  stockWarehouse: ["warehouse_id", "warehouseId", "warehouse", "warehouse_name", "location_id", "locationId", "location", "location_name", "store_id", "store", "branch_id", "branch", "branch_name", "site", "outlet"],
   onHand: ["actual_qty", "actualQty", "qty", "quantity", "stock", "stock_qty", "on_hand", "onHand", "available", "available_qty", "balance", "closing_qty", "in_stock"],
   reserved: ["reserved_qty", "reservedQty", "reserved", "committed", "committed_qty", "allocated", "allocated_qty", "on_order"],
   modified: ["modified", "updated_at", "updatedAt", "last_modified", "lastModified", "date_modified", "changed_at"],
@@ -111,6 +118,7 @@ const fieldsFor = (overrides, key) => {
 // admin; getting it wrong produces a 401 the connection test reports verbatim,
 // rather than anything silent.
 export const AUTH_STYLES = {
+  hmac: { label: "Signed request — HMAC-SHA256 (ERPRev v2)" },
   raw: { label: "The token on its own (Authorization: <token>)" },
   bearer: { label: "Bearer token (Authorization: Bearer <token>)" },
   "key-secret-headers": { label: "Two headers (X-API-KEY / X-API-SECRET)" },
@@ -119,9 +127,85 @@ export const AUTH_STYLES = {
   query: { label: "Query string (?api_key=…&api_secret=…)" },
 };
 
+/**
+ * The signing contract for a request-signed API.
+ *
+ * ERPRev's v2 API does not send the secret at all: every request carries an
+ * HMAC-SHA256 signature computed over its method, path, timestamp, nonce and
+ * body, and the server recomputes it. That is a better design than a bearer
+ * token and it is also the one thing a connector cannot improvise — the
+ * canonical string has to match byte for byte or every call is a 401.
+ *
+ * So the pieces are *configuration*, defaulted to the documented shape and
+ * editable in the admin, rather than constants compiled into a build. When
+ * ERPRev's "Signing requests" page pins the exact order, it is a text field,
+ * not a release. `{ph}` placeholders are substituted; `\n` in the template
+ * means a real newline.
+ */
+export const SIGNING_DEFAULTS = {
+  // "an HMAC-SHA256 signature over its method, path, timestamp, nonce and
+  // body" — ERPRevolution User Guide, The ERPRev API.
+  // Written with a *visible* backslash-n rather than a real newline, because
+  // this is edited in a one-line text field: a real newline there shows as
+  // nothing at all, and the first person to retype the box would silently
+  // drop the separators and 401 every request afterwards. `canonicalString`
+  // turns the two characters into the one.
+  canonical: String.raw`{method}\n{path}\n{timestamp}\n{nonce}\n{body}`,
+  keyHeader: "X-Api-Key",          // documented: "the public key id you'll send as X-Api-Key"
+  timestampHeader: "X-Timestamp",
+  nonceHeader: "X-Nonce",
+  signatureHeader: "X-Signature",
+  // Some APIs want `t=<ts>,v1=<hex>`; ERPRev's *webhooks* do. Whether its
+  // request signing does is on the page we do not have, so it is a switch.
+  signatureFormat: "hex",          // "hex" | "t,v1"
+};
+
+/** Fill `{method}` / `{path}` / `{timestamp}` / `{nonce}` / `{body}` / `{query}`. */
+export function canonicalString(template, parts) {
+  return String(template || SIGNING_DEFAULTS.canonical)
+    .replace(/\\n/g, "\n")
+    .replace(/\{(\w+)\}/g, (_, k) => (parts[k] === undefined ? "" : String(parts[k])));
+}
+
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** HMAC-SHA256, hex. WebCrypto, so it works on the Worker with no dependency. */
+export async function hmacHex(secret, message) {
+  const enc = new TextEncoder();
+  const k = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hex(await crypto.subtle.sign("HMAC", k, enc.encode(message)));
+}
+
+/**
+ * The four headers a signed request carries.
+ *
+ * `now` and `nonce` are injectable so this is testable; in production they are
+ * the clock and a random id. ERPRev checks the timestamp against its own clock
+ * with a ±300 second window, which is why the connection test reports the
+ * server time it saw.
+ */
+export async function signedHeaders(cfg, { method, path, body = "", now = Date.now(), nonce } = {}) {
+  const sign = { ...SIGNING_DEFAULTS, ...(cfg.signing || {}) };
+  const timestamp = String(Math.floor(now / 1000));
+  const n = nonce || crypto.randomUUID();
+  const message = canonicalString(sign.canonical, {
+    method: String(method || "GET").toUpperCase(), path, timestamp, nonce: n, body,
+  });
+  const mac = await hmacHex(cfg.secret, message);
+  return {
+    [sign.keyHeader]: cfg.key,
+    [sign.timestampHeader]: timestamp,
+    [sign.nonceHeader]: n,
+    [sign.signatureHeader]: sign.signatureFormat === "t,v1" ? `t=${timestamp},v1=${mac}` : mac,
+  };
+}
+
 export function authFor(style, key, secret) {
   const k = str(key), s = str(secret);
   switch (style) {
+    case "hmac":
+      // Handled by `signedHeaders`, which is async and needs the request.
+      return { headers: {}, query: {}, signed: true };
     case "token":
       return { headers: { authorization: `token ${k}:${s}` }, query: {} };
     case "basic":
@@ -147,14 +231,19 @@ export function authFor(style, key, secret) {
 
 // ---- paging ---------------------------------------------------------------
 export const PAGE_STYLES = {
+  cursor: { label: "?limit=200&cursor=… (cursor — ERPRev v2)" },
   page: { label: "?page=1&per_page=200 (page number)" },
   offset: { label: "?limit=200&offset=0 (row offset)" },
   frappe: { label: "?limit_page_length=200&limit_start=0 (Frappe / ERPNext)" },
   none: { label: "No paging — the endpoint returns everything" },
 };
 
-export function pageQuery(style, { page, pageSize }) {
+export function pageQuery(style, { page, pageSize, cursor }) {
   switch (style) {
+    case "cursor":
+      // A cursor API has no page number: the first call sends only a limit and
+      // every call after it sends the cursor the last response handed back.
+      return cursor ? { limit: pageSize, cursor } : { limit: pageSize };
     case "offset": return { limit: pageSize, offset: page * pageSize };
     case "frappe": return { limit_page_length: pageSize, limit_start: page * pageSize };
     case "none": return {};
@@ -209,20 +298,27 @@ const genericNormalise = {
     validFrom: str(pick(row, fieldsFor(f, "validFrom"))),
   }),
   stock: (row, f = {}) => ({
-    code: str(pick(row, fieldsFor(f, "code"))),
-    warehouse: str(pick(row, fieldsFor(f, "warehouse"))),
+    // `stockCode` / `stockWarehouse` rather than `code` / `warehouse`: on a
+    // stock row the product and the location are foreign keys, and the row's
+    // own `id` belongs to the stock record. See the note on ALIASES.
+    code: str(pick(row, f.stockCode ? [f.stockCode, ...ALIASES.stockCode] : ALIASES.stockCode)),
+    warehouse: str(pick(row, f.stockWarehouse ? [f.stockWarehouse, ...ALIASES.stockWarehouse] : ALIASES.stockWarehouse)),
     onHand: num(pick(row, fieldsFor(f, "onHand"))),
     reserved: num(pick(row, fieldsFor(f, "reserved"))),
   }),
   warehouse: (row) => {
     // A location list is often just strings.
-    if (typeof row === "string") return { name: row.trim(), isGroup: false, disabled: false };
-    // The same alias list the *stock* rows are read with, and then the names a
-    // list endpoint uses that a stock row wouldn't. These two readers have to
-    // agree: a location discovered under one spelling and referenced under
-    // another is a location the house maps and the stock never reaches.
+    if (typeof row === "string") return { key: row.trim(), label: row.trim(), isGroup: false, disabled: false };
+    const name = str(pick(row, [...ALIASES.warehouse, "name", "title", "label"]));
+    const id = str(pick(row, ["id", "warehouse_id", "code"]));
+    // **The key is what a stock row will say, not what a person would read.**
+    // ERPRev's `/warehouses` gives `{id, name}` and its stock rows carry
+    // `warehouse_id` — so a map keyed on the name would be a map nothing ever
+    // matches, and every shop would come back empty with no error anywhere.
+    // The id wins where there is one; the name is kept for the admin to read.
     return {
-      name: str(pick(row, [...ALIASES.warehouse, "name", "title", "label", "id", "code"])),
+      key: id || name,
+      label: name || id,
       isGroup: bool(pick(row, ["is_group", "isGroup", "has_children", "is_parent"])),
       disabled: bool(pick(row, [...ALIASES.disabled, "is_closed"])),
     };
@@ -251,28 +347,42 @@ const genericNormalise = {
  */
 const erprev = {
   id: "erprev",
-  label: "ERPRevolution (ERPrev)",
-  note: "Check the endpoint paths against the developer guide before the first pull — the defaults below are placeholders, not something ERPRev told us. Then run the probe: it prints their field names beside the ones the reader matched.",
+  label: "ERPRevolution (ERPrev) — API v2",
+  note: "Set up from ERPRev's own API reference. The base URL is your system's address with /api/v2 on the end; the endpoints and field names below are theirs. The one thing still to confirm is the exact signing canonical string — see the note under Authentication.",
   docs: "https://erprev.com/user-guide/developers/",
   defaults: {
-    // ERPRev's own documentation describes an `Authorization: <token>` header
-    // — the token on its own, no scheme in front of it — and issues a single
-    // API token with a usage log rather than a key/secret pair. Getting this
-    // wrong produces a 401 that reads like a bad credential, which is why it
-    // is the default here rather than something to find out the hard way.
-    authStyle: "raw",
-    pageStyle: "page",
-    // Placeholders. ERPRev is multi-tenant on a subdomain
-    // (https://<yourcompany>.erprev.com), and these paths have *not* been
-    // verified against their API reference — a 404 from the connection test
-    // means the real path is in the developer guide, not that anything is
-    // broken. They are here so the first test call has somewhere to go.
-    paths: { products: "/api/products", prices: "", stock: "/api/inventory", warehouses: "/api/warehouses", groups: "/api/categories" },
+    // "Every request is authenticated with an HMAC-SHA256 signature over its
+    // method, path, timestamp, nonce and body — the secret never travels."
+    authStyle: "hmac",
+    // "List endpoints return the standard envelope and cursor pagination" —
+    // limit (1–200, default 50), cursor, sort.
+    pageStyle: "cursor",
+    // Straight from "API endpoints — Products & stock". Prices ride the
+    // product row (`price`), so there is no price endpoint to name.
+    paths: {
+      products: "/products",
+      prices: "",
+      stock: "/stocks",
+      warehouses: "/warehouses",
+      groups: "/product-categories",
+    },
+    // `{ "data": [...], "page": { limit, count, has_more, next_cursor } }`
+    envelopeKey: "data",
+    cursorKey: "page.next_cursor",
+    // Reachability, with no credentials at all.
+    pingPath: "/ping",
+    // The API publishes its own OpenAPI 3 document here, publicly — which is
+    // how the admin can show the real security scheme rather than trusting
+    // anything written in this file.
+    specPath: "/docs",
+    pageSize: 200,
   },
-  // Prices usually ride the product row on an ERP like this, so `prices` is
-  // empty by default: `erp.js` reads the price off the product when there is
-  // no price endpoint configured.
+  // ERPRev has no variant/parent concept on a product: `/products` rows are
+  // flat, each with its own price, and `measure` ("pcs", "30ml") is the
+  // closest thing to a variation label. So every product becomes a one-size
+  // listing unless somebody splits it in the shop afterwards.
   priceOnProduct: true,
+  scopes: ["products.read", "stocks.read", "warehouses.read"],
   normalise: genericNormalise,
 };
 

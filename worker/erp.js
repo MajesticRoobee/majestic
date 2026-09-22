@@ -31,7 +31,10 @@
 
 import { getSettings, putSettings, allLocations } from "./util.js";
 import { syncCatalogue } from "./integrations.js";
-import { adapterFor, adapterList, authFor, pageQuery, unwrap, AUTH_STYLES, PAGE_STYLES, ALIASES } from "./erp-adapters.js";
+import {
+  adapterFor, adapterList, authFor, signedHeaders, pageQuery, unwrap,
+  AUTH_STYLES, PAGE_STYLES, ALIASES, SIGNING_DEFAULTS,
+} from "./erp-adapters.js";
 
 /**
  * The tag written into `products.external_source` and `variants.external_source`.
@@ -91,10 +94,20 @@ export async function erpConfig(env) {
     // Per-field overrides for an ERP whose spelling isn't on the alias list.
     fields: parseJson(s.erpFields, {}),
     // Where the array sits in the response, when it isn't somewhere obvious.
-    envelopeKey: String(s.erpEnvelopeKey || "").trim(),
+    envelopeKey: String(s.erpEnvelopeKey || "").trim() || adapter.defaults.envelopeKey || "",
+    // Where the next page's cursor sits, for a cursor-paged API.
+    cursorKey: String(s.erpCursorKey || "").trim() || adapter.defaults.cursorKey || "",
+    // Reachability with no credentials, and the API's own published spec.
+    pingPath: String(s.erpPingPath || "").trim() || adapter.defaults.pingPath || "",
+    specPath: adapter.defaults.specPath || "",
+    pageSize: Math.max(1, Math.min(200, parseInt(s.erpPageSize, 10) || adapter.defaults.pageSize || PAGE)),
+    // The signing contract, defaulted to what the vendor documents.
+    signing: { ...SIGNING_DEFAULTS, ...parseJson(s.erpSigning, {}) },
     priceList: String(s.erpPriceList || "").trim(),
     publish: String(s.erpPublish) === "1",
     defaultCat: String(s.erpDefaultCat || "perfumes").trim(),
+    // See `groupByUnit`. Off unless the house asks for it.
+    groupUnits: String(s.erpGroupUnits) === "1",
     emptyGuardPct: clampPct(s.erpEmptyGuardPct, 25),
     syncEveryMins: Math.max(15, parseInt(s.erpSyncEveryMins, 10) || 60),
     lastSync: String(s.erpLastSync || "").trim(),
@@ -109,21 +122,31 @@ export async function erpConfig(env) {
  * parameter. That is the only dialect difference big enough to live here
  * rather than in the adapter.
  */
-async function erpCall(env, cfg, path, { search = {}, absolute = false } = {}) {
+async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) {
   if (!cfg.baseUrl) throw new Error("No base URL for the ERP yet.");
-  if (!cfg.hasKey) throw new Error("No API credentials — set ERP_API_KEY and ERP_API_SECRET as Worker secrets.");
-  const auth = authFor(cfg.authStyle, env.ERP_API_KEY, env.ERP_API_SECRET);
+  if (!anonymous && !cfg.hasKey) throw new Error("No API credentials — set ERP_API_KEY and ERP_API_SECRET as Worker secrets.");
+  const auth = anonymous ? { headers: {}, query: {} } : authFor(cfg.authStyle, env.ERP_API_KEY, env.ERP_API_SECRET);
   let url;
   try {
-    url = new URL(absolute ? path : cfg.baseUrl + (path.startsWith("/") ? path : `/${path}`));
+    url = new URL(cfg.baseUrl + (path.startsWith("/") ? path : `/${path}`));
   } catch { throw new Error(`"${cfg.baseUrl}${path}" isn't a valid address — check the base URL.`); }
   for (const [k, v] of Object.entries({ ...search, ...auth.query })) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
   }
 
+  // A signed API computes its signature over the path the server will see, so
+  // the query string has to be settled before anything is signed.
+  const headers = { ...auth.headers, accept: "application/json" };
+  if (auth.signed) {
+    Object.assign(headers, await signedHeaders(
+      { key: env.ERP_API_KEY, secret: env.ERP_API_SECRET, signing: cfg.signing },
+      { method: "GET", path: url.pathname + (url.search || ""), body: "" }
+    ));
+  }
+
   let res;
   try {
-    res = await fetch(url, { headers: { ...auth.headers, accept: "application/json" } });
+    res = await fetch(url, { headers });
   } catch (e) {
     // A DNS failure or a refused connection is the commonest first result, and
     // "TypeError: fetch failed" tells nobody anything.
@@ -131,11 +154,25 @@ async function erpCall(env, cfg, path, { search = {}, absolute = false } = {}) {
   }
   const text = await res.text();
   if (!res.ok) {
-    const hint = res.status === 401 || res.status === 403
-      ? `The ERP refused the credentials (${res.status}). Check the key and secret, and that the authentication style below matches what the ERP's API documentation asks for.`
-      : res.status === 404
-        ? `The ERP answered 404 for ${url.pathname}. That endpoint path is wrong — check it against the API documentation.`
-        : `The ERP answered ${res.status}.`;
+    // ERPRev's error codes are documented and specific, so say what each one
+    // actually means rather than "401, check your key".
+    const code = (text.match(/"(?:code|type)"\s*:\s*"([\w.]+)"/) || [])[1] || "";
+    const known = {
+      "auth.missing": "No credentials reached the ERP — the signing headers weren't sent.",
+      "auth.invalid": "The ERP rejected the key. If it says \"not a v2 key\", the key was issued on an older build — re-issue it from Manage API Access.",
+      "auth.clock_skew": "The signature timestamp is outside the ERP's ±300-second window. This machine's clock and the ERP's disagree.",
+      "auth.insufficient_scope": "The key's scopes don't cover this. It needs products.read, stocks.read and warehouses.read.",
+      "auth.insufficient_privilege": "The key authenticated, but its attached user lacks the module privilege. Both gates have to pass — give the service user read on products, stock and warehouses.",
+      "route.not_found": "That endpoint doesn't exist on this build.",
+      "cursor.invalid": "The paging cursor was rejected — the pull will start again from the beginning.",
+    }[code];
+    const hint = known
+      ? `${known} (${res.status} ${code})`
+      : res.status === 401 || res.status === 403
+        ? `The ERP refused the credentials (${res.status}). Check the key and secret, that "Allow use of API" is ticked in company preferences, and that the signing settings match the ERP's own reference.`
+        : res.status === 404
+          ? `The ERP answered 404 for ${url.pathname}. That endpoint path is wrong — check it against the API reference.`
+          : `The ERP answered ${res.status}.`;
     throw new Error(`${hint}${text && text.length < 300 ? ` It said: ${text.trim()}` : ""}`);
   }
   try { return JSON.parse(text); }
@@ -152,26 +189,47 @@ const FRAPPE_FIELDS = {
   groups: ["name"],
 };
 
-/** One page of a list endpoint, already unwrapped. */
-async function erpPage(env, cfg, resource, { page = 0, extra = {} } = {}) {
+/** Dig a value out of a response by dotted path — `page.next_cursor`. */
+const at = (obj, path) =>
+  String(path || "").split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), obj);
+
+/**
+ * One page of a list endpoint: the rows, and the cursor for the next page.
+ *
+ * Returns `{ rows, cursor }` rather than just rows, because a cursor-paged
+ * API — which ERPRev's is — has no page number to increment. Asking for
+ * "page 3" of a cursor API silently returns page 1 three times.
+ */
+async function erpPage(env, cfg, resource, { page = 0, cursor = "", extra = {} } = {}) {
   const path = cfg.paths[resource];
-  if (!path) return [];
-  const search = { ...pageQuery(cfg.pageStyle, { page, pageSize: PAGE }), ...extra };
+  if (!path) return { rows: [], cursor: "" };
+  const search = { ...pageQuery(cfg.pageStyle, { page, pageSize: cfg.pageSize, cursor }), ...extra };
   // Frappe returns only `name` unless the fields are asked for explicitly.
   if (cfg.adapter.dialect === "frappe" && FRAPPE_FIELDS[resource]) {
     search.fields = JSON.stringify(FRAPPE_FIELDS[resource]);
   }
-  return unwrap(await erpCall(env, cfg, path, { search }), cfg.envelopeKey);
+  const body = await erpCall(env, cfg, path, { search });
+  return {
+    rows: unwrap(body, cfg.envelopeKey),
+    cursor: cfg.cursorKey ? String(at(body, cfg.cursorKey) || "") : "",
+  };
 }
 
 /** Every page of a list endpoint, to the hard stop. */
 async function erpAll(env, cfg, resource, opts = {}) {
   if (!cfg.paths[resource]) return [];
   const out = [];
+  let cursor = "";
   for (let page = 0; page < MAX_PAGES; page++) {
-    const rows = await erpPage(env, cfg, resource, { ...opts, page });
-    out.push(...rows);
-    if (rows.length < PAGE || cfg.pageStyle === "none") break;
+    const got = await erpPage(env, cfg, resource, { ...opts, page, cursor });
+    out.push(...got.rows);
+    if (cfg.pageStyle === "none") break;
+    if (cfg.pageStyle === "cursor") {
+      // Trust the cursor, not the row count: a short page with a cursor after
+      // it is normal, and a cursor that repeats itself is a loop.
+      if (!got.cursor || got.cursor === cursor) break;
+      cursor = got.cursor;
+    } else if (got.rows.length < cfg.pageSize) break;
   }
   return out;
 }
@@ -194,10 +252,37 @@ export async function erpPing(env) {
   const started = Date.now();
   const reached = {};
   let firstError = "";
+
+  // **Reachability first, with no credentials at all.** ERPRev's `/ping` needs
+  // no key, so this separates "we can't reach your ERP" from "your ERP won't
+  // accept this key" — two problems with completely different fixes that a
+  // single 401 would otherwise blur together. It also hands back the server's
+  // clock, and a signed request whose timestamp is more than 300 seconds off
+  // that clock is refused however right the key is.
+  let ping = null;
+  if (cfg.pingPath) {
+    try {
+      const body = await erpCall(env, cfg, cfg.pingPath, { anonymous: true });
+      const serverTime = body.time || body.server_time || body.timestamp || body.now || "";
+      const skew = serverTime ? Math.round(Math.abs(Date.now() - new Date(serverTime).getTime()) / 1000) : null;
+      ping = {
+        ok: true, status: body.status || "reachable", version: body.version || body.api_version || "",
+        serverTime: String(serverTime || ""),
+        // ±300s is ERPRev's documented window.
+        clockSkewSeconds: Number.isFinite(skew) ? skew : null,
+        clockWarning: Number.isFinite(skew) && skew > 240
+          ? `This machine's clock is about ${skew}s from the ERP's. Past 300s every signed request is refused as auth.clock_skew.`
+          : "",
+      };
+    } catch (e) {
+      ping = { ok: false, error: String(e.message || e) };
+    }
+    if (ping && !ping.ok) return { ok: false, error: `Couldn't reach the ERP at all — ${ping.error}`, ms: Date.now() - started, ping };
+  }
   for (const resource of ["products", "prices", "stock", "warehouses", "groups"]) {
     if (!cfg.paths[resource]) { reached[resource] = "not set"; continue; }
     try {
-      const rows = await erpPage(env, cfg, resource, { page: 0 });
+      const { rows } = await erpPage(env, cfg, resource, { page: 0 });
       reached[resource] = rows.length ? `${rows.length} row(s)` : "reachable, empty";
     } catch (e) {
       reached[resource] = String(e.message || e);
@@ -207,13 +292,13 @@ export async function erpPing(env) {
   // Products is the one that has to work. Anything else missing is a feature
   // the house hasn't configured, not a broken connection.
   const productsOk = /row\(s\)|reachable/.test(reached.products || "");
-  if (!productsOk) return { ok: false, error: firstError || reached.products, ms: Date.now() - started, reached };
+  if (!productsOk) return { ok: false, error: firstError || reached.products, ms: Date.now() - started, reached, ping };
 
   // Reading the product endpoint is not the same as understanding it, so say
   // which neutral fields actually came back filled in.
   let mapped = null;
   try {
-    const rows = await erpPage(env, cfg, "products", { page: 0 });
+    const { rows } = await erpPage(env, cfg, "products", { page: 0 });
     if (rows.length) {
       const p = cfg.adapter.normalise.product(rows[0], cfg.fields);
       mapped = {
@@ -225,7 +310,48 @@ export async function erpPing(env) {
     }
   } catch { /* the reachability answer stands on its own */ }
 
-  return { ok: true, vendor: cfg.vendor, ms: Date.now() - started, reached, mapped };
+  return { ok: true, vendor: cfg.vendor, ms: Date.now() - started, reached, mapped, ping };
+}
+
+/**
+ * Read the API's *own* published specification and report what it says.
+ *
+ * ERPRev publishes a live OpenAPI 3 document at `/api/v2/docs`, publicly. That
+ * is worth more than any amount of care taken over this file: it names the
+ * security scheme and the real endpoint paths from the running build, so the
+ * house can check the settings against the ERP's own answer rather than
+ * against a developer's reading of a PDF. Everything vendor-specific in this
+ * connector is a guess until something like this confirms it.
+ */
+export async function erpReadSpec(env) {
+  const cfg = await erpConfig(env);
+  if (!cfg.baseUrl) return { ok: false, error: "No base URL yet." };
+  if (!cfg.specPath) return { ok: false, error: "This adapter doesn't know where the ERP publishes its specification." };
+  let doc;
+  try {
+    doc = await erpCall(env, cfg, cfg.specPath, { anonymous: true });
+  } catch (e) {
+    return { ok: false, error: `${String(e.message || e)} The specification is meant to be public — if it needs a key on your build, the endpoint paths below have to be checked by hand instead.` };
+  }
+  const schemes = (doc.components && doc.components.securitySchemes) || {};
+  const paths = Object.keys(doc.paths || {});
+  const find = (re) => paths.filter((x) => re.test(x) && !/\{/.test(x));
+  return {
+    ok: true,
+    title: (doc.info && doc.info.title) || "",
+    version: (doc.info && doc.info.version) || "",
+    // The answer to "which headers does the signature actually go in".
+    security: Object.entries(schemes).map(([name, v]) => ({
+      name, type: v.type, in: v.in || "", header: v.name || "", scheme: v.scheme || "", description: String(v.description || "").slice(0, 300),
+    })),
+    found: {
+      products: find(/products?$/i),
+      stock: find(/stocks?$/i),
+      warehouses: find(/warehouses?$/i),
+      categories: find(/categor/i),
+    },
+    pathCount: paths.length,
+  };
 }
 
 /**
@@ -242,7 +368,7 @@ export async function erpProbe(env, { resource = "products", path = "" } = {}) {
   const target = String(path || "").trim() || cfg.paths[resource];
   if (!target) return { ok: false, error: "Nothing to probe — give it a path, or set one for that resource." };
   try {
-    const body = await erpCall(env, cfg, target, { search: pageQuery(cfg.pageStyle, { page: 0, pageSize: 3 }) });
+    const body = await erpCall(env, cfg, target, { search: pageQuery(cfg.pageStyle, { page: 0, pageSize: 3, cursor: "" }) });
     const rows = unwrap(body, cfg.envelopeKey);
     const sample = rows[0];
     if (!sample) {
@@ -256,10 +382,27 @@ export async function erpProbe(env, { resource = "products", path = "" } = {}) {
     }
     const keys = Object.keys(sample);
     // Which neutral field each alias list found, so the gaps are obvious.
+    //
+    // Resolved with the list the *reader for this resource* actually uses. A
+    // stock row joins on `product_id`, not on its own `id`, so reporting the
+    // generic list here would tell somebody the reader had matched the wrong
+    // field and invite them to "fix" it with an override that breaks a join
+    // which was working.
+    const FOR = {
+      products: ["code", "name", "parentCode", "isTemplate", "group", "description", "image", "disabled", "active", "option", "price", "modified"],
+      prices: ["code", "price", "validFrom"],
+      stock: ["stockCode", "stockWarehouse", "onHand", "reserved"],
+      warehouses: ["warehouse"],
+      groups: ["group"],
+    };
+    const fields = FOR[resource] || Object.keys(ALIASES);
     const resolved = {};
-    for (const field of Object.keys(ALIASES)) {
-      const hit = [cfg.fields[field], ...ALIASES[field]].find((k) => k && sample[k] !== undefined && sample[k] !== null && sample[k] !== "");
-      resolved[field] = hit || null;
+    for (const field of fields) {
+      const hit = [cfg.fields[field], ...(ALIASES[field] || [])].find((k) => k && sample[k] !== undefined && sample[k] !== null && sample[k] !== "");
+      // Named so the admin reads "the product this row is about", not a
+      // variable name only this file understands.
+      const label = { stockCode: "the product it is about", stockWarehouse: "the location it is in", onHand: "quantity", code: "code" }[field] || field;
+      resolved[label] = hit || null;
     }
     return { ok: true, path: target, count: rows.length, keys, resolved, sample: JSON.stringify(sample).slice(0, 1500) };
   } catch (e) {
@@ -282,28 +425,33 @@ export async function erpProbe(env, { resource = "products", path = "" } = {}) {
 export async function erpSyncWarehouses(env) {
   const cfg = await erpConfig(env);
   const db = env.DB;
-  const names = new Map();
+  const found = new Map();
 
   for (const raw of await erpAll(env, cfg, "warehouses")) {
     const w = cfg.adapter.normalise.warehouse(raw);
-    if (w.name) names.set(w.name, w);
+    if (w.key) found.set(w.key, w);
   }
   if (cfg.paths.stock) {
     try {
-      for (const raw of await erpPage(env, cfg, "stock", { page: 0 })) {
-        const s = cfg.adapter.normalise.stock(raw, cfg.fields);
-        if (s.warehouse && !names.has(s.warehouse)) names.set(s.warehouse, { name: s.warehouse, isGroup: false, disabled: false });
+      for (const raw of (await erpPage(env, cfg, "stock", { page: 0 })).rows) {
+        const st = cfg.adapter.normalise.stock(raw, cfg.fields);
+        if (st.warehouse && !found.has(st.warehouse)) {
+          found.set(st.warehouse, { key: st.warehouse, label: st.warehouse, isGroup: false, disabled: false });
+        }
       }
-    } catch { /* the warehouse list, where there is one, is the better source */ }
+    } catch { /* the location list, where there is one, is the better source */ }
   }
 
-  for (const w of names.values()) {
+  for (const w of found.values()) {
+    // Keyed on what a *stock row* says — an id on ERPRev — with the readable
+    // name kept beside it, so the admin shows "Main Store" while the join
+    // still matches on the number the stock rows actually carry.
     await db.prepare(
-      `INSERT INTO erp_warehouses (warehouse, is_group, disabled, seen_at) VALUES (?, ?, ?, datetime('now'))
-       ON CONFLICT(warehouse) DO UPDATE SET is_group=excluded.is_group, disabled=excluded.disabled, seen_at=datetime('now')`
-    ).bind(w.name, w.isGroup ? 1 : 0, w.disabled ? 1 : 0).run();
+      `INSERT INTO erp_warehouses (warehouse, label, is_group, disabled, seen_at) VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(warehouse) DO UPDATE SET label=excluded.label, is_group=excluded.is_group, disabled=excluded.disabled, seen_at=datetime('now')`
+    ).bind(w.key, w.label || w.key, w.isGroup ? 1 : 0, w.disabled ? 1 : 0).run();
   }
-  return { found: names.size };
+  return { found: found.size };
 }
 
 /** The same, for the ERP's product categories → ours. */
@@ -318,7 +466,7 @@ export async function erpSyncItemGroups(env) {
   if (!names.size && cfg.paths.products) {
     // No category endpoint: take the categories off the products themselves.
     try {
-      for (const raw of await erpPage(env, cfg, "products", { page: 0 })) {
+      for (const raw of (await erpPage(env, cfg, "products", { page: 0 })).rows) {
         const p = cfg.adapter.normalise.product(raw, cfg.fields);
         if (p.group) names.add(p.group);
       }
@@ -358,7 +506,55 @@ async function itemGroupMap(db) {
  * simple item ends up as a one-size listing instead of being dropped, which
  * matters because most of a typical SME catalogue is simple items.
  */
-export function buildFeed({ products, prices = [], stock = [], warehouses, groups, defaultCat, known = new Set() }) {
+/**
+ * "Velvet Reign 30ml" and "Velvet Reign 50ml" → one listing with a size picker.
+ *
+ * ERPRev has no variant concept: `/products` is flat, one row per sellable
+ * thing, each with its own price. Faithfully imported, a perfume catalogue
+ * becomes three separate cards for one fragrance — which is true to the ERP
+ * and wrong for the shop.
+ *
+ * So, optionally, a product whose name *ends with its own unit* has that unit
+ * taken off to make a stem, and rows sharing a stem become one product with
+ * the units as its sizes. Two guards make it safe enough to offer:
+ *
+ *   · it only ever fires on a name that ends with that row's own `measure`,
+ *     so "Amber Candle" (pcs) is untouched while "Velvet Reign 30ml" (30ml)
+ *     is not — no fuzzy matching, no edit distance, nothing that could decide
+ *     two different fragrances are the same one
+ *   · a stem only one product shares is left alone, so nothing is given a
+ *     parent it doesn't need
+ *
+ * Off by default, because merging two products that only *look* related is a
+ * worse mistake than leaving them apart, and the house can see the result of
+ * a dry run before it commits.
+ */
+export function groupByUnit(products) {
+  const stemOf = (p) => {
+    const unit = (p.options[0] || "").trim();
+    if (!unit || !p.name) return "";
+    const name = p.name.trim();
+    if (name.length <= unit.length) return "";
+    if (name.slice(-unit.length).toLowerCase() !== unit.toLowerCase()) return "";
+    return name.slice(0, -unit.length).replace(/[\s\-–—/,·]+$/, "").trim();
+  };
+  const counts = new Map();
+  for (const p of products) {
+    if (p.parentCode || p.isTemplate) continue;
+    const stem = stemOf(p);
+    if (stem) counts.set(stem, (counts.get(stem) || 0) + 1);
+  }
+  return products.map((p) => {
+    if (p.parentCode || p.isTemplate) return p;
+    const stem = stemOf(p);
+    // A stem of one is a product, not a family.
+    if (!stem || (counts.get(stem) || 0) < 2) return p;
+    return { ...p, parentCode: `stem:${stem.toLowerCase()}`, parentName: stem };
+  });
+}
+
+export function buildFeed({ products, prices = [], stock = [], warehouses, groups, defaultCat, known = new Set(), groupUnits = false }) {
+  if (groupUnits) products = groupByUnit(products);
   const priceOf = new Map();
   for (const p of prices) {
     if (!p.code || !(p.price > 0)) continue;
@@ -442,7 +638,10 @@ export function buildFeed({ products, prices = [], stock = [], warehouses, group
     // one-line description every hour would erase it every hour.
     const head = tpl || it;
     if (!known.has(parentId) && !rows.some((r) => r.parentId === parentId)) {
-      row.parentName = head.name || parentId;
+      // A synthetic parent carries the stem as its name — "Velvet Reign",
+      // not "Velvet Reign 30ml", which is what the listing would otherwise
+      // be called.
+      row.parentName = head.parentName || head.name || parentId;
       const cat = groups[head.group];
       row.category = cat || defaultCat;
       if (!cat && head.group) skipped.push({ item: it.code, warning: true, error: `Category "${head.group}" isn't mapped — filed under "${defaultCat}".` });
@@ -571,7 +770,7 @@ export async function erpPull(env, { dryRun = false } = {}) {
   const known = new Set((await db.prepare("SELECT external_id FROM products WHERE external_source=?").bind(ERP_SOURCE).all())
     .results.map((r) => r.external_id));
 
-  const { rows, skipped } = buildFeed({ products, prices, stock, warehouses, groups, defaultCat: cfg.defaultCat, known });
+  const { rows, skipped } = buildFeed({ products, prices, stock, warehouses, groups, defaultCat: cfg.defaultCat, known, groupUnits: cfg.groupUnits });
   if (!rows.length) {
     const note = `Read ${products.length} product(s) but none could be turned into a sellable row — ${(skipped[0] && skipped[0].error) || "no prices came through"}.`;
     await logSync(db, { ok: 0, note, ms: Date.now() - started, dryRun });
@@ -645,7 +844,7 @@ export async function erpStatus(env) {
   const cfg = await erpConfig(env);
   const db = env.DB;
   const warehouses = (await db.prepare("SELECT * FROM erp_warehouses ORDER BY warehouse").all()).results
-    .map((r) => ({ warehouse: r.warehouse, locationId: r.location_id, isGroup: !!r.is_group, disabled: !!r.disabled }));
+    .map((r) => ({ warehouse: r.warehouse, label: r.label || r.warehouse, locationId: r.location_id, isGroup: !!r.is_group, disabled: !!r.disabled }));
   const itemGroups = (await db.prepare("SELECT * FROM erp_item_groups ORDER BY item_group").all()).results
     .map((r) => ({ itemGroup: r.item_group, cat: r.cat }));
   const syncs = (await db.prepare("SELECT * FROM catalog_syncs WHERE source=? ORDER BY id DESC LIMIT 12").bind(ERP_SOURCE).all()).results
@@ -655,13 +854,16 @@ export async function erpStatus(env) {
     config: {
       vendor: cfg.vendor, on: cfg.on, baseUrl: cfg.baseUrl, hasKey: cfg.hasKey, configured: cfg.configured,
       authStyle: cfg.authStyle, pageStyle: cfg.pageStyle, paths: cfg.paths, fields: cfg.fields,
-      envelopeKey: cfg.envelopeKey, priceList: cfg.priceList, publish: cfg.publish, defaultCat: cfg.defaultCat,
+      envelopeKey: cfg.envelopeKey, cursorKey: cfg.cursorKey, pingPath: cfg.pingPath, pageSize: cfg.pageSize,
+      signing: cfg.signing,
+      priceList: cfg.priceList, publish: cfg.publish, defaultCat: cfg.defaultCat, groupUnits: cfg.groupUnits,
       emptyGuardPct: cfg.emptyGuardPct, syncEveryMins: cfg.syncEveryMins, lastSync: cfg.lastSync,
     },
     vendors: adapterList(),
     authStyles: Object.entries(AUTH_STYLES).map(([id, v]) => ({ id, label: v.label })),
     pageStyles: Object.entries(PAGE_STYLES).map(([id, v]) => ({ id, label: v.label })),
     fieldNames: Object.keys(ALIASES),
+    signingDefaults: SIGNING_DEFAULTS,
     stores: (await allLocations(db)).map((l) => ({ id: l.id, city: l.city })),
     warehouses, itemGroups, syncs,
     linkedVariants: owned ? owned.n : 0,
