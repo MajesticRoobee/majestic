@@ -16,7 +16,7 @@ import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } 
 import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
 import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
-import { erpStatus, erpPing, erpProbe, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
+import { erpStatus, erpPing, erpProbe, erpReadSpec, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -1070,8 +1070,9 @@ admin.put("/settings", async (c) => {
     // this connector being written against the wrong one. `erpLastSync` is
     // written by the connector rather than by a person, so it is absent.
     "erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle",
-    "erpPaths", "erpFields", "erpEnvelopeKey",
-    "erpPriceList", "erpPublish", "erpDefaultCat",
+    "erpPaths", "erpFields", "erpEnvelopeKey", "erpCursorKey", "erpPingPath",
+    "erpPageSize", "erpSigning",
+    "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits",
     "erpEmptyGuardPct", "erpSyncEveryMins",
     // The Perfume Studio's consultation page: whether the studio is taking
     // bookings at all, the Calendly link the calendar is framed from, and the
@@ -2324,6 +2325,11 @@ admin.post("/erp/test", requireSuper, async (c) => c.json(await erpPing(c.env)))
 // This is the answer to not having a vendor's API reference to hand: read the
 // keys off a real response instead of guessing them. Guessing is what produced
 // a connector aimed at the wrong ERP entirely.
+// Ask the API for its own specification. ERPRev publishes a live OpenAPI 3
+// document publicly, which names the real security scheme and endpoint paths
+// — the ERP's own answer, rather than this repo's reading of a PDF.
+admin.post("/erp/spec", requireSuper, async (c) => c.json(await erpReadSpec(c.env)));
+
 admin.post("/erp/probe", requireSuper, async (c) => {
   const b = await c.req.json().catch(() => ({}));
   return c.json(await erpProbe(c.env, { resource: b.resource, path: b.path }));

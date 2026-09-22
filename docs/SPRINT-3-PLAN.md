@@ -432,16 +432,55 @@ to answer once is better asked by the software that needs the answer.
 | 6 | **Do orders go back?** As a Sales Order or a Sales Invoice? | **Still open, and the only thing still blocked.** It is a question about their accounting process, not about software. |
 | 7 | Who owns product copy and photographs | **Decided, and enforced in code.** The website. The pull writes name, description, image and category only for an item the shop has never seen; after that it writes price and stock and nothing else. Otherwise the first sync flattens the merchandising and the second does it again an hour later. |
 
+### 7.4b What ERPRev's API actually turned out to be
+
+The client sent three printed reference pages on 22 Sep. They were images of
+vector-outlined text — no extractable characters at all — so they were
+rasterised and read. What they say, and how much of it nobody would have
+guessed:
+
+| | |
+|---|---|
+| Base | `https://<tenant>/api/v2` — multi-tenant on a subdomain |
+| Auth | **Signed requests.** HMAC-SHA256 over method, path, timestamp, nonce and body. **The secret never travels.** `X-Api-Key` carries the key id |
+| Clock | Signing timestamp within **±300s** of the server's, or `auth.clock_skew` |
+| Paging | **Cursor**, not page numbers — `limit` (1–200, default 50) and `cursor` |
+| Envelope | `{ "data": [...], "page": { limit, count, has_more, next_cursor } }` |
+| Gates | A **scope** *and* the attached user's **module privilege**. Both, every time |
+| Endpoints | `/products` · `/stocks` · `/warehouses` · `/product-categories` |
+| Free | `/api/v2/ping` needs no key; the OpenAPI 3 document at `/api/v2/docs` is public |
+| Products | Flat. No parent/variant concept: `name`, `price`, `cost_price`, `measure`, `category_name`, `barcode`, `reorder_level`, `thumb_image_url` |
+| Stock | Its own resource, joining `product_id` to `warehouse_id` |
+
+**Not one of the six authentication styles the connector had could do this.**
+A signed API is a different thing from a keyed one, and the earlier guess —
+`Authorization: <token>`, inferred from a search snippet — was wrong too.
+Neither could the paging: cursor APIs have no page number, and asking one for
+"page 3" returns page 1 three times.
+
+Three things in that list would each have been a silent wrong answer rather
+than an error:
+
+1. **A stock row's `id` is the stock record's, not the product's.** Reading it
+   as the product would have attached every quantity to the wrong product,
+   with nothing anywhere reporting a problem.
+2. **`/warehouses` gives `{id, name}` and stock rows carry `warehouse_id`.** A
+   location map keyed on the readable name would have matched nothing, and
+   every shop would have come back empty.
+3. **ERPRev has no variants.** Three sizes of a fragrance are three products,
+   so a perfume catalogue imports as three cards per scent unless something
+   groups them.
+
 ### 7.5 What shipped
 
 Two modules on top of the ingest that has existed since Sprint 2.
 
-**`worker/erp-adapters.js` — everything vendor-shaped.** Five authentication
-styles, four paging styles, envelope detection for the shapes SME APIs
-actually return, and an alias-driven reader that tries every common spelling
-of each field it needs. Three adapters: **ERPrev** (the default), ERPNext (for
-anyone whose warehouse system is Frappe even though their ERP isn't) and a
-blank one for typing endpoints into.
+**`worker/erp-adapters.js` — everything vendor-shaped.** Six authentication
+styles including **HMAC-SHA256 request signing** (the canonical string and the
+four header names are editable fields, not constants — see §7.6), five paging
+styles including **cursor**, envelope detection, and an alias-driven reader
+that tries every common spelling of each field. Three adapters: **ERPrev** (the
+default, set up from their reference), ERPNext, and a blank one.
 
 **`worker/erp.js` — the engine, which knows about none of that.**
 
@@ -460,11 +499,35 @@ blank one for typing endpoints into.
   which is how a schema gets mapped without its documentation.
 - An eight-step checklist in Admin → Integrations, in the order the steps have
   to happen, with the connection test, the probe and the sync log on it.
-- 78 assertions in `scripts/erp.test.mjs`: the engine on neutral rows, each
-  adapter on its own vendor's shapes, and every branch of the guard.
+- 129 assertions in `scripts/erp.test.mjs`: the engine on neutral rows, each
+  adapter on its own vendor's shapes, the signing (against an RFC 4231 HMAC
+  vector), the joins that would fail silently, the grouping guards, and every
+  branch of the stock guard.
 
-**Verified end to end** against a purpose-built fake ERP whose schema the
-connector had never been told — Bearer auth, a `{status,data:[…]}` envelope,
+### 7.6 The one thing still unconfirmed
+
+ERPRev's *Signing requests* page — "the four headers, canonical string, five
+reference clients" — was not among the pages sent. The canonical string is
+built from their API overview's own sentence ("a signature over its method,
+path, timestamp, nonce and body") and the header names from the same source.
+
+Both are **fields in the admin**, not constants, and the connection test's
+401 handler names the dropdown rather than blaming the key. If that page turns
+out to order the parts differently, it is a one-minute edit and no deploy.
+
+**Verified end to end** against a fake ERPRev built strictly from the vendor's
+reference — signed requests with replay and clock-skew refusal, cursor
+pagination, their envelope, their field names, their error codes. With nothing
+configured but the base URL: the signature was accepted first time, the cursor
+walked every page, `measure` became the size, `category_name` mapped, stock
+joined `product_id`→`warehouse_id`→shop, reserved units were deducted, an
+unmapped location's 999 units were not counted, an inactive product was left
+out, new products landed as drafts, a re-run updated in place, and with
+grouping on the three flat rows became two listings — one fragrance with two
+sizes, and a candle.
+
+**Also verified** against a purpose-built fake ERP whose schema the connector
+had never been told — Bearer auth, a `{status,data:[…]}` envelope,
 `?page=&per_page=` paging and field names like `product_code`, `variant_name`,
 `selling_price: "₦35,000.00"`, `branch_name`, `available_qty`, `committed`,
 `status: "Active"`. With nothing configured but the endpoint paths: prices

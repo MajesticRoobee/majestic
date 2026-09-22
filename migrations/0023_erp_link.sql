@@ -32,7 +32,14 @@
 CREATE TABLE erp_warehouses (
   -- The location's name as the ERP gives it, which is how stock rows refer
   -- to it. Character for character — hence discovery rather than typing.
+  -- **Whatever a stock row says**, which is not always a name. ERPRev's
+  -- `/warehouses` gives `{id, name}` and its stock rows carry `warehouse_id`,
+  -- so on that ERP this column holds the id. A map keyed on the readable name
+  -- would be a map nothing ever matches, and every shop would come back empty
+  -- with no error anywhere to explain it.
   warehouse   TEXT PRIMARY KEY,
+  -- What a person should see next to it in the admin.
+  label       TEXT NOT NULL DEFAULT '',
   -- Our shop id, or NULL for "seen in the ERP, not mapped, not counted".
   location_id TEXT REFERENCES locations(id) ON DELETE SET NULL,
   is_group    INTEGER NOT NULL DEFAULT 0,
@@ -75,6 +82,15 @@ ALTER TABLE catalog_syncs ADD COLUMN note TEXT NOT NULL DEFAULT '';
 --   erpFields          JSON: per-field overrides, for an ERP whose spelling
 --                      isn't one the reader already tries
 --   erpEnvelopeKey     where the array sits in the response, if not obvious
+--   erpCursorKey       where the next page's cursor sits, for a cursor API
+--   erpPingPath        an endpoint that answers without credentials, so
+--                      "can't reach it" and "won't accept this key" are two
+--                      different answers rather than one 401
+--   erpPageSize        rows per request (ERPRev caps a list at 200)
+--   erpSigning         JSON: the canonical string and the four header names
+--                      for a request-signed API. Configuration, because the
+--                      exact byte order has to match the vendor's and a
+--                      mismatch is a 401 on every call
 --   erpPriceList       for an ERP that keeps several price lists
 --   erpPublish         do items new to us go live, or land as drafts
 --   erpDefaultCat      where an unmapped category files a new product
@@ -93,6 +109,10 @@ UPDATE settings
          'erpPaths', '',
          'erpFields', '',
          'erpEnvelopeKey', '',
+         'erpCursorKey', '',
+         'erpPingPath', '',
+         'erpPageSize', '',
+         'erpSigning', '',
          'erpPriceList', '',
          'erpPublish', '0',
          'erpDefaultCat', 'perfumes',
