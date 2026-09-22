@@ -370,12 +370,21 @@ function ErpPanel({ erp, ctx, reload }) {
               </div>
               <Input label="Canonical string" value={sign.canonical} onChange={(e) => setSign("canonical", e.target.value)}
                 hint={"\\n is a newline. Placeholders: {method} {path} {timestamp} {nonce} {body}"} />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+              <Input label="Authorization header template (leave blank for the four headers below)"
+                value={sign.authTemplate || ""} onChange={(e) => setSign("authTemplate", e.target.value)}
+                hint={"Placeholders: {key} {timestamp} {nonce} {signature}. Fill this in when the ERP answers auth.missing to every header name — auth.missing means it found no credentials at all, and most APIs judge that by Authorization alone. Example: ERPRev Key={key},Timestamp={timestamp},Nonce={nonce},Signature={signature}"} />
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, opacity: sign.authTemplate && !sign.withHeaders ? 0.45 : 1 }}>
                 <Input label="Key header" value={sign.keyHeader} onChange={(e) => setSign("keyHeader", e.target.value)} />
                 <Input label="Timestamp header" value={sign.timestampHeader} onChange={(e) => setSign("timestampHeader", e.target.value)} />
                 <Input label="Nonce header" value={sign.nonceHeader} onChange={(e) => setSign("nonceHeader", e.target.value)} />
                 <Input label="Signature header" value={sign.signatureHeader} onChange={(e) => setSign("signatureHeader", e.target.value)} />
               </div>
+              {sign.authTemplate ? (
+                <label style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-muted)" }}>
+                  <input type="checkbox" checked={!!sign.withHeaders} onChange={(e) => setSign("withHeaders", e.target.checked)} />
+                  Send the key, timestamp and nonce as their own headers as well
+                </label>
+              ) : null}
               <div>
                 <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Signature format</div>
                 <select value={sign.signatureFormat} onChange={(e) => setSign("signatureFormat", e.target.value)} style={{ ...selStyle, width: "100%", padding: "9px 12px" }}>
