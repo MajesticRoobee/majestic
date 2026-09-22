@@ -901,7 +901,7 @@ export function SettingsPage({ ctx }) {
       <div style={section}>
         {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Blog heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="The blog" />
+          <Input label="Blog heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="Blog" />
           <Input label="Reviews heading" value={form.reviewsHeadline || ""} onChange={set("reviewsHeadline")} placeholder="Reviews & testimonials" />
         </div>
         <Textarea label="Blog intro" value={form.blogIntro || ""} onChange={set("blogIntro")} rows={2} />

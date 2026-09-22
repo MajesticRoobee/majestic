@@ -15,6 +15,7 @@ import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lo
 import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } from "./merch.js";
 import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
+import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -1867,6 +1868,13 @@ admin.delete("/pages/:slug", async (c) => {
 // The slug is the URL, so it is derived from the title once and then only ever
 // changed deliberately: renaming a post must not silently break a link someone
 // has shared.
+//
+// A preview is a preview, and a heading fits on a card. The screen shows the
+// writer a count as they type, but a limit only a browser enforces is not one:
+// the API holds the same line, and the storefront clamps once more on the way
+// out so the posts written before any of this existed come back short too.
+const clampPreview = (v) => clampText(String(v ?? ""), PREVIEW_MAX);
+const clampTitle = (v) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, TITLE_MAX);
 
 const blogOut = (r) => ({
   id: r.id, slug: r.slug, title: r.title, excerpt: r.excerpt, body: r.body,
@@ -1892,14 +1900,14 @@ admin.get("/blog", async (c) => {
 admin.post("/blog", async (c) => {
   const b = await c.req.json();
   const db = c.env.DB;
-  const title = String(b.title || "").trim();
+  const title = clampTitle(b.title);
   if (!title) return c.json({ error: "Give the story a title." }, 400);
   const slug = await freeSlug(db, b.slug || title);
   const status = b.status === "published" ? "published" : "draft";
   const r = await db.prepare(
     "INSERT INTO blog_posts (slug, title, excerpt, body, cover_url, author, tags, status, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(
-    slug, title, String(b.excerpt || "").trim(), String(b.body || ""), String(b.coverUrl || "").trim() || null,
+    slug, title, clampPreview(b.excerpt), String(b.body || ""), String(b.coverUrl || "").trim() || null,
     String(b.author || "").trim() || "Majestic Roobee", String(b.tags || "").trim(), status,
     status === "published" ? (isoDate(b.publishedAt) || new Date().toISOString().slice(0, 19).replace("T", " ")) : null
   ).run();
@@ -1914,9 +1922,13 @@ admin.patch("/blog/:id", async (c) => {
   if (!cur) return c.json({ error: "No such post." }, 404);
   const sets = [], vals = [];
   const push = (col, val) => { sets.push(`${col}=?`); vals.push(val); };
-  if (b.title !== undefined) push("title", String(b.title).trim());
+  if (b.title !== undefined) {
+    const t = clampTitle(b.title);
+    if (!t) return c.json({ error: "Give the story a title." }, 400);
+    push("title", t);
+  }
   if (b.slug !== undefined && String(b.slug).trim() && String(b.slug).trim() !== cur.slug) push("slug", await freeSlug(db, b.slug, id));
-  if (b.excerpt !== undefined) push("excerpt", String(b.excerpt).trim());
+  if (b.excerpt !== undefined) push("excerpt", clampPreview(b.excerpt));
   if (b.body !== undefined) push("body", String(b.body));
   if (b.coverUrl !== undefined) push("cover_url", String(b.coverUrl).trim() || null);
   if (b.author !== undefined) push("author", String(b.author).trim() || "Majestic Roobee");

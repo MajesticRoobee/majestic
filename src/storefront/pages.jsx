@@ -522,7 +522,7 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
             <div>
               <Eyebrow>{eyebrow}</Eyebrow>
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {title || settings.blogHeadline || "From the blog"}
+                {title || settings.blogHeadline || "Blog"}
               </h2>
             </div>
             <BlockLink ctx={ctx} block={block} />
@@ -535,7 +535,9 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
                 <div style={{ padding: "16px 18px 20px" }}>
                   <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>{p.published || "Blog"}</div>
                   <div style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>
-                  {p.excerpt && <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.65, margin: "6px 0 0" }}>{p.excerpt}</p>}
+                  {p.excerpt && (
+                    <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.65, margin: "6px 0 0", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.excerpt}</p>
+                  )}
                 </div>
               </a>
             ))}

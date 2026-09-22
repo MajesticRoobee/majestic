@@ -12,7 +12,7 @@ const shellStyle = { maxWidth: 1280, margin: "0 auto", padding: `clamp(28px, 4vw
 function PageHead({ eyebrow, title, sub }) {
   return (
     <>
-      <Eyebrow>{eyebrow}</Eyebrow>
+      {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
       <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>{title}</h1>
       {sub && <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 26px", maxWidth: "62ch", lineHeight: 1.7 }}>{sub}</p>}
     </>
@@ -459,7 +459,9 @@ function PostCard({ p, onOpen, height = 190 }) {
           {p.published || "Blog"}{p.tags && p.tags.length ? ` · ${p.tags[0]}` : ""}
         </div>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--text-strong)", lineHeight: 1.3 }}>{p.title}</div>
-        {p.excerpt && <p style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.65, margin: 0 }}>{p.excerpt}</p>}
+        {p.excerpt && (
+          <p style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.65, margin: 0, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.excerpt}</p>
+        )}
         <span style={{ fontSize: 13, fontWeight: 500, color: "var(--mr-orchid-600)", marginTop: "auto", paddingTop: 8 }}>Read it —</span>
       </div>
     </a>
@@ -475,9 +477,12 @@ export function BlogPage({ ctx }) {
   );
   return (
     <main style={shellStyle}>
+      {/* One word above the grid, not two. "Journal" over "From the blog" was
+          the house reading its own blog page and finding neither of them said
+          "blog" — so the kicker is gone and the heading is the word itself,
+          still overridable in Settings → Editorial. */}
       <PageHead
-        eyebrow="Journal"
-        title={settings.blogHeadline || "From the blog"}
+        title={settings.blogHeadline || "Blog"}
         sub={settings.blogIntro || "How to wear it, how to layer it and how to make it last."}
       />
       {blog.tags.length > 0 && (

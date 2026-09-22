@@ -19,7 +19,7 @@ const linkBtn = { background: "none", border: "none", cursor: "pointer", fontFam
 const KIND_LABEL = {
   tile: "Banner tile", band: "Banner", shelf: "Product row",
   perks: "The three promises", categories: "Shop by category", story: "The founder's story",
-  rewards: "How rewards work", reviews: "Reviews rail", blog: "From the blog",
+  rewards: "How rewards work", reviews: "Reviews rail", blog: "Blog",
   newsletter: "Join the list", instagram: "Instagram",
 };
 const KIND_NOTE = {
