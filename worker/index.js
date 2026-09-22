@@ -10,6 +10,7 @@ import { rollup } from "./insights.js";
 import { rebuildAffinity } from "./affinity.js";
 import { resolveMedia, readMedia } from "./media.js";
 import { getSettings } from "./util.js";
+import { runErpPull } from "./erp.js";
 
 const app = new Hono();
 
@@ -139,6 +140,11 @@ async function cron(env) {
   // next one.
   try { await sweepStock(env); } catch (e) { console.error("stock sweep failed", e); }
   try { await runScheduled(env); } catch (e) { console.error("automation run failed", e); }
+  // The ERP link. It decides for itself whether this cadence is its turn — the
+  // house sets how often it calls out, and this cron fires every 15 minutes
+  // for everything else. Never throws: a pull that fails is a row in the sync
+  // log, not a cron that stops sweeping stock.
+  try { await runErpPull(env); } catch (e) { console.error("erp pull failed", e); }
   // Fold yesterday into the rollups the admin reads, and prune raw events past
   // the window. Last, because it is the only job here nobody is waiting on.
   try { await rollup(env); } catch (e) { console.error("insight rollup failed", e); }

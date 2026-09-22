@@ -77,7 +77,7 @@ const pick = (row, ...keys) => {
   return undefined;
 };
 
-async function syncCatalogue(env, body) {
+export async function syncCatalogue(env, body) {
   const db = env.DB;
   const source = String(body.source || "erp").trim().slice(0, 60) || "erp";
   const rows = Array.isArray(body.items) ? body.items : [];

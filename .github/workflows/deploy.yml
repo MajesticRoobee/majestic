@@ -92,10 +92,14 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           ADMIN_TOKEN_SECRET: ${{ secrets.ADMIN_TOKEN_SECRET }}
           PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
+          ERP_API_KEY: ${{ secrets.ERP_API_KEY }}
+          ERP_API_SECRET: ${{ secrets.ERP_API_SECRET }}
         run: |
           if [ -n "$ADMIN_PASSWORD" ]; then printf '%s' "$ADMIN_PASSWORD" | npx wrangler secret put ADMIN_PASSWORD; fi
           if [ -n "$ADMIN_TOKEN_SECRET" ]; then printf '%s' "$ADMIN_TOKEN_SECRET" | npx wrangler secret put ADMIN_TOKEN_SECRET; fi
           if [ -n "$PAYSTACK_SECRET_KEY" ]; then printf '%s' "$PAYSTACK_SECRET_KEY" | npx wrangler secret put PAYSTACK_SECRET_KEY; fi
+          if [ -n "$ERP_API_KEY" ]; then printf '%s' "$ERP_API_KEY" | npx wrangler secret put ERP_API_KEY; fi
+          if [ -n "$ERP_API_SECRET" ]; then printf '%s' "$ERP_API_SECRET" | npx wrangler secret put ERP_API_SECRET; fi
 
       # ---- Confirm what actually went live --------------------------------
       #

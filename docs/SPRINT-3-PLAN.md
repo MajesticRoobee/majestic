@@ -321,7 +321,7 @@ on one page), and the tag chips it already has.
 
 ---
 
-## 7. ERPNext ⬜🔑
+## 7. ERPNext — pull ✅, write-back 🔑
 
 **Assumption:** "ERPrev" is **ERPNext** (the Frappe-framework ERP). Everything
 below is written against its REST API. The adapter is built behind a generic
@@ -387,20 +387,39 @@ doesn't silently lose a sale from the ledger.
 | **Sync log** | `catalog_syncs` exists. Extend with direction, duration, and per-row errors readable by a human |
 | **Credentials** | Worker secrets (`ERP_API_KEY`, `ERP_API_SECRET`), like `PAYSTACK_SECRET_KEY`. Base URL, price list, warehouse map and cadence in settings, so the house configures everything except the secret without a deploy |
 
-### 7.4 What we need from the client before this can start 🔑
+### 7.4 The seven questions, answered ✅
 
-1. ERPNext **version** (v14 / v15) and **hosting** — Frappe Cloud, a self-hosted
-   VPS, or on-premise.
-2. **Is it reachable from the internet?** If it sits behind an office firewall,
-   pull is impossible and the webhook push becomes the only transport. This
-   changes the build, so it is the first question.
-3. An **API key and secret** on a dedicated integration user with read on Item,
-   Item Price and Bin (and write on Sales Order if we push orders back).
-4. Which **price list** is the web price.
-5. Which **warehouses** map to which stores.
-6. **Do orders go back into ERPNext?** As a Sales Order, or a Sales Invoice?
-7. **Who owns product copy and photographs** — ERPNext or the website? (Strong
-   recommendation: the website. ERP item descriptions are not shop copy.)
+Seven things were needed before this could start. The connector shipped by
+turning five of them into screens rather than emails — a question somebody has
+to answer once is better asked by the software that needs the answer.
+
+| | | Where it stands |
+|---|---|---|
+| 1 | Version and hosting | **Doesn't matter.** Everything here is Frappe's REST API, unchanged across v14 and v15, and identical on Frappe Cloud, a VPS or on-premise. |
+| 2 | **Is it reachable from the internet?** | **Answered by a button.** Admin → Integrations → ERPNext → *Test the connection* says yes or no in five seconds, and names the user the key logs in as. If the answer is no, the push transport at `POST /api/v1/catalog/sync` is still there and ERPNext's own Webhook DocType can drive it. |
+| 3 | An API key and secret | **The client has them.** They go in as Worker secrets — `ERP_API_KEY`, `ERP_API_SECRET` — never the database. The integration user needs read on Item, Item Price, Bin, Warehouse and Item Group, and nothing else: the pull only reads. |
+| 4 | Which price list is the web price | **A field.** Named exactly as ERPNext names it. |
+| 5 | Which warehouses map to which stores | **A screen.** Warehouses are listed *from* ERPNext and assigned to shops from a dropdown, because the name has to match character for character. An unmapped warehouse is ignored rather than defaulted — that default is how one city's stock lands on another's shelf. |
+| 6 | **Do orders go back?** As a Sales Order or a Sales Invoice? | **Still open, and the only thing still blocked.** It is a question about their accounting process, not about software. |
+| 7 | Who owns product copy and photographs | **Decided, and enforced in code.** The website. The pull writes name, description, image and category only for an item the shop has never seen; after that it writes price and stock and nothing else. Otherwise the first sync flattens the merchandising and the second does it again an hour later. |
+
+### 7.5 What shipped
+
+`worker/erp.js`, on top of the ingest that has existed since Sprint 2:
+
+- Reads **Item / Item Price / Bin**, incrementally on Frappe's `modified` —
+  including price and stock changes on items nobody edited, which is most of
+  them.
+- Maps warehouses to shops, summing several warehouses into one shop, and
+  counts `actual_qty` less `reserved_qty`.
+- **The empty-feed guard.** Refuses any pull that would cut catalogue stock
+  past a configured share. The most important function in the connector: the
+  failure it prevents is silent and total.
+- A **dry run** that does every read and every check and writes nothing.
+- A six-step checklist in Admin → Integrations, in the order the steps have to
+  happen, with the connection test and the sync log on it.
+- 34 assertions in `scripts/erp.test.mjs` over the feed shape and every branch
+  of the guard.
 
 ---
 

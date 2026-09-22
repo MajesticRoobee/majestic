@@ -10,3 +10,14 @@ ADMIN_TOKEN_SECRET=dev-only-change-me
 # Leave it unset and the card option is hidden at checkout entirely, so bank
 # transfer and WhatsApp still work.
 # PAYSTACK_SECRET_KEY=sk_test_xxx
+
+# ERPNext. The API key and secret of a dedicated integration user with read on
+# Item, Item Price, Bin and Warehouse — ERPNext → User → that user → API Access
+# → Generate Keys. Everything else about the link (the site address, which
+# price list is the web price, which warehouse is which shop) is configured in
+# Admin → Integrations → ERPNext, not here.
+#
+# Leave them unset and the connector reports itself as not connected and never
+# calls out.
+# ERP_API_KEY=xxxxxxxxxxxxxxx
+# ERP_API_SECRET=xxxxxxxxxxxxxxx

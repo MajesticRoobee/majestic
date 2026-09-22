@@ -16,6 +16,7 @@ import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } 
 import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
 import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
+import { erpStatus, erpPing, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -1062,6 +1063,12 @@ admin.put("/settings", async (c) => {
     // photographs across), so there is nothing here to keep.
     // Editorial
     "blogEnabled", "blogHeadline", "blogIntro", "reviewsHeadline", "reviewsIntro",
+    // The ERPNext link. The credentials are Worker secrets and are not here;
+    // these are the settings that say which site, which price list, and how
+    // brave the connector is allowed to be. `erpLastSync` is written by the
+    // connector rather than by a person, so it is deliberately absent.
+    "erpOn", "erpBaseUrl", "erpPriceList", "erpPublish", "erpDefaultCat",
+    "erpEmptyGuardPct", "erpSyncEveryMins",
     // The Perfume Studio's consultation page: whether the studio is taking
     // bookings at all, the Calendly link the calendar is framed from, and the
     // words on the page. Empty copy means "use what the store shipped with" —
@@ -2285,4 +2292,71 @@ admin.post("/purge", requireSuper, async (c) => {
   for (const s of want) for (const sql of PURGE[s]) stmts.push(c.env.DB.prepare(sql));
   await c.env.DB.batch(stmts);
   return c.json({ ok: true, cleared: want });
+});
+
+// ---- ERPNext ----
+//
+// The connector itself is worker/erp.js; these are the buttons on it. Super
+// only: a wrong warehouse map puts one city's stock on another city's shelf,
+// and a pull with the guard turned down can empty the shop.
+//
+// The API key and secret are *not* here and never will be. They are Worker
+// secrets (`wrangler secret put ERP_API_KEY`), like the Paystack key — an
+// admin screen that can read a credential back is a credential one compromised
+// admin session hands over.
+
+admin.get("/erp", requireSuper, async (c) => c.json(await erpStatus(c.env)));
+
+// "Can we reach it?" — the first of the questions the ERP work was blocked on,
+// answered in five seconds rather than an email thread.
+admin.post("/erp/test", requireSuper, async (c) => c.json(await erpPing(c.env)));
+
+// Pull the lists the house maps against. Warehouses are discovered rather than
+// typed because the name has to match ERPNext's exactly, character for
+// character, or the stock lands nowhere.
+admin.post("/erp/discover", requireSuper, async (c) => {
+  try {
+    const w = await erpSyncWarehouses(c.env);
+    const g = await erpSyncItemGroups(c.env);
+    return c.json({ ok: true, warehouses: w.found, itemGroups: g.found });
+  } catch (e) { return c.json({ error: String(e.message || e) }, 502); }
+});
+
+admin.patch("/erp/warehouses/:name", requireSuper, async (c) => {
+  const { locationId } = await c.req.json();
+  const db = c.env.DB;
+  const name = decodeURIComponent(c.req.param("name"));
+  if (!(await db.prepare("SELECT warehouse FROM erp_warehouses WHERE warehouse=?").bind(name).first())) {
+    return c.json({ error: "No such warehouse — run Discover first." }, 404);
+  }
+  const loc = String(locationId || "").trim() || null;
+  if (loc && !(await db.prepare("SELECT id FROM locations WHERE id=?").bind(loc).first())) {
+    return c.json({ error: "That isn't one of the stores." }, 400);
+  }
+  await db.prepare("UPDATE erp_warehouses SET location_id=? WHERE warehouse=?").bind(loc, name).run();
+  return c.json({ ok: true });
+});
+
+admin.patch("/erp/item-groups/:name", requireSuper, async (c) => {
+  const { cat } = await c.req.json();
+  const db = c.env.DB;
+  const name = decodeURIComponent(c.req.param("name"));
+  if (!(await db.prepare("SELECT item_group FROM erp_item_groups WHERE item_group=?").bind(name).first())) {
+    return c.json({ error: "No such item group — run Discover first." }, 404);
+  }
+  const id = String(cat || "").trim() || null;
+  if (id && !(await db.prepare("SELECT id FROM categories WHERE id=?").bind(id).first())) {
+    return c.json({ error: "That isn't one of the categories." }, 400);
+  }
+  await db.prepare("UPDATE erp_item_groups SET cat=? WHERE item_group=?").bind(id, name).run();
+  return c.json({ ok: true });
+});
+
+// Run one now. `dryRun` does every read and every check and writes nothing,
+// which is the only honest way to answer "what would this do to my catalogue".
+admin.post("/erp/pull", requireSuper, async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  try {
+    return c.json(await erpPull(c.env, { dryRun: b.dryRun !== false, full: !!b.full }));
+  } catch (e) { return c.json({ error: String(e.message || e) }, 502); }
 });
