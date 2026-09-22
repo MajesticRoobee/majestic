@@ -124,6 +124,15 @@ check("...and nothing was dropped from it on the way",
 check("no Calendly script is allowed, because none is loaded",
   /script-src[^;]*calendly/.test(csp), false);
 
+// The band's tab, and the two places it must *not* appear. A tab that lands
+// on "bookings aren't open at the moment" is worse than no tab.
+const chromeSrc = readFileSync(new URL("../src/storefront/chrome.jsx", import.meta.url), "utf8");
+check("the header band carries a consultation tab", /label: "Book a consultation", page: "consultation"/.test(chromeSrc), true);
+check("...which is conditional, not unconditional", /page: "consultation".*when:/.test(chromeSrc), true);
+check("...and the band filters on that condition", /!t\.when \|\| t\.when\(ctx\)/.test(chromeSrc), true);
+check("...as does the phone drawer, which lists the same tabs",
+  (chromeSrc.match(/!t\.when \|\| t\.when\(ctx\)/g) || []).length >= 2, true);
+
 // /consultation has to be a route, not an information page: the storefront's
 // catch-all turns any unknown single segment into "no such page".
 const routerSrc = readFileSync(new URL("../src/storefront/router.js", import.meta.url), "utf8");

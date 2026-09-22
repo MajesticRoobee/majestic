@@ -158,7 +158,47 @@ export const SIGNING_DEFAULTS = {
   // Some APIs want `t=<ts>,v1=<hex>`; ERPRev's *webhooks* do. Whether its
   // request signing does is on the page we do not have, so it is a switch.
   signatureFormat: "hex",          // "hex" | "t,v1"
+  // Whether `{path}` means the path with its query string or without it. A
+  // real ambiguity — both are common, and picking the wrong one is a 401 that
+  // looks exactly like a wrong key.
+  pathMode: "full",                // "full" | "pathname"
 };
+
+/**
+ * The axes of a signing contract, for `erpNegotiateSigning` to search.
+ *
+ * ERPRev's API overview says the signature covers "its method, path,
+ * timestamp, nonce and body" but the page that pins the exact bytes wasn't
+ * among the reference pages we were sent. Rather than wait for it, the
+ * connector asks the ERP — and the ERP answers in about twenty seconds.
+ *
+ * These are kept as **separate axes** rather than a hand-written list of
+ * combinations, because a hand-written list is exactly how you miss the one
+ * that was right: the first version of this had X-ERPRev headers with a full
+ * path and X-ERPRev headers with a t=,v1= signature, and the real answer was
+ * X-ERPRev headers with *both*. Crossing the axes cannot miss a corner.
+ */
+export const SIGNING_HEADER_SETS = [
+  { label: "X-Timestamp / X-Nonce / X-Signature", timestampHeader: "X-Timestamp", nonceHeader: "X-Nonce", signatureHeader: "X-Signature" },
+  { label: "X-ERPRev-*", timestampHeader: "X-ERPRev-Timestamp", nonceHeader: "X-ERPRev-Nonce", signatureHeader: "X-ERPRev-Signature" },
+  { label: "X-Api-*", timestampHeader: "X-Api-Timestamp", nonceHeader: "X-Api-Nonce", signatureHeader: "X-Api-Signature" },
+];
+
+/** The orderings and separators worth trying, likeliest first. */
+export const SIGNING_SHAPES = [
+  String.raw`{method}\n{path}\n{timestamp}\n{nonce}\n{body}`,
+  String.raw`{method}\n{path}\n{timestamp}\n{nonce}`,
+  String.raw`{method}{path}{timestamp}{nonce}{body}`,
+  String.raw`{method}|{path}|{timestamp}|{nonce}|{body}`,
+  String.raw`{timestamp}\n{nonce}\n{method}\n{path}\n{body}`,
+  String.raw`{method} {path}\n{timestamp}\n{nonce}\n{body}`,
+  String.raw`{method}\n{path}\n{body}\n{timestamp}\n{nonce}`,
+  // The shape their *webhooks* document, in case both halves share a helper.
+  String.raw`{timestamp}.{body}`,
+];
+
+export const SIGNING_PATH_MODES = ["full", "pathname"];
+export const SIGNING_FORMATS = ["hex", "t,v1"];
 
 /** Fill `{method}` / `{path}` / `{timestamp}` / `{nonce}` / `{body}` / `{query}`. */
 export function canonicalString(template, parts) {
@@ -184,12 +224,20 @@ export async function hmacHex(secret, message) {
  * with a ±300 second window, which is why the connection test reports the
  * server time it saw.
  */
-export async function signedHeaders(cfg, { method, path, body = "", now = Date.now(), nonce } = {}) {
+export async function signedHeaders(cfg, { method, path, url, body = "", now = Date.now(), nonce } = {}) {
   const sign = { ...SIGNING_DEFAULTS, ...(cfg.signing || {}) };
   const timestamp = String(Math.floor(now / 1000));
   const n = nonce || crypto.randomUUID();
+  // `pathMode` is part of the signing contract, so it is applied *here*
+  // rather than by whoever calls this. Hand it a URL and it decides; hand it
+  // a `path` string and that string is taken as already decided. Leaving the
+  // decision to the caller meant a config that set pathMode and a caller that
+  // ignored it were indistinguishable from a working setup until the 401.
+  const signedPath = url
+    ? (sign.pathMode === "pathname" ? url.pathname : url.pathname + (url.search || ""))
+    : String(path || "");
   const message = canonicalString(sign.canonical, {
-    method: String(method || "GET").toUpperCase(), path, timestamp, nonce: n, body,
+    method: String(method || "GET").toUpperCase(), path: signedPath, timestamp, nonce: n, body,
   });
   const mac = await hmacHex(cfg.secret, message);
   return {

@@ -499,21 +499,34 @@ default, set up from their reference), ERPNext, and a blank one.
   which is how a schema gets mapped without its documentation.
 - An eight-step checklist in Admin → Integrations, in the order the steps have
   to happen, with the connection test, the probe and the sync log on it.
-- 129 assertions in `scripts/erp.test.mjs`: the engine on neutral rows, each
+- 140 assertions in `scripts/erp.test.mjs`: the engine on neutral rows, each
   adapter on its own vendor's shapes, the signing (against an RFC 4231 HMAC
   vector), the joins that would fail silently, the grouping guards, and every
   branch of the stock guard.
 
-### 7.6 The one thing still unconfirmed
+### 7.6 The signature, settled by asking
 
-ERPRev's *Signing requests* page — "the four headers, canonical string, five
-reference clients" — was not among the pages sent. The canonical string is
-built from their API overview's own sentence ("a signature over its method,
-path, timestamp, nonce and body") and the header names from the same source.
+ERPRev's *Signing requests* page was not among the pages sent, so the exact
+bytes are undocumented here. Rather than wait for it, **the connector asks the
+ERP**: `erpNegotiateSigning` signs one harmless read under each plausible
+shape and keeps whichever one comes back 200.
 
-Both are **fields in the admin**, not constants, and the connection test's
-401 handler names the dropdown rather than blaming the key. If that page turns
-out to order the parts differently, it is a one-minute edit and no deploy.
+What makes it cheap rather than brute force is that ERPRev distinguishes its
+own failures. `auth.missing` means it never found the headers; anything else
+means it found them and disliked the signature. So it is two phases — three
+requests to name the header set, then shapes × path readings × formats under
+that set alone — and it lands in under ten.
+
+Three axes **crossed**, not a hand-written list of combinations. The first
+version of this was a list, and it missed: it held X-ERPRev headers with a
+full path, and X-ERPRev headers with a `t=,v1=` signature, and the answer in
+testing was X-ERPRev with *both*. Crossing axes cannot miss a corner, and a
+test asserts that the corner the list missed is now covered.
+
+Caught while testing it: `pathMode` was part of the signing contract but was
+applied by the *caller* rather than by the signer, so a config that set it and
+a caller that ignored it were indistinguishable from a working setup until the
+401. The signer takes the URL now and applies its own contract.
 
 **Verified end to end** against a fake ERPRev built strictly from the vendor's
 reference — signed requests with replay and clock-skew refusal, cursor

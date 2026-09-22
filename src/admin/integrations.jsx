@@ -237,6 +237,11 @@ function ErpPanel({ erp, ctx, reload }) {
   const noteBox = (d, body) => d && (
     <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6, borderRadius: "var(--radius-md)", padding: "10px 12px", background: bad(d) ? "#f7e3ea" : "#e4efe4", color: bad(d) ? "#c0587a" : "#3f6b45", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{body}</div>
   );
+  // The ERP's own verdict on what a valid signature looks like.
+  const signingNote = (d) => noteBox(d, d && (d.ok
+    ? `${d.summary}${d.saved ? "\n\nSaved — the fields above now hold it, and the connection test should pass." : ""}`
+    : [d.error, "", ...(d.attempts || []).map((a) => `\u00b7 ${a.label}\n   \u2192 ${a.result}`)].join("\n")));
+
   // What the ERP's own published specification says — worth more than
   // anything written in this repo about a vendor's API.
   const specNote = (d) => noteBox(d, d && (d.error || [
@@ -359,8 +364,9 @@ function ErpPanel({ erp, ctx, reload }) {
                 <strong>Signed requests.</strong> The secret is never sent &mdash; each call carries an HMAC-SHA256 signature over its
                 method, path, timestamp, nonce and body. The header names and order below come from ERPRev&rsquo;s API overview; the
                 exact byte order lives on their <em>Signing requests</em> page. If every call comes back <code>auth.invalid</code>
-                {" "}while the key is definitely right, this is what to correct &mdash; and{" "}
-                <strong>Read the API&rsquo;s own spec</strong> asks the ERP itself.
+                {" "}while the key is definitely right, this is what to correct. You should not have to:
+                <strong> Work out the signing</strong> signs one harmless read under each plausible shape and keeps whichever one
+                the ERP accepts, which takes about ten seconds and settles it with fact rather than inference.
               </div>
               <Input label="Canonical string" value={sign.canonical} onChange={(e) => setSign("canonical", e.target.value)}
                 hint={"\\n is a newline. Placeholders: {method} {path} {timestamp} {nonce} {body}"} />
@@ -383,9 +389,13 @@ function ErpPanel({ erp, ctx, reload }) {
             <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>{busy === "config" ? "Saving…" : "Save"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "test"} onClick={() => run("test", "/api/admin/erp/test", {})}>{busy === "test" ? "Calling…" : "Test the connection"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "spec"} onClick={() => run("spec", "/api/admin/erp/spec", {})}>{busy === "spec" ? "Reading…" : "Read the API’s own spec"}</Button>
+            <Button variant="primary" size="sm" disabled={busy === "signing"} onClick={() => run("signing", "/api/admin/erp/signing", { save: true })}>
+              {busy === "signing" ? "Asking the ERP…" : "Work out the signing"}
+            </Button>
             <Button variant="secondary" size="sm" disabled={busy === "probe"} onClick={() => run("probe", "/api/admin/erp/probe", { resource: "products" })}>{busy === "probe" ? "Reading…" : "Show me a row"}</Button>
           </div>
           {testNote(out("test"))}
+          {signingNote(out("signing"))}
           {specNote(out("spec"))}
           {probeNote(out("probe"))}
         </div>
