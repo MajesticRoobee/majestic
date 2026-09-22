@@ -42,10 +42,11 @@ app.get("/images/:id", async (c) => {
   return new Response(bytes, {
     headers: {
       "content-type": row.mime,
+      // Content-addressed: an id is minted per upload and its bytes never
+      // change, so this can cache forever. Each width is a distinct URL
+      // (`?w=`), which is what keeps a phone's copy out of a desktop's cache —
+      // there is no content negotiation here, so nothing to Vary on.
       "cache-control": "public, max-age=31536000, immutable",
-      // Same id, different bytes per width — say so, or a shared cache can
-      // hand a phone's copy to a desktop.
-      "vary": "Accept",
     },
   });
 });

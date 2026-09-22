@@ -450,6 +450,52 @@ admin.delete("/variants/:id", async (c) => {
 // ---- Product gallery ----
 // Images belong to the product; tagging one to a variation makes it the shot
 // shown when that variation is selected. Untagged shots are shared by all.
+//
+// The listing photo and the gallery are two records of the same picture:
+// creating a product writes its photo into `products.image_url` *and* into
+// `product_images`, and the product page draws its hero from the gallery while
+// every card draws it from the column. Change one without the other and the
+// two disagree — the shop shows the new bottle and the product page still shows
+// the one it replaced, which is the "the pictures have swapped" the house has
+// been reporting. `syncGalleryPhoto` is what keeps the pair honest: it moves
+// the *existing* row rather than adding a second one, so a gallery the house
+// has curated by hand never quietly grows a ghost of every photo ever replaced.
+export async function syncGalleryPhoto(db, productId, variantId, oldUrl, newUrl) {
+  const from = String(oldUrl || "").trim();
+  const to = String(newUrl || "").trim();
+  if (from === to) return;
+  const tagged = variantId ? "variant_id=?" : "variant_id IS NULL";
+  const bindTag = variantId ? [variantId] : [];
+  // Is the new picture already filed here? Then the old row is a duplicate to
+  // retire, not a row to repoint.
+  const already = to
+    ? await db.prepare(`SELECT id FROM product_images WHERE product_id=? AND ${tagged} AND url=?`)
+        .bind(productId, ...bindTag, to).first()
+    : null;
+  const stale = from
+    ? await db.prepare(`SELECT id FROM product_images WHERE product_id=? AND ${tagged} AND url=? ORDER BY sort, id LIMIT 1`)
+        .bind(productId, ...bindTag, from).first()
+    : null;
+
+  if (stale && already) {
+    await db.prepare("DELETE FROM product_images WHERE id=?").bind(stale.id).run();
+    return;
+  }
+  if (stale) {
+    if (to) await db.prepare("UPDATE product_images SET url=? WHERE id=?").bind(to, stale.id).run();
+    else await db.prepare("DELETE FROM product_images WHERE id=?").bind(stale.id).run();
+    return;
+  }
+  if (to && !already) {
+    // No row to move — the photo was set on a product whose gallery was built
+    // by hand. Lead with it, since it is the one the listing is using.
+    const first = await db.prepare("SELECT COALESCE(MIN(sort), 0) - 1 AS n FROM product_images WHERE product_id=?").bind(productId).first();
+    const name = await db.prepare("SELECT name FROM products WHERE id=?").bind(productId).first();
+    await db.prepare("INSERT INTO product_images (product_id, variant_id, url, alt, sort) VALUES (?, ?, ?, ?, ?)")
+      .bind(productId, variantId || null, to, (name && name.name) || "", first ? first.n : 0).run();
+  }
+}
+
 admin.get("/products/:id/images", async (c) => {
   const rows = (await c.env.DB.prepare("SELECT * FROM product_images WHERE product_id=? ORDER BY sort, id").bind(c.req.param("id")).all()).results;
   return c.json({ images: rows.map((r) => ({ id: r.id, url: r.url, alt: r.alt, variantId: r.variant_id, sort: r.sort })) });
@@ -509,7 +555,10 @@ admin.delete("/images/:id", async (c) => {
   await db.prepare("DELETE FROM product_images WHERE id=?").bind(id).run();
   // Drop the reference from anything still pointing at it, then re-point the
   // product at whatever shot is left so a listing never loses its picture.
-  await db.prepare("UPDATE variants SET image_url=NULL WHERE image_url=?").bind(img.url).run();
+  // Scoped to *this* product: two products can share an address (the same
+  // upload reused, or an ERP feed handing the same URL to a pair of items), and
+  // an unscoped blanking took the photo off the other one too.
+  await db.prepare("UPDATE variants SET image_url=NULL WHERE image_url=? AND product_id=?").bind(img.url, img.product_id).run();
   const rest = await db.prepare("SELECT url FROM product_images WHERE product_id=? ORDER BY sort, id LIMIT 1").bind(img.product_id).first();
   await db.prepare("UPDATE products SET image_url=? WHERE id=? AND image_url=?").bind(rest ? rest.url : null, img.product_id, img.url).run();
   return c.json({ ok: true });
@@ -519,6 +568,8 @@ admin.delete("/images/:id", async (c) => {
 // description, image). Only the fields present in the body are changed.
 admin.patch("/products/:id", async (c) => {
   const b = await c.req.json();
+  const id = c.req.param("id");
+  const db = c.env.DB;
   const map = { live: "live", name: "name", cat: "cat", brand: "brand", family: "family", gender: "gender", notes: "notes", desc: "descr", imageUrl: "image_url", splitListing: "split_listing", pinNew: "pin_new", pinBest: "pin_best" };
   const flags = ["live", "splitListing", "pinNew", "pinBest"];
   const sets = [], vals = [];
@@ -527,8 +578,13 @@ admin.patch("/products/:id", async (c) => {
   }
   if (b.optionNames !== undefined) { sets.push("option_names=?"); vals.push(JSON.stringify(normaliseOptionNames(b.optionNames))); }
   if (!sets.length) return c.json({ ok: true });
-  vals.push(c.req.param("id"));
-  await c.env.DB.prepare(`UPDATE products SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  // Read the photo it is replacing before the write, so the gallery can follow.
+  const before = b.imageUrl !== undefined
+    ? await db.prepare("SELECT image_url FROM products WHERE id=?").bind(id).first()
+    : null;
+  vals.push(id);
+  await db.prepare(`UPDATE products SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  if (b.imageUrl !== undefined) await syncGalleryPhoto(db, id, null, before && before.image_url, b.imageUrl);
   return c.json({ ok: true });
 });
 
@@ -566,6 +622,9 @@ admin.patch("/variants/:id", async (c) => {
   }
   if (b.sku !== undefined) put("sku", await freeSku(db, String(b.sku || "").trim() || makeSku(cur.product_id, cur.size), vid));
   if (b.imageUrl !== undefined) put("image_url", String(b.imageUrl || "").trim() || null);
+  // Same pairing as the product's own photo: the shot tagged to this variation
+  // in the gallery is the one the product page draws, so it moves with it.
+  const photoMoved = b.imageUrl !== undefined;
   if (b.sort !== undefined) put("sort", parseInt(b.sort, 10) || 0);
   if (b.active !== undefined) put("active", b.active ? 1 : 0);
   // The line for this one piece. Empty means "whatever the store's is".
@@ -577,6 +636,7 @@ admin.patch("/variants/:id", async (c) => {
   if (!sets.length) return c.json({ ok: true });
   vals.push(vid);
   await db.prepare(`UPDATE variants SET ${sets.join(", ")} WHERE id=?`).bind(...vals).run();
+  if (photoMoved) await syncGalleryPhoto(db, cur.product_id, vid, cur.image_url, b.imageUrl);
   return c.json({ ok: true });
 });
 

@@ -394,8 +394,14 @@ export function Catalogue({ ctx }) {
         </div>
       </div>
       <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
+        {/* Keyed on the product. Without this, clicking "Edit" on a second
+            product while the first is open reuses the same component: React
+            keeps the state, the `useState` initialisers never re-run, and the
+            panel goes on holding the *first* product's name, photograph and
+            description while claiming to edit the second. Saving then wrote one
+            product's picture onto another. */}
         {editing
-          ? <EditProductPanel ctx={ctx} product={editing} onClose={() => setEditId(null)} />
+          ? <EditProductPanel key={editing.id} ctx={ctx} product={editing} onClose={() => setEditId(null)} />
           : <NewProduct ctx={ctx} />}
       </div>
     </main>
