@@ -207,3 +207,30 @@ export function EmptyRow({ children, span = 1, pad = "26px 22px" }) {
     </div>
   );
 }
+
+// A running deal, as the shopper meets it: badge, title, and the one line that
+// sells it.
+//
+// That line used to be 12.5px muted grey on white — the quietest text on the
+// Deals page, on the one element whose whole job is to be noticed. It is now
+// cream on the house's deepest purple, set bold and larger, with the badge and
+// the end date in gold. Contrast is roughly 13:1 for the message against 4:1
+// before. Shared by the storefront and the admin's live preview, so what the
+// house sees while typing is exactly what goes up.
+export function DealCard({ deal, meta, style = {} }) {
+  const d = deal || {};
+  return (
+    <div style={{ background: "linear-gradient(135deg, var(--mr-purple-950), var(--mr-purple-800))", color: "var(--mr-cream)", borderRadius: "var(--radius-lg)", padding: "18px 20px 16px", boxShadow: "var(--shadow-md)", border: "1px solid rgba(214,178,106,0.45)", ...style }}>
+      {d.badge && (
+        <span style={{ display: "inline-block", fontFamily: "var(--font-condensed)", fontSize: 11, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", padding: "4px 11px", borderRadius: "var(--radius-pill)", background: "var(--accent-gold)", color: "var(--mr-purple-950)" }}>{d.badge}</span>
+      )}
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 22, lineHeight: 1.2, color: "#fff", marginTop: 12 }}>{d.title || "Your deal's title"}</div>
+      {d.desc && (
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 15, fontWeight: 700, lineHeight: 1.5, color: "var(--mr-cream)", marginTop: 8 }}>{d.desc}</div>
+      )}
+      {meta && (
+        <div style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.02em", color: "var(--mr-gold-400)", marginTop: 10 }}>{meta}</div>
+      )}
+    </div>
+  );
+}

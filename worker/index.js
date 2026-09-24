@@ -8,6 +8,7 @@ import { releaseExpiredOrders } from "./payments.js";
 import { sweepStock } from "./inventory.js";
 import { rollup } from "./insights.js";
 import { rebuildAffinity } from "./affinity.js";
+import { isConsultOn } from "../src/lib/consultation.js";
 import { resolveMedia, readMedia } from "./media.js";
 import { getSettings } from "./util.js";
 import { runErpPull } from "./erp.js";
@@ -81,7 +82,7 @@ app.get("/sitemap.xml", async (c) => {
   // sentence saying no.
   try {
     const settings = await getSettings(c.env.DB);
-    if (String(settings.consultOn) === "1") staticUrls.push("/consultation");
+    if (isConsultOn(settings)) staticUrls.push("/consultation");
   } catch {}
   let catUrls = [];
   try {

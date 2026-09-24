@@ -1,9 +1,9 @@
 // Storefront pages — ported from "Majestic Roobee Storefront.dc.html".
 import React, { useEffect, useRef, useState } from "react";
-import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot } from "../ds/components.jsx";
+import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot, DealCard } from "../ds/components.jsx";
 import { ProductCard } from "./product-card.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
-import { EmbedCard, TestimonialCarousel, PostBody } from "./pages-content.jsx";
+import { EmbedCard, TestimonialCarousel, PostBody, PostCard } from "./pages-content.jsx";
 import { DailyDealCard } from "./daily-deal.jsx";
 import { catFamily, catPath, countIn } from "../lib/categories.js";
 import { aboutContent } from "../lib/about.js";
@@ -32,12 +32,16 @@ const HERO_EYEBROW = "Perfumes · Perfume oils · Body mists · Feminine care";
 
 // One section heading: the small line above, the heading, the line under it,
 // and — on a row of products — the link to the rest.
-function SectionHead({ eyebrow, title, sub, centred = false, action = null }) {
+function SectionHead({ eyebrow, title, sub, centred = false, action = null, subStrong = false }) {
   const head = (
     <div style={{ maxWidth: "62ch", ...(centred ? { margin: "0 auto" } : null) }}>
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
       <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
-      {sub && <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "8px 0 0" }}>{sub}</p>}
+      {sub && (subStrong
+        // A running deal's own line, under its name on the home page. It is
+        // the sales message, so it is set to be read, not to recede.
+        ? <p style={{ display: "inline-block", fontSize: 16, fontWeight: 700, color: "var(--mr-cream)", background: "var(--mr-purple-900)", borderLeft: "4px solid var(--accent-gold)", borderRadius: "var(--radius-sm)", lineHeight: 1.5, margin: "12px 0 0", padding: "8px 14px" }}>{sub}</p>
+        : <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "8px 0 0" }}>{sub}</p>)}
     </div>
   );
   return (
@@ -427,6 +431,7 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
             eyebrow={eyebrow}
             title={named ? runningDeal.title : (title || (isDeals ? "Hot deals" : ""))}
             sub={named && runningDeal.desc ? runningDeal.desc : sub}
+            subStrong={!!(named && runningDeal.desc)}
             action={<BlockLink ctx={ctx} block={block} />}
           />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
@@ -528,18 +533,10 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
             <BlockLink ctx={ctx} block={block} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
+            {/* The same card as the blog itself, so a story looks like the
+                same story wherever it is met. */}
             {latestPosts.slice(0, block.count || 3).map((p) => (
-              <a key={p.slug} href={`/blog/${p.slug}`} onClick={(e) => { e.preventDefault(); ctx.nav("post", { postSlug: p.slug }); }} className="mr-lift"
-                style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", overflow: "hidden", boxShadow: "var(--shadow-sm)", display: "flex", flexDirection: "column" }}>
-                <ImageSlot src={p.coverUrl} name={p.title} sizes="(max-width: 640px) 92vw, 300px" style={{ width: "100%", height: 170 }} />
-                <div style={{ padding: "16px 18px 20px" }}>
-                  <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>{p.published || "Blog"}</div>
-                  <div style={{ fontFamily: "var(--font-display)", fontSize: 18.5, color: "var(--text-strong)", marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>
-                  {p.excerpt && (
-                    <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.65, margin: "6px 0 0", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.excerpt}</p>
-                  )}
-                </div>
-              </a>
+              <PostCard key={p.slug} p={p} compact onOpen={() => ctx.nav("post", { postSlug: p.slug })} />
             ))}
           </div>
         </section>
@@ -800,14 +797,8 @@ export function ShopPage({ ctx }) {
       {runningDeals.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(260px, 100%), 1fr))", gap: 14, marginBottom: 26 }}>
           {runningDeals.map((d) => (
-            <div key={d.id} style={{ background: "var(--surface-card)", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", padding: "16px 18px" }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: "var(--accent-gold)", color: "var(--mr-purple-950)" }}>{d.badge}</span>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)", marginTop: 10 }}>{d.title}</div>
-              {d.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>{d.desc}</div>}
-              <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 8 }}>
-                {d.productIds.length} {d.productIds.length === 1 ? "product" : "products"}{d.endsAt ? ` · ends ${d.endsAt}` : ""}
-              </div>
-            </div>
+            <DealCard key={d.id} deal={d}
+              meta={`${d.productIds.length} ${d.productIds.length === 1 ? "product" : "products"}${d.endsAt ? ` · ends ${d.endsAt}` : ""}`} />
           ))}
         </div>
       )}

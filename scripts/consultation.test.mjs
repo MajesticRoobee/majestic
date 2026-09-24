@@ -81,7 +81,9 @@ check("a box holding only spaces is a blank box",
 // ---- 3. The switch, and the page with no calendar yet --------------------
 console.log("\nOpen, closed, and not connected yet");
 
-check("the studio ships closed", consultationContent({}).on, false);
+// It ships open: a default of "off" is how the header button went live invisible.
+check("the studio ships open", consultationContent({}).on, true);
+check("...and an empty setting is not an off switch", consultationContent({ consultOn: "" }).on, true);
 check("a string 1 from the settings blob opens it", consultationContent({ consultOn: "1" }).on, true);
 check("...and 0 does not", consultationContent({ consultOn: "0" }).on, false);
 
@@ -124,14 +126,17 @@ check("...and nothing was dropped from it on the way",
 check("no Calendly script is allowed, because none is loaded",
   /script-src[^;]*calendly/.test(csp), false);
 
-// The band's tab, and the two places it must *not* appear. A tab that lands
-// on "bookings aren't open at the moment" is worse than no tab.
+// The header button. It used to be the band's sixth tab, which dropped out
+// under 1180px and — with the switch shipped off — never appeared at all.
 const chromeSrc = readFileSync(new URL("../src/storefront/chrome.jsx", import.meta.url), "utf8");
-check("the header band carries a consultation tab", /label: "Book a consultation", page: "consultation"/.test(chromeSrc), true);
-check("...which is conditional, not unconditional", /page: "consultation".*when:/.test(chromeSrc), true);
-check("...and the band filters on that condition", /!t\.when \|\| t\.when\(ctx\)/.test(chromeSrc), true);
-check("...as does the phone drawer, which lists the same tabs",
-  (chromeSrc.match(/!t\.when \|\| t\.when\(ctx\)/g) || []).length >= 2, true);
+check("the header has a booking button", /function BookButton\(/.test(chromeSrc), true);
+check("...which stands down when the studio is switched off", /function BookButton[\s\S]{0,200}if \(!c\.on\) return null;/.test(chromeSrc), true);
+check("...sits beside the search box in the band", /<BookButton ctx=\{ctx\} onDark \/>\s*\{searchBox\(true\)\}/.test(chromeSrc), true);
+check("...and beside it in the top bar when search moves there", /\{searchBox\(false\)\}<\/div>\s*<BookButton ctx=\{ctx\} \/>/.test(chromeSrc), true);
+check("...and on a phone, next to the cart", /<BookButton ctx=\{ctx\} compact \/>/.test(chromeSrc), true);
+check("...and is not width-gated like the old tab was", /page: "consultation", from:/.test(chromeSrc), false);
+check("the phone drawer lists it only while open",
+  /ctx\.consultation && ctx\.consultation\.on \? \[\{ label: ctx\.consultation\.ctaLabel/.test(chromeSrc), true);
 
 // /consultation has to be a route, not an information page: the storefront's
 // catch-all turns any unknown single segment into "no such page".

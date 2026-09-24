@@ -67,19 +67,28 @@ export function calendlyEmbedUrl(raw, host = "") {
 /** True for a string the house could plausibly have meant as a Calendly link. */
 export const isCalendlyUrl = (raw) => calendlyEmbedUrl(raw, "x") !== "";
 
+/** Open unless the house has switched it off. See `consultationContent`. */
+export const isConsultOn = (settings = {}) => {
+  const v = (settings || {}).consultOn;
+  return !(v === "0" || v === 0 || v === false);
+};
+
 /**
  * The page, resolved: the house's words where it has written them, the
  * shipped ones where it hasn't.
  *
- * `on` is the one field with no fallback. Consultations are a thing the studio
- * either offers or doesn't, and a page inviting somebody to book an hour that
- * nobody is going to keep is worse than no page. It ships off.
+ * `on` follows the studio's switch. It ships *on*: the house asked for the
+ * booking button in the header, and a switch that defaulted to off meant it
+ * went live invisible — the button, the tab and the page were all hidden until
+ * somebody found the setting. Only an explicit "0" (the switch turned off in
+ * Admin → Settings) closes it. Open with no Calendly link yet is still never a
+ * dead end: the page offers the phone and the contact form instead.
  */
 export function consultationContent(settings = {}, host = "") {
   const s = settings || {};
   const pick = (key, fallback) => (String(s[key] ?? "").trim() || fallback);
   return {
-    on: s.consultOn === "1" || s.consultOn === 1 || s.consultOn === true,
+    on: isConsultOn(s),
     eyebrow: pick("consultEyebrow", CONSULT_DEFAULTS.eyebrow),
     headline: pick("consultHeadline", CONSULT_DEFAULTS.headline),
     intro: pick("consultIntro", CONSULT_DEFAULTS.intro),

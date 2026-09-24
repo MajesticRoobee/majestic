@@ -913,9 +913,9 @@ export function SettingsPage({ ctx }) {
       </div>
       <div style={{ ...section, gap: 14 }}>
         {sectionHead("The Perfume Studio — consultations",
-          "A page of its own at /consultation where a customer books an hour in the studio, with the calendar on the page so they never leave the site. The button floats above the support bubble on every page.")}
+          "A page of its own at /consultation where a customer books an hour in the studio, with the calendar on the page so they never leave the site. The button sits beside the search box in the header and floats above the support bubble on every page.")}
         <Switch label="The studio is taking consultation bookings"
-          checked={form.consultOn === "1"} onChange={(e) => touch({ consultOn: e.target.checked ? "1" : "0" })} />
+          checked={form.consultOn !== "0"} onChange={(e) => touch({ consultOn: e.target.checked ? "1" : "0" })} />
         <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
           Off: the button disappears, the footer link goes, the page says bookings aren&rsquo;t open, and it leaves the sitemap.
           A page inviting someone to book an hour nobody will keep is worse than no page.
@@ -929,7 +929,7 @@ export function SettingsPage({ ctx }) {
             rectangle. Paste the link Calendly gives you, or leave this empty and the page asks people to get in touch instead.
           </div>
         )}
-        {form.consultOn === "1" && !form.consultCalendlyUrl && (
+        {form.consultOn !== "0" && !form.consultCalendlyUrl && (
           <div style={{ fontSize: 12, color: "var(--mr-gold-600)", marginTop: -8 }}>
             No calendar yet — the page will ask people to message or call for a time. Add the link when Calendly is set up.
           </div>

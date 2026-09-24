@@ -1,5 +1,6 @@
 // Public storefront API.
 import { Hono } from "hono";
+import { handleErpWebhook } from "./erp-webhook.js";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT, scopeCats } from "./util.js";
 import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
 import { lowStockLines } from "./inventory.js";
@@ -7,7 +8,7 @@ import { loadHomeBlocks, resolveHomeBlocks } from "./home.js";
 import { ingest, stitchVisitor } from "./insights.js";
 import { loadAffinity } from "./affinity.js";
 import { planFulfilment } from "./fulfilment.js";
-import { previewOf } from "../src/lib/blog.js";
+import { previewOf, plain, readingMinutes } from "../src/lib/blog.js";
 import { emitEvent } from "./events.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
 import { getReward, rewardRefusal, computeRewardDiscount, claimReward, releaseReward, freeItemName } from "./rewards.js";
@@ -139,7 +140,7 @@ shop.get("/store", async (c) => {
   // Three most recent posts, for the strip on the home page. The blog page
   // fetches its own, paged list.
   const blog = (await db.prepare(
-    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
+    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, length(body) AS body_len, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).all()).results.map(blogCard);
 
   // The home page, as the house arranged it. Each block arrives carrying the
@@ -223,6 +224,13 @@ function blogCard(r) {
     // without anyone having to re-edit them — and derived from the opening of
     // the story for a post whose writer left the box empty. See src/lib/blog.js.
     excerpt: previewOf(r.excerpt, r.body_head !== undefined ? r.body_head : r.body),
+    // Whether the writer wrote the preview themselves. The post page shows it
+    // as the standfirst under the title only then — a preview derived from the
+    // opening paragraph would print that paragraph twice.
+    hasOwnPreview: !!plain(r.excerpt).trim(),
+    // Minutes to read. A card only has the story's length, not the story, so
+    // it estimates at six characters a word; the post page counts properly.
+    readMins: r.body !== undefined ? readingMinutes(r.body) : Math.max(1, Math.round((r.body_len || 0) / 6 / 220)),
     coverUrl: r.cover_url || null,
     author: r.author, tags: (r.tags || "").split(",").map((s) => s.trim()).filter(Boolean),
     publishedAt: r.published_at || "",
@@ -237,7 +245,7 @@ shop.get("/blog", async (c) => {
   const tag = String(c.req.query("tag") || "").trim().toLowerCase();
   const limit = Math.max(1, Math.min(50, parseInt(c.req.query("limit"), 10) || 24));
   const rows = (await db.prepare(
-    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT ?"
+    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, length(body) AS body_len, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC LIMIT ?"
   ).bind(limit).all()).results.map(blogCard);
   const tags = [...new Set(rows.flatMap((r) => r.tags))].sort();
   return c.json({ posts: tag ? rows.filter((r) => r.tags.some((t) => t.toLowerCase() === tag)) : rows, tags });
@@ -248,9 +256,15 @@ shop.get("/blog/:slug", async (c) => {
   const row = await db.prepare("SELECT * FROM blog_posts WHERE slug=? AND status='published'").bind(c.req.param("slug")).first();
   if (!row) return c.json({ error: "That story isn't here." }, 404);
   const more = (await db.prepare(
-    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' AND slug<>? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
+    "SELECT slug, title, excerpt, substr(body, 1, 600) AS body_head, length(body) AS body_len, cover_url, author, tags, published_at FROM blog_posts WHERE status='published' AND slug<>? ORDER BY COALESCE(published_at, created_at) DESC LIMIT 3"
   ).bind(row.slug).all()).results.map(blogCard);
-  return c.json({ post: { ...blogCard(row), body: row.body }, more });
+  // A post whose writer put the whole article in the preview box and left the
+  // story empty: the preview box is the only copy of that writing, so it is
+  // served as the story rather than lost behind a two-line preview.
+  const body = String(row.body || "").trim() ? row.body : String(row.excerpt || "");
+  const card = blogCard({ ...row, body });
+  const onlyPreview = !String(row.body || "").trim();
+  return c.json({ post: { ...card, hasOwnPreview: card.hasOwnPreview && !onlyPreview, body }, more });
 });
 
 // One information page. Unpublished reads as missing, so a draft is never
@@ -826,6 +840,16 @@ shop.post("/paystack/webhook", async (c) => {
   const raw = await c.req.text();
   const r = await handleWebhook(c.env, raw, c.req.header("x-paystack-signature"));
   return c.text(r.text, r.status);
+});
+
+// ERPRev → the shop, pushed. Every stock move and price change in the ERP,
+// applied within seconds. Verified against ERP_WEBHOOK_SECRET — see
+// worker/erp-webhook.js for the two ways a delivery can prove itself.
+shop.post("/erp/webhook", async (c) => {
+  const raw = await c.req.text();
+  const headers = Object.fromEntries([...c.req.raw.headers.entries()]);
+  const r = await handleErpWebhook(c.env, { raw, headers, query: c.req.query(), ctx: c.executionCtx });
+  return c.json(r.json, r.status);
 });
 
 // Guest order tracking: order number + the phone or email used.

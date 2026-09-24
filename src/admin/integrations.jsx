@@ -155,6 +155,111 @@ function MediaPanel({ media, ctx, reload }) {
   );
 }
 
+// Email, through Resend: is it connected, what does it send as, and does a
+// real email actually arrive.
+function EmailPanel({ mail, ctx, reload }) {
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  if (!mail) return null;
+  const b = statusBadge(mail.connected ? "good" : "mute");
+  const code = { fontFamily: "monospace", fontSize: 11.5, background: "var(--surface-sunken)", padding: "1px 5px", borderRadius: 4 };
+  const test = async () => {
+    setBusy(true); setRes(null);
+    try { setRes(await api.post("/api/admin/email/test", { to }, ctx.token)); }
+    catch (e) { ctx.authFail(e); setRes({ sent: false, detail: e.message }); }
+    finally { setBusy(false); reload(); }
+  };
+  return (
+    <div style={{ ...card, padding: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Email (Resend)</div>
+        <span style={{ fontSize: 11.5, fontWeight: 500, padding: "3px 11px", borderRadius: "var(--radius-pill)", background: b.bg, color: b.fg }}>{mail.connected ? "Connected" : "Not connected"}</span>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 12px", lineHeight: 1.7 }}>
+        {mail.connected
+          ? <>Sending as <strong>{mail.from}</strong>{mail.replyTo ? <> · replies go to <strong>{mail.replyTo}</strong></> : null}. Order updates, back-in-stock alerts, abandoned-cart reminders, password resets and the low-stock digest all go out through it, in the shop&rsquo;s letterhead.</>
+          : <>Add these as GitHub repository secrets (Settings → Secrets and variables → Actions) and redeploy:
+            <br />· <code style={code}>RESEND_API_KEY</code> — resend.com → API Keys → create one with <em>Sending access</em>
+            <br />· <code style={code}>RESEND_FROM</code> — e.g. <code style={code}>Majestic Roobee &lt;hello@majesticroobee.com&gt;</code>, on a domain verified in Resend → Domains
+            <br />· <code style={code}>RESEND_REPLY_TO</code> — optional, where customers&rsquo; replies should land
+            {mail.keyLooksWrong && <><br /><span style={{ color: "#c0587a" }}>A key is set but it doesn&rsquo;t start with re_ — check it was pasted without &ldquo;Bearer&rdquo; or quotes.</span></>}
+            {mail.queued > 0 && <><br />{mail.queued} message{mail.queued === 1 ? " is" : "s are"} waiting in the log below from before email was connected.</>}</>}
+        {mail.connected && mail.fromIsDefault && (
+          <><br /><span style={{ color: "var(--mr-gold-600)" }}>RESEND_FROM isn&rsquo;t set, so it sends as {mail.from}. That only works if {mail.domain} is verified in Resend.</span></>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 240px" }}>
+          <Input label="Send a test email to" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@majesticroobee.com" />
+        </div>
+        <Button variant="secondary" size="sm" disabled={busy || !mail.connected || !to.includes("@")} onClick={test}>{busy ? "Sending…" : "Send test"}</Button>
+      </div>
+      {res && (
+        <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6, borderRadius: "var(--radius-md)", padding: "10px 12px", background: res.sent ? "#e4efe4" : "#f7e3ea", color: res.sent ? "#3f6b45" : "#c0587a" }}>
+          {res.sent ? `Sent — check ${to}. (Resend id ${res.id || "—"})` : res.detail || res.error}
+        </div>
+      )}
+      {mail.recent.length > 0 && (
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 5 }}>
+          {mail.recent.map((r, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: r.status === "sent" ? "var(--text-muted)" : "#c0587a" }}>
+              <span style={{ minWidth: 0 }}>{r.subject} → {r.recipient || "—"}{r.status !== "sent" ? ` · ${r.detail}` : ""}</span>
+              <span style={{ flexShrink: 0 }}>{String(r.processed_at || "").slice(5, 16)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ERPRev → the shop, pushed. The quickest way to connect: it needs no request
+// signing, only the webhook secret ERPRev shows when the webhook is created.
+function ErpWebhookBox({ erp, ctx }) {
+  const w = erp.webhook;
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(w.url); setCopied(true); setTimeout(() => setCopied(false), 1800); }
+    catch { window.prompt("Copy this address", w.url); }
+  };
+  const last = w.recent[0];
+  const code = { fontFamily: "monospace", fontSize: 11.5, background: "var(--surface-sunken)", padding: "1px 5px", borderRadius: 4 };
+  return (
+    <div style={{ margin: "12px 0 4px", padding: 16, borderRadius: "var(--radius-md)", background: "var(--surface-sunken)", border: "1px solid var(--border-hairline)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>Instant updates from ERPRev (webhook)</div>
+        <span style={{ fontSize: 11.5, fontWeight: 500, color: last && last.ok ? "#3f6b45" : w.hasSecret ? "var(--mr-gold-600)" : "var(--text-muted)" }}>
+          {last && last.ok ? `Receiving — last ${String(last.at).slice(0, 16)} UTC` : w.hasSecret ? "Ready — nothing received yet" : "Needs its secret"}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7, marginTop: 6 }}>
+        Every stock move and price change in ERPRev lands on the shop within seconds, into the shop its location is mapped to
+        below ({(erp.stores.find((l) => l.id === (erp.config.defaultShop || "abuja")) || { city: "Abuja" }).city} by default). In ERPRev, add a webhook for product and stock events pointing at:
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+        <code style={{ ...code, fontSize: 12, padding: "6px 10px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", wordBreak: "break-all" }}>{w.url}</code>
+        <Button variant="secondary" size="sm" onClick={copy}>{copied ? "Copied" : "Copy"}</Button>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7, marginTop: 8 }}>
+        {w.hasSecret
+          ? <>The webhook secret is set. If ERPRev&rsquo;s webhook screen can&rsquo;t sign deliveries, put the same secret on the end of the address instead: <code style={code}>?token=…</code></>
+          : <>Copy the <strong>signing secret</strong> ERPRev shows for the webhook, and add it as the GitHub secret <code style={code}>ERP_WEBHOOK_SECRET</code> (or <code style={code}>wrangler secret put ERP_WEBHOOK_SECRET</code>). Until it is set, every delivery is refused — an open address that sets stock would let anyone empty the shop.</>}
+      </div>
+      {w.recent.length > 0 && (
+        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4, maxHeight: 170, overflowY: "auto" }}>
+          {w.recent.map((r) => (
+            <div key={r.id} style={{ display: "flex", gap: 10, justifyContent: "space-between", fontSize: 11.5, color: r.ok ? "var(--text-muted)" : "#c0587a" }}>
+              <span style={{ minWidth: 0 }}>{r.event ? <strong style={{ fontWeight: 600 }}>{r.event}: </strong> : null}{r.note}</span>
+              <span style={{ flexShrink: 0 }}>{String(r.at).slice(5, 16)}{r.auth ? ` · ${r.auth}` : ""}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // The ERP link — inventory and catalogue.
 //
 // A checklist rather than a form, because the order matters and the failures
@@ -195,7 +300,7 @@ function ErpPanel({ erp, ctx, reload }) {
     finally { setBusy(""); }
   };
   const SAVED = ["erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle", "erpPaths", "erpFields",
-    "erpEnvelopeKey", "erpPriceList", "erpPublish", "erpDefaultCat", "erpEmptyGuardPct", "erpSyncEveryMins"];
+    "erpEnvelopeKey", "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits", "erpDefaultShop", "erpEmptyGuardPct", "erpSyncEveryMins"];
   const saveConfig = async () => {
     setBusy("config");
     try {
@@ -206,6 +311,7 @@ function ErpPanel({ erp, ctx, reload }) {
         erpEnvelopeKey: form.envelopeKey || "", erpPriceList: form.priceList || "",
         erpPublish: form.publish ? "1" : "0", erpDefaultCat: form.defaultCat,
         erpGroupUnits: form.groupUnits ? "1" : "0",
+        erpDefaultShop: form.defaultShop ?? "abuja",
         erpEmptyGuardPct: form.emptyGuardPct, erpSyncEveryMins: form.syncEveryMins,
       };
       await api.put("/api/admin/settings", { settings: Object.fromEntries(SAVED.map((k) => [k, patch[k]])) }, ctx.token);
@@ -276,8 +382,11 @@ function ErpPanel({ erp, ctx, reload }) {
   const pullNote = (d) => noteBox(d, d && (d.error || `${d.dryRun ? "Dry run — nothing was written. " : ""}${d.rows} SKU(s) read · ${d.variantsCreated || 0} created · ${d.variantsUpdated || 0} updated · ${d.productsCreated || 0} new product(s), ${d.productsAdopted || 0} adopted${d.readErrors && d.readErrors.length ? `\n\nSkipped:\n${d.readErrors.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}${d.warnings && d.warnings.length ? `\n\nWorth a look:\n${d.warnings.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}`));
   const discoverNote = (d) => noteBox(d, d && (d.error || `Found ${d.warehouses} location(s) and ${d.itemGroups} categor${d.itemGroups === 1 ? "y" : "ies"}.`));
 
-  const b = statusBadge(cfg.on && cfg.configured ? "good" : cfg.configured ? "warn" : "mute");
-  const label = cfg.on && cfg.configured ? "Syncing" : cfg.configured ? "Configured, not running" : "Not connected";
+  // The webhook counts as connected in its own right: it needs no request
+  // signing, so it is often live before the scheduled pull is.
+  const receiving = !!(erp.webhook && erp.webhook.recent.some((r) => r.ok));
+  const b = statusBadge(cfg.on && cfg.configured ? "good" : receiving ? "good" : cfg.configured ? "warn" : "mute");
+  const label = cfg.on && cfg.configured ? "Syncing" : receiving ? "Receiving from ERPRev" : cfg.configured ? "Configured, not running" : "Not connected";
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "6px 10px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-sm)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer", maxWidth: "100%" };
   const PATHS = [
     ["products", "Products / items", "The list of everything sellable. Required."],
@@ -299,6 +408,8 @@ function ErpPanel({ erp, ctx, reload }) {
         {cfg.lastSync ? ` Last pull: ${cfg.lastSync} UTC.` : " Never pulled."}
         {erp.linkedVariants ? ` ${erp.linkedVariants} SKU(s) are linked.` : ""}
       </div>
+
+      {erp.webhook && <ErpWebhookBox erp={erp} ctx={ctx} />}
 
       {step(1, "Which ERP", true, (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -436,7 +547,7 @@ function ErpPanel({ erp, ctx, reload }) {
       {step(5, "Which location is which shop", mapped > 0, (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
-            This is the mapping that matters most, and it cannot be guessed. A location with no shop against it is
+            This is the mapping that matters most. With more than one ERP location, a location with no shop against it is
             <strong> ignored</strong>, not defaulted — counting unmapped stock into the nearest shop is exactly the mistake
             that puts Lagos&rsquo;s bottles on Abuja&rsquo;s shelf.
           </div>
@@ -444,6 +555,24 @@ function ErpPanel({ erp, ctx, reload }) {
             {busy === "discover" ? "Reading…" : erp.warehouses.length ? "Refresh the lists from the ERP" : "Fetch locations & categories"}
           </Button>
           {discoverNote(out("discover"))}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, color: "var(--text-muted)" }}>
+            <span>Stock with no location on it, or from an ERP with only one location, goes to</span>
+            <select value={form.defaultShop ?? "abuja"} onChange={(e) => setForm({ ...form, defaultShop: e.target.value })} style={selStyle}>
+              <option value="">Nowhere — map it by hand</option>
+              {erp.stores.map((l) => <option key={l.id} value={l.id}>{l.city}</option>)}
+            </select>
+            <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>Save</Button>
+          </div>
+          {erp.warehouses.length > 1 && (
+            <div>
+              <Button variant="secondary" size="sm" disabled={busy === "mapall"}
+                onClick={() => window.confirm(`Send every ERP location's stock to ${(erp.stores.find((l) => l.id === (form.defaultShop || "abuja")) || { city: "Abuja" }).city}? Only do this if all of it really is that shop's stock.`)
+                  && run("mapall", "/api/admin/erp/warehouses/map-all", { locationId: form.defaultShop || "abuja" })}>
+                {busy === "mapall" ? "Mapping…" : `Map every location to ${(erp.stores.find((l) => l.id === (form.defaultShop || "abuja")) || { city: "Abuja" }).city}`}
+              </Button>
+              {noteBox(out("mapall"), out("mapall") && (out("mapall").error || `Mapped ${out("mapall").mapped} location(s).`))}
+            </div>
+          )}
           {erp.warehouses.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
               {erp.warehouses.map((w) => (
@@ -553,6 +682,7 @@ export function IntegrationsPage({ ctx }) {
   const [pay, setPay] = useState(null);
   const [media, setMedia] = useState(null);
   const [erp, setErp] = useState(null);
+  const [mail, setMail] = useState(null);
   const origin = window.location.origin;
 
   const load = () => {
@@ -560,6 +690,7 @@ export function IntegrationsPage({ ctx }) {
     api.get("/api/admin/media/status", ctx.token).then(setMedia).catch(() => {});
     // Super-only, so a manager's admin simply doesn't draw the panel.
     api.get("/api/admin/erp", ctx.token).then(setErp).catch(() => {});
+    api.get("/api/admin/email", ctx.token).then(setMail).catch(() => {});
     api.get("/api/admin/automations", ctx.token).then((r) => { setAutos(r.automations); setRunStats(r.runStats); }).catch(ctx.authFail);
     api.get("/api/admin/automation-runs", ctx.token).then((r) => setRuns(r.runs)).catch(ctx.authFail);
     api.get("/api/admin/events", ctx.token).then((r) => setEvents(r.events)).catch(() => {});
@@ -585,6 +716,7 @@ export function IntegrationsPage({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 20, maxWidth: 1000 }}>
       <PaymentsPanel pay={pay} origin={origin} ctx={ctx} reload={load} />
+      <EmailPanel mail={mail} ctx={ctx} reload={load} />
       <MediaPanel media={media} ctx={ctx} reload={load} />
       <ErpPanel erp={erp} ctx={ctx} reload={load} />
 
@@ -592,7 +724,7 @@ export function IntegrationsPage({ ctx }) {
       <div style={{ ...card, overflow: "hidden" }}>
         <div style={{ padding: "18px 22px" }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Automations</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Lifecycle messages fire from store events. Emails send once Resend is connected — until then they queue safely.</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Lifecycle messages fire from store events and send through Resend (see Email above). Without a key they queue here, readable, rather than being lost.</div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 90px 90px", fontSize: 12.5 }}>
           <div style={{ ...th, paddingLeft: 22 }}>AUTOMATION</div>

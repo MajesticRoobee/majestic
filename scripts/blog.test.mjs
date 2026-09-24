@@ -10,7 +10,7 @@
 // clamps again on the way out so the posts written before any of this existed
 // come back short without anybody re-editing them. This file is that
 // definition.
-import { clamp, previewOf, words, PREVIEW_MAX, TITLE_MAX, TITLE_MAX_WORDS } from "../src/lib/blog.js";
+import { clamp, previewOf, words, paragraphs, plain, readingMinutes, PREVIEW_MAX, TITLE_MAX, TITLE_MAX_WORDS } from "../src/lib/blog.js";
 
 let failures = 0;
 const check = (label, got, want) => {
@@ -101,6 +101,40 @@ check("a heading that fits a card is inside both lines",
 // the one enforced, and the word count is advisory beneath it.
 check("the character limit is the tighter of the two for long words",
   TITLE_MAX < TITLE_MAX_WORDS * 12, true);
+
+// ---- 4. The story, as pasted --------------------------------------------
+console.log("\nA story pasted from a document");
+
+// The reported "still shows full": a post pasted from Google Docs arrives with
+// one line break between paragraphs and its headings as plain short lines, and
+// used to render as a single wall of text.
+const pasted = "Layering is an art that takes a little patience and practice.\nWhy oils first\nFragrance clings to moisturised skin far longer than it does to dry skin.\nThe mist last\nA mist over the hair carries the scent around you as you move.";
+const kinds = paragraphs(pasted).map((b) => b.type);
+check("single line breaks separate paragraphs", kinds.length, 5);
+check("a short unmarked line before a paragraph is read as a heading",
+  kinds, ["p", "h", "p", "h", "p"]);
+check("the preview of a pasted story is its first paragraph, not the whole thing",
+  previewOf("", pasted), "Layering is an art that takes a little patience and practice.");
+
+check("a sentence is never mistaken for a heading",
+  paragraphs("It lasts.\nAnd then it lasts some more, well into the evening.").map((b) => b.type), ["p", "p"]);
+check("the last line is never a heading — nothing follows it",
+  paragraphs("A longer opening paragraph about scent.\nWith love").map((b) => b.type), ["p", "p"]);
+check("marked headings still work", paragraphs("## Notes\n\nText here.")[0], { type: "h", text: "Notes" });
+check("a bulleted list is one block",
+  paragraphs("Bring:\n- your bottle\n- bare wrists")[1], { type: "ul", items: ["your bottle", "bare wrists"] });
+check("a numbered list is an ordered block",
+  paragraphs("1. Oil\n2. Extrait\n3. Mist")[0], { type: "ol", items: ["Oil", "Extrait", "Mist"] });
+check("Windows line endings read the same",
+  paragraphs("One para.\r\n\r\nTwo para.").length, 2);
+
+check("the writer's marks never reach a preview",
+  plain("A **bold** claim, an *aside* and [a link](https://x.com)."), "A bold claim, an aside and a link.");
+check("...including in the preview box itself", previewOf("**Big** news"), "Big news");
+check("arithmetic is not italic", plain("5 * 3 * 2"), "5 * 3 * 2");
+
+check("reading time is at least a minute", readingMinutes("Short."), 1);
+check("...and counts a long story honestly", readingMinutes("word ".repeat(1100)), 5);
 
 console.log(failures ? `\n${failures} failing` : "\nAll good");
 process.exit(failures ? 1 : 0);

@@ -17,6 +17,8 @@ import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
 import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
 import { erpStatus, erpPing, erpProbe, erpReadSpec, erpNegotiateSigning, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
+import { webhookStatus } from "./erp-webhook.js";
+import { emailConfig, sendEmail } from "./email.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -1072,7 +1074,7 @@ admin.put("/settings", async (c) => {
     "erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle",
     "erpPaths", "erpFields", "erpEnvelopeKey", "erpCursorKey", "erpPingPath",
     "erpPageSize", "erpSigning",
-    "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits",
+    "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits", "erpDefaultShop",
     "erpEmptyGuardPct", "erpSyncEveryMins",
     // The Perfume Studio's consultation page: whether the studio is taking
     // bookings at all, the Calendly link the calendar is framed from, and the
@@ -2299,6 +2301,36 @@ admin.post("/purge", requireSuper, async (c) => {
   return c.json({ ok: true, cleared: want });
 });
 
+// ---- Email (Resend) ----
+//
+// Whether a key is set and what it sends as — never the key itself — and a
+// button that sends one real email, because "is email working" is a question
+// only a delivered email answers. Super only, like the other credentials.
+admin.get("/email", requireSuper, async (c) => {
+  const recent = (await c.env.DB.prepare(
+    "SELECT recipient, subject, status, detail, processed_at FROM automation_runs WHERE status IN ('sent','failed') ORDER BY id DESC LIMIT 8"
+  ).all()).results;
+  const queued = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM automation_runs WHERE status='queued'").first();
+  return c.json({ ...emailConfig(c.env), recent, queued: queued ? queued.n : 0 });
+});
+
+admin.post("/email/test", requireSuper, async (c) => {
+  const { to } = await c.req.json().catch(() => ({}));
+  const r = await sendEmail(c.env, {
+    to, tags: ["test"],
+    subject: "Email is working",
+    text: [
+      "This is a test from Majestic Roobee's admin. If it reached you, order updates, back-in-stock alerts, password resets and the rest will too.",
+      `It was sent as ${emailConfig(c.env).from}.`,
+      `Visit the shop: ${new URL(c.req.url).origin}`,
+    ].join("\n\n"),
+  });
+  await c.env.DB.prepare(
+    "INSERT INTO automation_runs (automation_id, recipient, subject, body, status, detail, processed_at) VALUES ('transactional', ?, 'Email is working', 'Test email from the admin', ?, ?, datetime('now'))"
+  ).bind(String(to || ""), r.sent ? "sent" : "failed", r.detail).run();
+  return c.json(r, r.sent ? 200 : 400);
+});
+
 // ---- The ERP link ----
 //
 // The connector is worker/erp.js and the vendor-specific part is
@@ -2311,7 +2343,24 @@ admin.post("/purge", requireSuper, async (c) => {
 // admin screen that can read a credential back is a credential one compromised
 // admin session hands over.
 
-admin.get("/erp", requireSuper, async (c) => c.json(await erpStatus(c.env)));
+admin.get("/erp", requireSuper, async (c) => c.json({
+  ...(await erpStatus(c.env)),
+  webhook: await webhookStatus(c.env, new URL(c.req.url).origin),
+}));
+
+// "Everything in the ERP is Abuja's": every location it has shown us, mapped
+// to one shop in one go. For a house with one warehouse in the ERP — or one
+// that wants every ERP location to feed a single shop — which is the ask.
+admin.post("/erp/warehouses/map-all", requireSuper, async (c) => {
+  const { locationId } = await c.req.json().catch(() => ({}));
+  const db = c.env.DB;
+  const loc = String(locationId || "").trim();
+  if (!loc || !(await db.prepare("SELECT id FROM locations WHERE id=?").bind(loc).first())) {
+    return c.json({ error: "That isn't one of the stores." }, 400);
+  }
+  const r = await db.prepare("UPDATE erp_warehouses SET location_id=? WHERE disabled=0").bind(loc).run();
+  return c.json({ ok: true, mapped: (r.meta && r.meta.changes) || 0 });
+});
 
 // "Can we reach it?" — the first of the questions the ERP work was blocked on,
 // answered in five seconds rather than an email thread. It reports what each

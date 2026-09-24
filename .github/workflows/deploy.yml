@@ -94,12 +94,20 @@ jobs:
           PAYSTACK_SECRET_KEY: ${{ secrets.PAYSTACK_SECRET_KEY }}
           ERP_API_KEY: ${{ secrets.ERP_API_KEY }}
           ERP_API_SECRET: ${{ secrets.ERP_API_SECRET }}
+          ERP_WEBHOOK_SECRET: ${{ secrets.ERP_WEBHOOK_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
+          RESEND_REPLY_TO: ${{ secrets.RESEND_REPLY_TO }}
         run: |
           if [ -n "$ADMIN_PASSWORD" ]; then printf '%s' "$ADMIN_PASSWORD" | npx wrangler secret put ADMIN_PASSWORD; fi
           if [ -n "$ADMIN_TOKEN_SECRET" ]; then printf '%s' "$ADMIN_TOKEN_SECRET" | npx wrangler secret put ADMIN_TOKEN_SECRET; fi
           if [ -n "$PAYSTACK_SECRET_KEY" ]; then printf '%s' "$PAYSTACK_SECRET_KEY" | npx wrangler secret put PAYSTACK_SECRET_KEY; fi
           if [ -n "$ERP_API_KEY" ]; then printf '%s' "$ERP_API_KEY" | npx wrangler secret put ERP_API_KEY; fi
           if [ -n "$ERP_API_SECRET" ]; then printf '%s' "$ERP_API_SECRET" | npx wrangler secret put ERP_API_SECRET; fi
+          if [ -n "$ERP_WEBHOOK_SECRET" ]; then printf '%s' "$ERP_WEBHOOK_SECRET" | npx wrangler secret put ERP_WEBHOOK_SECRET; fi
+          if [ -n "$RESEND_API_KEY" ]; then printf '%s' "$RESEND_API_KEY" | npx wrangler secret put RESEND_API_KEY; fi
+          if [ -n "$RESEND_FROM" ]; then printf '%s' "$RESEND_FROM" | npx wrangler secret put RESEND_FROM; fi
+          if [ -n "$RESEND_REPLY_TO" ]; then printf '%s' "$RESEND_REPLY_TO" | npx wrangler secret put RESEND_REPLY_TO; fi
 
       # ---- Confirm what actually went live --------------------------------
       #
@@ -144,6 +152,10 @@ jobs:
           echo "— unsigned Paystack webhook is refused —"
           code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/paystack/webhook" -H 'content-type: application/json' -d '{"event":"charge.success","data":{"reference":"forged"}}')
           echo "forged webhook -> HTTP $code"; test "$code" = "401" -o "$code" = "400"
+          # Same for the ERP: an unsigned delivery must never set stock.
+          echo "— unsigned ERP webhook is refused —"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SITE_URL/api/erp/webhook" -H 'content-type: application/json' -d '{"event":"stock.updated","data":{"product_id":1,"quantity":0}}')
+          echo "forged ERP webhook -> HTTP $code"; test "$code" = "401" -o "$code" = "503"
           echo "All smoke tests passed."
 
       - name: Render check (live)
