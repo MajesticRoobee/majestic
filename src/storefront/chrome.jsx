@@ -146,16 +146,47 @@ const NAV_TABS = [
   // at the top of every page. /about is still there — the menu below names it,
   // the footer links it, and the home page still runs its opening paragraph.
   { label: "Blog", page: "blog", from: 1000 },
-  // The Perfume Studio's booking page earns a tab: it is the one thing on the
-  // site the house sells that isn't a bottle, and a consultation is worth more
-  // than an order. `when` hides it while the studio isn't taking bookings —
-  // the band must never carry a tab that lands on "not at the moment".
-  { label: "Book a consultation", page: "consultation", from: 1180, when: (ctx) => ctx.consultation && ctx.consultation.on },
 ];
 
-// Below this the search box leaves the band and takes its old place in the top
-// bar, where there is room to spare.
-const BAND_SEARCH_FROM = 1150;
+// Below this the search box — and the booking button beside it — leave the
+// band and take the top bar, where there is room to spare. The band has to seat
+// the menu, five tabs, the button and a usable search box; under 1200px it
+// cannot do all four without clipping a word.
+const BAND_SEARCH_FROM = 1200;
+
+const ICON_CAL = <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></svg>;
+
+// "Book a consultation", beside the search box.
+//
+// The Perfume Studio's booking page is the one thing on the site the house
+// sells that isn't a bottle. It used to be the band's sixth tab, which meant it
+// dropped out on every screen under 1180px wide and, while the studio's switch
+// sat in its shipped "off" position, never appeared at all — the "we can't see
+// this at all" the house reported. It is a button now, gold on the purple band
+// so it reads as an action rather than one more place to browse, and it is on
+// every width: beside the search box on a desktop, and a compact "Book" beside
+// the cart on a phone.
+function BookButton({ ctx, compact = false, onDark = false }) {
+  const c = ctx.consultation || {};
+  if (!c.on) return null;
+  const label = compact ? "Book" : (c.ctaLabel || "Book a consultation");
+  const active = ctx.page === "consultation";
+  return (
+    <a href="/consultation" onClick={(e) => { e.preventDefault(); ctx.setMnav && ctx.setMnav(false); ctx.nav("consultation"); }}
+      aria-label={c.ctaLabel || "Book a consultation"} aria-current={active ? "page" : undefined}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 7, flex: "none", alignSelf: "center", whiteSpace: "nowrap",
+        background: "var(--accent-gold)", color: "var(--mr-purple-950)", textDecoration: "none",
+        borderRadius: "var(--radius-sm)", padding: compact ? "7px 11px" : "9px 16px",
+        fontFamily: "var(--font-condensed)", fontSize: compact ? 11 : 12, fontWeight: 600,
+        letterSpacing: "0.1em", textTransform: "uppercase",
+        boxShadow: onDark ? "0 0 0 1px rgba(255,255,255,0.08)" : "var(--shadow-gold)",
+        outline: active ? "2px solid var(--mr-cream)" : "none", outlineOffset: 2,
+      }}>
+      {ICON_CAL}{label}
+    </a>
+  );
+}
 
 // Under the categories in the menu: the whole catalogue, and the pages the band
 // has no room to name.
@@ -440,7 +471,12 @@ function Header({ ctx }) {
         )}
         <Wordmark ctx={ctx} height={ctx.isMobile ? 34 : 46} onClick={() => ctx.nav("home")} />
         <div style={{ flex: 1, display: "flex", justifyContent: "center", padding: "0 clamp(8px, 2vw, 28px)" }}>
-          {!ctx.isMobile && !bandSearch && <div style={{ width: "100%", maxWidth: 420 }}>{searchBox(false)}</div>}
+          {!ctx.isMobile && !bandSearch && (
+            <div style={{ width: "100%", maxWidth: 560, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>{searchBox(false)}</div>
+              <BookButton ctx={ctx} />
+            </div>
+          )}
         </div>
         {!ctx.isMobile ? (
           <div style={{ display: "flex", alignItems: "center", gap: "clamp(16px, 2.2vw, 30px)" }}>
@@ -449,12 +485,15 @@ function Header({ ctx }) {
             <HeaderAction icon={ICON_BAG} kicker="Your cart" label={ctx.fmt(ctx.cc.sub)} badge={cartCount || null} onClick={() => ctx.setCartOpen(true)} />
           </div>
         ) : (
+          <>
+          <BookButton ctx={ctx} compact />
           <button onClick={() => ctx.setCartOpen(true)} style={{ position: "relative", background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} aria-label="Cart">
             {ICON_BAG}
             {cartCount > 0 && (
               <span style={{ position: "absolute", top: -2, right: -4, background: "var(--accent-gold)", color: "var(--mr-purple-950)", fontSize: 10.5, fontWeight: 600, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{cartCount}</span>
             )}
           </button>
+          </>
         )}
       </div>
 
@@ -480,7 +519,12 @@ function Header({ ctx }) {
                 looking once they have started shopping, and nowhere at all on
                 a phone until they opened the menu. They float with the support
                 buttons now; see SupportDock. */}
-            {bandSearch && searchBox(true)}
+            {bandSearch && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flex: "0 1 520px", minWidth: 0, justifyContent: "flex-end" }}>
+                <BookButton ctx={ctx} onDark />
+                {searchBox(true)}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -490,7 +534,7 @@ function Header({ ctx }) {
           <div style={{ margin: "8px 24px 12px" }}>{searchBox(false)}</div>
           {/* The drawer has room the band has not, so the story keeps its place
               here rather than disappearing with the header tab. */}
-          {NAV_TABS.concat([{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Our story", page: "about" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }])
+          {NAV_TABS.concat(ctx.consultation && ctx.consultation.on ? [{ label: ctx.consultation.ctaLabel || "Book a consultation", page: "consultation" }] : [], [{ label: "Shop", page: "shop" }, { label: "Wishlist", page: "wishlist" }, { label: "Our story", page: "about" }, { label: "Track order", page: "track" }, { label: "FAQs", page: "faq" }, { label: "Contact", page: "contact" }])
             .filter((t) => !t.when || t.when(ctx))
             .map((t) => (
             <a key={t.label} href={routeToPath(t.page, t.extra)} onClick={(e) => { e.preventDefault(); ctx.nav(t.page, t.extra || {}); }} style={{ padding: "12px 24px", fontSize: 15, fontWeight: 500 }}>{t.label}</a>

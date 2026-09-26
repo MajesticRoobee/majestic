@@ -109,6 +109,8 @@ export async function erpConfig(env) {
     defaultCat: String(s.erpDefaultCat || "perfumes").trim(),
     // See `groupByUnit`. Off unless the house asks for it.
     groupUnits: String(s.erpGroupUnits) === "1",
+    // Where ERP stock goes when that is unambiguous — see `effectiveWarehouseMap`.
+    defaultShop: String(s.erpDefaultShop ?? "abuja").trim(),
     emptyGuardPct: clampPct(s.erpEmptyGuardPct, 25),
     syncEveryMins: Math.max(15, parseInt(s.erpSyncEveryMins, 10) || 60),
     lastSync: String(s.erpLastSync || "").trim(),
@@ -645,7 +647,19 @@ export async function erpSyncWarehouses(env) {
        ON CONFLICT(warehouse) DO UPDATE SET label=excluded.label, is_group=excluded.is_group, disabled=excluded.disabled, seen_at=datetime('now')`
     ).bind(w.key, w.label || w.key, w.isGroup ? 1 : 0, w.disabled ? 1 : 0).run();
   }
-  return { found: found.size };
+  // One location and nothing mapped yet: it can only be the default shop, so
+  // write that down where the house can see it (and change it).
+  let autoMapped = "";
+  if (found.size === 1 && cfg.defaultShop) {
+    const [only] = found.values();
+    const mappedAny = await db.prepare("SELECT 1 FROM erp_warehouses WHERE location_id IS NOT NULL").first();
+    const shop = await db.prepare("SELECT id FROM locations WHERE id=?").bind(cfg.defaultShop).first();
+    if (!mappedAny && shop) {
+      await db.prepare("UPDATE erp_warehouses SET location_id=? WHERE warehouse=?").bind(cfg.defaultShop, only.key).run();
+      autoMapped = only.label || only.key;
+    }
+  }
+  return { found: found.size, autoMapped };
 }
 
 /** The same, for the ERP's product categories → ours. */
@@ -679,6 +693,37 @@ export async function erpSyncItemGroups(env) {
 export async function warehouseMap(db) {
   const rows = (await db.prepare("SELECT warehouse, location_id FROM erp_warehouses WHERE location_id IS NOT NULL").all()).results;
   return Object.fromEntries(rows.map((r) => [r.warehouse, r.location_id]));
+}
+
+/**
+ * The map a pull actually uses: the house's own, plus the default shop
+ * (Abuja unless changed) wherever that cannot be a wrong guess.
+ *
+ * The house asked for ERPRev's stock to land in Abuja's inventory, and until
+ * now nothing reached any shelf until somebody had found the location map and
+ * filled it in. The default closes that gap in exactly two situations:
+ *
+ *   · a stock row that names no location (key `""`) — an ERP with one store
+ *     often leaves it off, and there is nowhere else it could be
+ *   · an ERP that has only ever shown us **one** location, unmapped — again,
+ *     there is no other shop its stock could belong to
+ *
+ * With two or more locations known, an unmapped one stays uncounted, as it
+ * always has: that is the case where defaulting would put Lagos's bottles on
+ * Abuja's shelf.
+ */
+export async function effectiveWarehouseMap(db, defaultShop) {
+  const map = await warehouseMap(db);
+  if (!defaultShop || !(await db.prepare("SELECT id FROM locations WHERE id=?").bind(defaultShop).first())) return map;
+  const known = (await db.prepare("SELECT warehouse, location_id FROM erp_warehouses WHERE disabled=0").all()).results;
+  const out = { "": defaultShop, ...map };
+  if (known.length === 1 && !known[0].location_id) {
+    // Written down, not just assumed: when a second location appears later,
+    // this one stays the default shop's rather than silently dropping out.
+    await db.prepare("UPDATE erp_warehouses SET location_id=? WHERE warehouse=? AND location_id IS NULL").bind(defaultShop, known[0].warehouse).run();
+    out[known[0].warehouse] = defaultShop;
+  }
+  return out;
 }
 
 async function itemGroupMap(db) {
@@ -928,7 +973,7 @@ export async function erpPull(env, { dryRun = false } = {}) {
   }
 
   const db = env.DB;
-  const warehouses = await warehouseMap(db);
+  const warehouses = await effectiveWarehouseMap(db, cfg.defaultShop);
   if (!Object.keys(warehouses).length) {
     return {
       ok: false, dryRun,
@@ -1050,7 +1095,7 @@ export async function erpStatus(env) {
       authStyle: cfg.authStyle, pageStyle: cfg.pageStyle, paths: cfg.paths, fields: cfg.fields,
       envelopeKey: cfg.envelopeKey, cursorKey: cfg.cursorKey, pingPath: cfg.pingPath, pageSize: cfg.pageSize,
       signing: cfg.signing,
-      priceList: cfg.priceList, publish: cfg.publish, defaultCat: cfg.defaultCat, groupUnits: cfg.groupUnits,
+      priceList: cfg.priceList, publish: cfg.publish, defaultCat: cfg.defaultCat, groupUnits: cfg.groupUnits, defaultShop: cfg.defaultShop,
       emptyGuardPct: cfg.emptyGuardPct, syncEveryMins: cfg.syncEveryMins, lastSync: cfg.lastSync,
     },
     vendors: adapterList(),

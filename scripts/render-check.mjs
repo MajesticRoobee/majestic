@@ -37,6 +37,8 @@ const targets = [
   { path: "/about", needsRoot: true },
   { path: "/faq", needsRoot: true },
   { path: "/contact", needsRoot: true },
+  // Switched on by default now, and linked from the header on every page.
+  { path: "/consultation", needsRoot: true },
   ...infoPages.map((slug) => ({ path: "/" + slug, needsRoot: true })),
   ...(post ? [{ path: "/blog/" + post.slug, needsRoot: true }] : []),
   ...(sample ? [{ path: "/product/" + sample.id, needsRoot: true }] : []),

@@ -213,19 +213,28 @@ export async function syncCatalogue(env, body) {
         if (clash) sku = `${sku}-${slugify(externalId, "erp")}`;
 
         const image = String(pick(row, "imageUrl", "image", "image_url") ?? "").trim() || null;
-        const compareAt = Math.round(Number(pick(row, "compareAtNgn", "compare_at_ngn", "wasPrice") ?? 0)) || null;
+        // A was-price and the on/off switch are the shop's merchandising unless
+        // the feed actually sends them. They used to be written on every
+        // update regardless — so each hourly ERP pull wiped the compare-at
+        // price a deal is built on and switched back on any size the admin
+        // had taken off sale.
+        const compareRaw = pick(row, "compareAtNgn", "compare_at_ngn", "wasPrice");
+        const compareAt = Math.round(Number(compareRaw ?? 0)) || null;
+        const activeRaw = pick(row, "active", "enabled");
         const sort = Number(pick(row, "sort", "position") ?? 0) || 0;
-        const active = pick(row, "active", "enabled") === undefined ? 1 : (row.active ?? row.enabled) ? 1 : 0;
+        const active = activeRaw === undefined ? 1 : (row.active ?? row.enabled) ? 1 : 0;
 
         if (variant) {
           if (!dryRun) {
             await db.prepare(
-              `UPDATE variants SET size=?, option1=?, option2=?, option3=?, price_ngn=?, compare_at_ngn=?,
-                 sku=?, image_url=COALESCE(?, image_url), active=?, sort=?, external_source=?, external_id=?
+              `UPDATE variants SET size=?, option1=?, option2=?, option3=?, price_ngn=?,
+                 compare_at_ngn=CASE WHEN ? THEN ? ELSE compare_at_ngn END,
+                 sku=?, image_url=COALESCE(?, image_url), active=CASE WHEN ? THEN ? ELSE active END, sort=?, external_source=?, external_id=?
                WHERE id=?`
             ).bind(
               label, row.option1 ?? row.size ?? label, row.option2 ?? null, row.option3 ?? null,
-              price, compareAt, sku, image, active, sort || variant.sort, source, externalId, variant.id
+              price, compareRaw !== undefined ? 1 : 0, compareAt, sku, image, activeRaw !== undefined ? 1 : 0, active,
+              sort || variant.sort, source, externalId, variant.id
             ).run();
           }
           out.variantsUpdated++;

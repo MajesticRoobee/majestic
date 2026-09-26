@@ -2,7 +2,7 @@
 // their sub-shelves, deals, the blog, and the reviews wall.
 import React, { useMemo, useState } from "react";
 import { api } from "../lib/api.js";
-import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
+import { Button, DealCard, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { ImagePicker } from "./product-form.jsx";
 import { catTree, countIn } from "../lib/categories.js";
 import { PREVIEW_MAX, TITLE_MAX, TITLE_MAX_WORDS, words } from "../lib/blog.js";
@@ -304,7 +304,7 @@ export function DealsPage({ ctx }) {
                   <span style={{ fontSize: 11.5, color: d.live ? "#3f6b45" : "var(--text-muted)" }}>{d.live ? "Running now" : d.status === "Ended" ? "Ended" : "Outside its dates"}</span>
                 </div>
                 <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginTop: 8 }}>{d.title}</div>
-                {d.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{d.desc}</div>}
+                {d.desc && <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--mr-purple-900)", marginTop: 4 }}>{d.desc}</div>}
                 <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
                   {d.productIds.length} {d.productIds.length === 1 ? "piece" : "pieces"} · {d.startsAt || "starts now"} → {d.endsAt || "until ended"}
                 </div>
@@ -328,8 +328,14 @@ export function DealsPage({ ctx }) {
         ) : (
           <>
             <Input label="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Detty December" />
-            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="One line shoppers read under the title." />
+            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="One line shoppers read under the title."
+              hint="The sales line — shown bold on the Deals page and under the deal's name on the home page. Keep it short and punchy: what it is and why now." />
             <Input label="Badge" value={f.badge} onChange={(e) => setF({ ...f, badge: e.target.value })} placeholder="Hot deal" hint="The little tag on the deal card." />
+            {/* Exactly the card the Deals page draws, updating as you type. */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>Preview</div>
+              <DealCard deal={f} meta={`${f.productIds.length} ${f.productIds.length === 1 ? "product" : "products"}${f.endsAt ? ` · ends ${f.endsAt}` : ""}`} />
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Starts" type="date" value={f.startsAt} onChange={(e) => setF({ ...f, startsAt: e.target.value })} hint="Blank = right away." />
               <Input label="Ends" type="date" value={f.endsAt} onChange={(e) => setF({ ...f, endsAt: e.target.value })} hint="Inclusive. Blank = until you end it." />
@@ -477,7 +483,7 @@ export function BlogPage({ ctx }) {
             )}
             <Textarea label="Preview" value={f.excerpt} maxLength={PREVIEW_MAX} rows={3}
               onChange={(e) => setF({ ...f, excerpt: e.target.value })}
-              hint="Two or three sentences — this is all a reader sees before they open the story, on the blog, on the home page and in search results. It is not the opening of the article: write the line that makes someone want to read it." />
+              hint="One or two short sentences — this is all a reader sees before they open the story, on the blog, on the home page and in search results. It is not the opening of the article: write the line that makes someone want to read it." />
             <Counter value={f.excerpt} max={PREVIEW_MAX}
               extra={f.excerpt.trim() ? "" : "Empty — we'll use the story's first paragraph, cut short."} />
             {/* A post written before the limit existed can arrive holding the
@@ -517,6 +523,7 @@ export function BlogPage({ ctx }) {
               <Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} placeholder="layering, care" hint="Comma-separated." />
             </div>
             <Textarea label="The story" value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={14}
+              hint="Paste straight from Google Docs, Word or WhatsApp — paragraphs are kept, and a short line on its own above a paragraph becomes a subheading. You can also use ## for a heading, **bold**, *italic*, - for a list and > for a pull quote."
               placeholder={"Open with the thing worth knowing.\n\n## A heading\n\nAnother paragraph.\n\n> A line worth pulling out.\n\nhttps://…/an-image.jpg"} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <Button variant="primary" disabled={busy || !f.title.trim() || !f.excerpt.trim()} onClick={() => save("published")}>{busy ? "Saving…" : "Publish"}</Button>

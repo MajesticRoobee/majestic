@@ -1,4 +1,5 @@
-// What a blog post promises before you open it.
+// What a blog post promises before you open it, and how the story reads once
+// you have.
 //
 // A card in the grid, the strip on the home page and the line under a title in
 // search results all show the same thing: a *preview*. The field behind it was
@@ -12,9 +13,22 @@
 // writer can see while typing, enforced again on the way in, and enforced once
 // more on the way out so the posts already written come back short without
 // anybody having to re-edit them.
+//
+// The second half of this file is the story itself. Posts are pasted in from
+// Google Docs, Word and WhatsApp far more often than they are typed, and those
+// paste with a *single* line break between paragraphs and headings that are
+// just short lines. Read strictly as "a blank line separates paragraphs", that
+// arrives as one wall of text with the headings run into it — which is what
+// the house was looking at when it said the blog "still shows full". So the
+// reader here is forgiving: it accepts both conventions, spots a heading that
+// was never marked as one, and understands the handful of marks a writer
+// actually uses (bold, italic, a list, a link).
 
-/** The preview is two or three sentences. Past this it stops being a preview. */
-export const PREVIEW_MAX = 220;
+/**
+ * The preview is a sentence or two — a promise, not a summary. Past this it
+ * stops being a preview and the card starts reading as the article.
+ */
+export const PREVIEW_MAX = 160;
 
 /**
  * A heading has to sit on one or two lines on a card. Past this it wraps to
@@ -61,19 +75,109 @@ export function clamp(text, max = PREVIEW_MAX) {
 }
 
 /**
+ * Text with the writer's marks taken off — for a preview, a search snippet or
+ * anywhere else the marks would show as literal asterisks.
+ */
+export function plain(text) {
+  return String(text || "")
+    .replace(/\[([^\]]+)\]\((?:https?:\/\/|\/)[^)\s]*\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/(^|[\s(])[*_]([^*_\s][^*_]*?)[*_](?=[\s).,;:!?]|$)/g, "$1$2")
+    .replace(/^#{1,4}\s+/gm, "");
+}
+
+const IMAGE_LINE = /^(https?:\/\/|\/images\/)\S+$/;
+const HEADING_MARK = /^#{1,4}\s+/;
+const BULLET = /^\s*(?:[-•*]|–)\s+/;
+const NUMBERED = /^\s*\d{1,2}[.)]\s+/;
+
+// A line nobody marked as a heading but everybody reads as one: short, no
+// sentence-ending punctuation, and followed by something longer. Pasted
+// documents lose their heading styles and keep exactly this shape.
+function looksLikeHeading(line, next) {
+  const s = line.trim();
+  if (!s || !next) return false;
+  if (s.length > 70 || words(s) > 10) return false;
+  if (/[.,;!?…"'”’)]$/.test(s)) return false;
+  if (!/^[A-Z0-9“"‘']/.test(s)) return false;
+  if (BULLET.test(s) || NUMBERED.test(s) || IMAGE_LINE.test(s)) return false;
+  return next.trim().length > s.length;
+}
+
+/**
+ * A story, read into blocks: `{ type: "h" | "p" | "quote" | "img" | "ul" | "ol", text?, src?, items? }`.
+ *
+ * Accepts both conventions a writer brings: a blank line between paragraphs,
+ * or a single line break (the Google Docs / WhatsApp paste). Headings may be
+ * marked "## " or left as a short standalone line; lists are "- " or "1. ".
+ * Nothing here produces HTML — the page renders these as elements, so nothing
+ * a writer types is ever handed to the browser as markup.
+ */
+export function paragraphs(body) {
+  const lines = String(body || "").replace(/\r\n?/g, "\n").split("\n");
+  // Lines grouped into runs separated by blank lines…
+  const runs = [];
+  let cur = [];
+  for (const raw of lines) {
+    if (raw.trim()) cur.push(raw.trim());
+    else if (cur.length) { runs.push(cur); cur = []; }
+  }
+  if (cur.length) runs.push(cur);
+
+  // …and each run split again on its single line breaks, except where those
+  // breaks are holding a list or a quote together.
+  const flat = [];
+  for (const run of runs) {
+    let i = 0;
+    while (i < run.length) {
+      const line = run[i];
+      if (BULLET.test(line) || NUMBERED.test(line)) {
+        const ordered = NUMBERED.test(line) && !BULLET.test(line);
+        const re = ordered ? NUMBERED : BULLET;
+        const items = [];
+        while (i < run.length && re.test(run[i])) { items.push(run[i].replace(re, "").trim()); i++; }
+        flat.push({ type: ordered ? "ol" : "ul", items });
+        continue;
+      }
+      if (line.startsWith("> ")) {
+        const q = [];
+        while (i < run.length && run[i].startsWith("> ")) { q.push(run[i].slice(2).trim()); i++; }
+        flat.push({ type: "quote", text: q.join(" ") });
+        continue;
+      }
+      if (HEADING_MARK.test(line)) flat.push({ type: "h", text: line.replace(HEADING_MARK, "").trim() });
+      else if (IMAGE_LINE.test(line)) flat.push({ type: "img", src: line });
+      else flat.push({ type: "p", text: line });
+      i++;
+    }
+  }
+
+  // A short unmarked line that introduces a paragraph is a heading.
+  return flat.map((b, i) => {
+    if (b.type !== "p") return b;
+    const next = flat[i + 1];
+    if (next && next.type === "p" && looksLikeHeading(b.text, next.text)) return { type: "h", text: b.text };
+    return b;
+  });
+}
+
+/** Minutes to read, at an unhurried 220 words a minute. Never less than one. */
+export function readingMinutes(body) {
+  return Math.max(1, Math.round(words(plain(body)) / 220));
+}
+
+/**
  * The preview for a post: what the writer wrote, clamped — and if they wrote
  * nothing, the opening of the story, clamped the same way.
  *
  * The fallback skips anything that isn't prose. A post that opens on a heading
- * or a photograph would otherwise preview as "## How to layer a scent" or as a
+ * or a photograph would otherwise preview as "How to layer a scent" or as a
  * bare image address, which is worse than no preview at all.
  */
 export function previewOf(excerpt, body = "") {
-  const written = String(excerpt || "").trim();
+  const written = plain(excerpt).trim();
   if (written) return clamp(written);
-  const first = String(body || "")
-    .split(/\n{2,}/)
-    .map((b) => b.trim())
-    .find((b) => b && !b.startsWith("## ") && !b.startsWith("> ") && !/^(https?:\/\/|\/images\/)\S+$/.test(b));
-  return first ? clamp(first) : "";
+  const first = paragraphs(body).find((b) => b.type === "p");
+  return first ? clamp(plain(first.text)) : "";
 }

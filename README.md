@@ -39,7 +39,11 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `ADMIN_TOKEN_SECRET` | Random string that signs admin session tokens |
 | `CLOUDFLARE_ACCOUNT_ID` | Only needed if the token can see multiple accounts |
 | `PAYSTACK_SECRET_KEY` | Enables card payment — see below |
-| `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERP link — see below |
+| `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERP pull — see below |
+| `ERP_WEBHOOK_SECRET` | Lets ERPRev push stock and price changes to `/api/erp/webhook` — see below |
+| `RESEND_API_KEY` | Sends email (order updates, password resets, alerts) through Resend — see below |
+| `RESEND_FROM` | The From address, e.g. `Majestic Roobee <hello@majesticroobee.com>` — must be on a domain verified in Resend |
+| `RESEND_REPLY_TO` | Optional — where customers' replies land |
 
 To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above.
 
@@ -253,6 +257,29 @@ GET  /api/v1/rewards           → read-only, for a CRM or loyalty dashboard
   off-switch are in Settings; a shopper who dismisses it doesn't see it again
   that visit.
 
+## Email (Resend)
+
+Every email the shop sends goes through `worker/email.js`: order paid and
+status updates, back-in-stock alerts, abandoned-cart reminders, the welcome
+email, password resets and the low-stock digest to the house. Each is written
+as plain text in **Admin → Integrations → Automations** and sent in the shop's
+letterhead (HTML plus a plain-text part); a paragraph that is a label and a
+single link — "Pick up where you left off: https://…" — becomes a button.
+
+| Secret | What |
+| --- | --- |
+| `RESEND_API_KEY` | resend.com → **API Keys** → create one with *Sending access* (restrict it to your domain) |
+| `RESEND_FROM` | `Majestic Roobee <hello@majesticroobee.com>` — the domain must be verified in resend.com → **Domains** (they give you the DNS records to add) |
+| `RESEND_REPLY_TO` | Optional — where customers' replies land, e.g. the customer-service inbox |
+
+Add them as GitHub Actions secrets and the next deploy pushes them to the
+Worker. Then **Admin → Integrations → Email (Resend) → Send test** proves it
+end to end. A refusal shows Resend's own reason ("domain is not verified"),
+not a bare status code; a rate limit or outage is retried once on the next
+cron; and every send carries an idempotency key, so a retry never lands twice.
+Without a key nothing is lost — messages are recorded as `queued`, readable in
+the same log.
+
 ## Connecting the ERP
 
 The house runs **ERPRevolution (ERPrev)**, and the connector is set up from
@@ -268,8 +295,43 @@ on a schedule, reads products, stock and warehouses, and writes prices and
 per-shop stock into the shop. Nothing has to be built inside the ERP, and it
 works even if ERPRev can only be reached *outward*.
 
-**Push.** ERPRev ships outgoing webhooks with a delivery log (an Ultimate-plan
-feature). Point one at `POST /api/v1/catalog/sync`, documented below.
+**Push — the webhook (the quickest way to connect).** ERPRev ships outgoing
+webhooks with a delivery log. Point one at `POST /api/erp/webhook` and every
+stock move and price change lands on the shop within seconds. It needs **no
+request signing** — only the secret ERPRev shows for the webhook — so it works
+today, whatever the pull's signing turns out to be.
+
+### The webhook, in four steps
+
+1. In ERPRev, create a webhook for **product** and **stock** events. Copy the
+   address from **Admin → Integrations → Instant updates from ERPRev**
+   (`https://<your-domain>/api/erp/webhook`).
+2. Copy the **signing secret** ERPRev shows for it into the GitHub secret
+   `ERP_WEBHOOK_SECRET` (or `wrangler secret put ERP_WEBHOOK_SECRET`) and
+   redeploy. Until it is set, every delivery is refused with 401/503 — an open
+   address that sets stock would let anyone empty the shop.
+3. If ERPRev's webhook screen can't sign deliveries, add the same secret to
+   the address instead: `…/api/erp/webhook?token=<secret>`.
+4. Change something in ERPRev and watch the delivery appear in the log on the
+   same admin panel, with what it changed.
+
+**Where the stock goes.** Into **Abuja** by default (Admin → Integrations →
+step 5 changes it). The default applies only where it cannot be wrong: a stock
+row naming no location, or an ERP that has only ever shown one location — and
+that location is then written into the map, so it stays Abuja's when a second
+one appears. With two or more ERP locations, each has to be mapped (or use
+**Map every location to Abuja** if all of it really is Abuja's stock).
+
+**What it does with an event.** Stock is set absolutely, on hand less reserved.
+A price comes from a product event; a product the shop has never seen is
+created as a **draft** (publishing is a switch). A deleted or archived product
+is taken off sale. A retried delivery is a no-op, and an event older than one
+already applied for the same SKU and shop is ignored, so a late retry can't put
+back a count the ERP has moved past. A stock event for a product the shop
+doesn't have yet is logged and triggers a pull, if the pull is set up.
+
+The older **`POST /api/v1/catalog/sync`** (below) is still there for anything
+that would rather send the whole feed.
 
 ### What ERPRev's API is
 

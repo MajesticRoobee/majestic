@@ -7,7 +7,7 @@ import { Button, ImageSlot } from "../ds/components.jsx";
 
 function AvailBadge({ p }) {
   return (
-    <span style={{ fontSize: 11, fontWeight: 500, padding: "3px 9px", borderRadius: "var(--radius-pill)", background: p.badgeBg, color: p.badgeFg, boxShadow: p.outline ? "inset 0 0 0 1px var(--border-strong)" : "none" }}>
+    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: "var(--radius-pill)", background: p.badgeBg, color: p.badgeFg, boxShadow: p.outline ? "inset 0 0 0 1px var(--border-strong)" : "none" }}>
       {p.avail}
     </span>
   );

@@ -5,6 +5,7 @@
 // drains time-based automations (abandoned carts, birthdays) and the outbox.
 
 import { getSettings } from "./util.js";
+import { sendEmail } from "./email.js";
 
 const te = new TextEncoder();
 
@@ -110,40 +111,30 @@ export async function emitEvent(env, type, { entity = null, payload = {}, ctx } 
  */
 export async function sendTransactional(env, { to, subject, body, kind = "transactional" }) {
   const recipient = String(to || "").trim();
-  let outcome = { sent: false, detail: "no email provider configured" };
-  if (env.RESEND_API_KEY && recipient.includes("@")) {
-    try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
-        body: JSON.stringify({ from: env.RESEND_FROM || "Majestic Roobee <hello@majesticroobee.com>", to: recipient, subject, text: body }),
-      });
-      outcome = res.ok ? { sent: true, detail: "via Resend" } : { sent: false, detail: `Resend ${res.status}` };
-    } catch (e) {
-      outcome = { sent: false, detail: String(e).slice(0, 60) };
-    }
-  }
+  const outcome = await sendEmail(env, { to: recipient, subject, text: body, tags: [kind] });
   await env.DB.prepare(
     "INSERT INTO automation_runs (automation_id, recipient, subject, body, status, detail, processed_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))"
   ).bind(kind, recipient, subject, body, outcome.sent ? "sent" : "queued", outcome.detail).run();
   return outcome;
 }
 
-// Dispatch a single outbox run. Email/WhatsApp send once a provider is wired
-// (Phase 2/3); until then they're marked "queued" so nothing is lost.
+// Dispatch a single outbox run. Email goes through Resend (worker/email.js);
+// with no key it is marked "queued" with its full text, so nothing is lost.
 async function dispatchRun(env, run, automation) {
   if (automation.action === "email") {
-    if (env.RESEND_API_KEY && run.recipient && run.recipient.includes("@")) {
-      try {
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
-          body: JSON.stringify({ from: env.RESEND_FROM || "Majestic Roobee <hello@majesticroobee.com>", to: run.recipient, subject: run.subject, text: run.body }),
-        });
-        return res.ok ? { status: "sent", detail: "via Resend" } : { status: "failed", detail: `Resend ${res.status}` };
-      } catch (e) { return { status: "failed", detail: String(e).slice(0, 60) }; }
-    }
-    return { status: "queued", detail: "awaiting email provider (Resend)" };
+    if (!env.RESEND_API_KEY) return { status: "queued", detail: "awaiting email provider (Resend)" };
+    const r = await sendEmail(env, {
+      to: run.recipient, subject: run.subject, text: run.body,
+      // Resend sends a given key once: a run retried after a timeout that
+      // Resend had in fact accepted still reaches the inbox exactly once.
+      idempotencyKey: `run-${run.id}`, tags: [automation.id],
+    });
+    if (r.sent) return { status: "sent", detail: r.id ? `via Resend · ${r.id}` : "via Resend" };
+    // A rate limit or an outage on their side gets one more go at the next
+    // cron; anything else (a bad address, an unverified domain) will fail the
+    // same way every time, so it stops here with Resend's own reason.
+    if (r.retry && !String(run.detail || "").startsWith("retrying")) return { status: "pending", detail: `retrying — ${r.detail}` };
+    return { status: run.recipient && run.recipient.includes("@") ? "failed" : "skipped", detail: r.detail };
   }
   if (automation.action === "whatsapp") return { status: "queued", detail: "awaiting WhatsApp Business API" };
   return { status: "skipped", detail: "no dispatcher for " + automation.action };
