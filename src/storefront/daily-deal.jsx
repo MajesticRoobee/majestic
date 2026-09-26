@@ -23,7 +23,10 @@ function units(msLeft) {
   ];
 }
 
-export function DailyDealCard({ ctx, style = {} }) {
+// The deal and its clock, shared by the desktop card and the phone's compact
+// one. Returns null once the window has closed (and asks for the catalogue
+// again, so the next deal in the queue takes over).
+export function useDealClock(ctx) {
   const deal = ctx.dailyDeal;
   const [left, setLeft] = useState(() => (deal ? deal.endsAtMs - Date.now() : 0));
 
@@ -43,7 +46,13 @@ export function DailyDealCard({ ctx, style = {} }) {
     return () => clearTimeout(t);
   }, [deal, left > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!deal || left <= 0) return null;
+  return deal && left > 0 ? { deal, left, units: units(left) } : null;
+}
+
+export function DailyDealCard({ ctx, style = {} }) {
+  const clock = useDealClock(ctx);
+  if (!clock) return null;
+  const { deal, left } = clock;
 
   const product = ctx.products.find((p) => p.id === deal.productId);
   const variant = product ? (product.variants || []).find((v) => v.id === deal.variantId) : null;

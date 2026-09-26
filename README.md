@@ -115,6 +115,16 @@ is `4084 0840 8408 4081`, any future expiry, any CVV, OTP `123456`.
 - **Tracking** — guests track with order number + the phone/email used at checkout; timelines update as the admin moves order status.
 - **Admin ↔ storefront sync** — settings, store details, promos, stock, drafts, and banner campaigns all live in D1, so admin edits are immediately visible to shoppers.
 
+## The storefront on a phone
+
+Under 860px wide the storefront switches to a shopping-first layout, built from the "Majestic Roobee Mobile" design (`src/storefront/mobile-*.jsx`):
+
+- **Chrome** — a slim header (menu or back arrow, logo, search, account), a row of chips for the delivery city, the currency and the Perfume Studio, and a **tab bar** under the thumb: Home, Shop, Deals, Saved, Cart.
+- **Sheets instead of hover menus** — the menu drawer, full-screen search (recent searches and live results), city & currency, "choose a size" for multi-size cards, "added to your cart", filters and sort, and a chat sheet (WhatsApp, call, message us here, book, track).
+- **Pages** — the home page draws the same home blocks as a desktop, as sideways rails; `/shop/categories` is the category index; the listing is a two-column grid with a sticky Filter / Sort bar; the product page has a swipe gallery and a pinned "Add to cart"; `/cart` is a page with the promo box and free-delivery bar; checkout is three numbered sections with the pay button pinned to the bottom.
+
+Everything is drawn from the same data and rules as the desktop — `ctx.card()` for prices and availability, `useShopList()` (`src/storefront/shop-list.js`) for what the grid contains, and the server for delivery and payment — so the two layouts can't disagree. Desktop is unchanged.
+
 ## The storefront's shelves
 
 The header carries the shelves a fragrance shopper expects — **All categories**,

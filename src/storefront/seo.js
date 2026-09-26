@@ -284,6 +284,8 @@ export function headFor({ page, product, variant, settings, categories = [], seg
       } : null,
     },
     post: { title: `Blog | ${siteName}`, path: "/blog", desc: "Notes on fragrance, layering and care from Majestic Roobee." },
+    categories: { title: `Shop by Category | ${siteName}`, path: "/shop/categories", desc: "Every category in the store — perfumes, perfume oils, body mists, feminine care, home fragrance, wellness products and gift sets." },
+    cart: { title: `Your Cart | ${siteName}`, path: "/cart", desc: "", noindex: true },
     checkout: { title: `Checkout | ${siteName}`, path: "/checkout", desc: "", noindex: true },
     confirm: { title: `Order Confirmed | ${siteName}`, path: "/confirm", desc: "", noindex: true },
   }[page] || { title: siteName, path: "/", desc: baseDesc };

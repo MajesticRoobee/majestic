@@ -137,6 +137,12 @@ check("the retired brands index lands on the full grid",
   pathToRoute("/brands", ""), { page: "shop", fCat: "all" });
 check("a blog entry has its own address",
   [routeToPath("post", { postSlug: "how-to-layer" }), pathToRoute("/blog/how-to-layer", "")], ["/blog/how-to-layer", { page: "post", postSlug: "how-to-layer" }]);
+check("the phone's category index has its own address, and round-trips",
+  [routeToPath("categories"), pathToRoute("/shop/categories", "")], ["/shop/categories", { page: "categories" }]);
+check("...without swallowing the shop grid's own filters",
+  pathToRoute("/shop", "?category=mist"), { page: "shop", fCat: "mist" });
+check("the cart is a page — a phone has no drawer",
+  [routeToPath("cart"), pathToRoute("/cart", "")], ["/cart", { page: "cart" }]);
 
 // ---- 6. The daily deal ---------------------------------------------------
 //
