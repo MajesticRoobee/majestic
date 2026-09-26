@@ -122,7 +122,7 @@ export function LocationsPage({ ctx }) {
 
 // The questions the store is actually asked, and the answers the client wrote.
 // Shipping and returns carry ids so the footer can link straight to them.
-const FAQS = [
+export const FAQS = [
   {
     q: "What makes Majestic Roobee fragrances different?",
     a: ["Majestic Roobee creates its own perfumes and fragrance products with a focus on safe products, quality and an elevated everyday fragrance experience."],

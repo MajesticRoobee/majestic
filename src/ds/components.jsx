@@ -166,7 +166,7 @@ export function Switch({ label, checked, onChange, disabled = false, style = {},
 
 // Product imagery slot — shows the product photo when one exists, otherwise a
 // branded placeholder (heather wash + display-font monogram).
-export function ImageSlot({ src, name = "", label, shape = "rect", radius = 0, sizes, eager = false, style = {} }) {
+export function ImageSlot({ src, name = "", label, shape = "rect", radius = 0, sizes, eager = false, monoSize = 44, style = {} }) {
   const r = shape === "rounded" ? radius || 14 : 0;
   if (src) {
     // Every product photo on the storefront comes through here, so this is the
@@ -190,7 +190,7 @@ export function ImageSlot({ src, name = "", label, shape = "rect", radius = 0, s
   const initials = (name || label || "MR").split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
   return (
     <div style={{ background: "var(--heather-wash)", borderRadius: r, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, overflow: "hidden", ...style }}>
-      <span style={{ fontFamily: "var(--font-display)", fontSize: 44, color: "var(--mr-purple-500)", opacity: 0.8 }}>{initials}</span>
+      <span style={{ fontFamily: "var(--font-display)", fontSize: monoSize, color: "var(--mr-purple-500)", opacity: 0.8 }}>{initials}</span>
       {label && (
         <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "var(--mr-lavender-600)", padding: "0 18px", textAlign: "center" }}>{label}</span>
       )}

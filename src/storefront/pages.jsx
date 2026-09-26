@@ -1,14 +1,15 @@
 // Storefront pages — ported from "Majestic Roobee Storefront.dc.html".
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Eyebrow, GildedRule, Badge, Button, Input, Textarea, ImageSlot, DealCard } from "../ds/components.jsx";
 import { ProductCard } from "./product-card.jsx";
-import { pathToRoute, routeToPath } from "./router.js";
+import { routeToPath } from "./router.js";
 import { EmbedCard, TestimonialCarousel, PostBody, PostCard } from "./pages-content.jsx";
 import { DailyDealCard } from "./daily-deal.jsx";
-import { catFamily, catPath, countIn } from "../lib/categories.js";
+import { countIn } from "../lib/categories.js";
 import { aboutContent } from "../lib/about.js";
 import { variantGallery } from "../lib/gallery.js";
-import { record } from "./track.js";
+import { fill, cardsFor, shelfCards, blockNav } from "./blocks.js";
+import { useShopList, SHOP_TITLE } from "./shop-list.js";
 
 export { ProductCard };
 export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage, ConsultationPage } from "./pages-content.jsx";
@@ -157,52 +158,6 @@ function ProductBand({ eyebrow, title, lines, cta, picks, onOpen }) {
 //
 // Nothing here reads a block that isn't live: the server has already dropped
 // those.
-
-// A heading may say {city}, so "In Abuja now" follows the shopper when they
-// switch store instead of naming the house's default forever.
-const fill = (text, vars) => String(text || "").replace(/\{city\}/g, vars.city || "");
-
-// A block's products, as cards, in the order the server resolved them.
-function cardsFor(block, ctx) {
-  return (block.productIds || [])
-    .map((id) => ctx.listings.find((e) => e.product.id === id))
-    .filter(Boolean)
-    .map(ctx.card)
-    .filter(Boolean);
-}
-
-// "Ready at your store today" is the one shelf the server cannot finish: only
-// the browser knows which city the shopper picked. So the server sends
-// candidates in catalogue order and the narrowing happens here.
-function shelfCards(block, ctx) {
-  const cards = cardsFor(block, ctx);
-  if (block.source !== "in-city") return cards.slice(0, block.count || cards.length);
-  const here = (block.productIds || [])
-    .map((id) => ctx.products.find((p) => p.id === id))
-    .filter((p) => p && p.variants && p.variants.length && ctx.availInfo(p).inCity)
-    .slice(0, block.count || 4)
-    .map(ctx.card)
-    .filter(Boolean);
-  return here;
-}
-
-// A block's button or "see all" link. The target is a storefront path, so the
-// house types /deals or /shop?category=home and it routes properly rather than
-// reloading the whole app.
-function blockNav(ctx, target) {
-  const path = String(target || "").trim();
-  if (!path) return null;
-  return (e) => {
-    if (e) e.preventDefault();
-    if (/^https?:\/\//i.test(path)) { window.open(path, "_blank", "noopener"); return; }
-    const r = pathToRoute(path.split("?")[0], path.includes("?") ? "?" + path.split("?").slice(1).join("?") : "");
-    const { page, ...extra } = r;
-    // Coming from a shelf link, the filters that are *not* named must be
-    // cleared, or "/deals" would land still narrowed to whatever the shopper
-    // was last looking at.
-    ctx.nav(page, page === "shop" ? { fCat: "all", fCol: null, fSeg: null, fBrand: "", ...extra } : extra);
-  };
-}
 
 function BlockLink({ ctx, block }) {
   const go = blockNav(ctx, block.ctaTarget);
@@ -599,127 +554,10 @@ export function RecentlyViewed({ ctx, exclude = null, title = "Pick up where you
   );
 }
 
-// A search is recorded once it has settled, not on every keystroke — otherwise
-// "vanilla" arrives as v, va, van, vani… and the list of terms nobody found is
-// mostly prefixes of terms somebody did.
-function useSearchRecord(term, found) {
-  const foundRef = useRef(found);
-  foundRef.current = found;
-  useEffect(() => {
-    const q = String(term || "").trim();
-    if (q.length < 2) return;
-    const t = setTimeout(() => {
-      record(foundRef.current ? "search" : "search_no_results", { q, value: foundRef.current });
-    }, 900);
-    return () => clearTimeout(t);
-  }, [term]);
-}
-
-// The shop grid, and every page in the header that leads to it.
-//
-// "New arrivals", "Best sellers", "Deals" and "Gift sets" are this same grid
-// with one filter already applied — which products are in each is the server's
-// answer (worker/merch.js), so the browser never has to decide what counts as
-// new or what has sold well. Category, sub-category, brand, collection and
-// search all compose, so "gift sets in body mists" is one address.
-const SEGMENT_COPY = {
-  "new-arrivals": { eyebrow: "New in", title: "New arrivals", sub: "The newest products in the store, newest first." },
-  "best-sellers": { eyebrow: "Best sellers", title: "Best sellers", sub: "The products our customers keep coming back for." },
-  deals: { eyebrow: "On sale now", title: "Deals" },
-  "gift-sets": { eyebrow: "Ready to give", title: "Gift sets", sub: "Fragrance, mist and custom-oil sets, boxed and ready to give." },
-};
-
-// The shop page with nothing narrowed down, in the client's words.
-const SHOP_TITLE = "Shop Majestic Roobee products";
-const SHOP_SUB = "From everyday signature fragrances to fragrances reserved for special moments, plus wellness products made with you in mind, discover our collection of perfumes, perfume oils, body mists, feminine care, and home fragrances. Find something that smells like you.";
-
 export function ShopPage({ ctx }) {
-  const { listings, categories, collections, cityName, segments } = ctx;
-  const searching = !!ctx.search.trim();
-  const collection = collections.find((c) => c.id === ctx.fCol) || null;
-  const seg = ctx.fSeg && segments[ctx.fSeg] ? ctx.fSeg : null;
-  const segIds = seg ? segments[seg] : null;
-  const segRank = segIds ? new Map(segIds.map((id, i) => [id, i])) : null;
-  const segCopy = seg ? SEGMENT_COPY[seg] : null;
-  const brand = ctx.fBrand ? ctx.brands.find((b) => b.id === ctx.fBrand) : null;
-  const brandName = brand ? brand.name : ctx.fBrand;
-  const activeCat = categories.find((c) => c.id === ctx.fCat) || null;
-  // A category is itself and everything under it: "Perfume Oils" is the
-  // designer oils and the custom oils, not the nothing filed on the parent.
-  const catIds = catFamily(categories, ctx.fCat);
-  // ["Perfume Oils", "Designer Oils"] when a sub-category is open, so the page
-  // says where the shopper is.
-  const trail = activeCat ? catPath(categories, activeCat.id) : [];
-  // The deals running right now, so the Deals page names them rather than
-  // showing a wall of discounted products with no reason attached.
-  const runningDeals = seg === "deals" ? ctx.deals.filter((d) => d.productIds.length) : [];
-  // The line under the title. Deals carries none — the title says it all — so
-  // the heading stands alone there.
-  const subLine = segCopy
-    ? segCopy.sub || ""
-    : brand
-      ? `Every ${brandName} product we carry.`
-      : collection && collection.desc
-        ? collection.desc
-        : activeCat && activeCat.desc
-          ? activeCat.desc
-          : searching
-            ? `Searching every store. Products in stock in ${cityName} come first.`
-            : SHOP_SUB;
-  // The grid iterates listing entries, not products: one entry per card. A
-  // product with a picker is one entry carrying all its variations; a
-  // split-listed product contributes one entry per variation.
-  //
-  // "In stock here" therefore means any variation the card can show is in
-  // the city — which is the whole product for a picker card, and exactly one
-  // variation for a split card.
-  const inStockHere = (e) => e.variants.some((v) => (v.stock[ctx.city] || 0) > 0);
-  const scopedOut = listings.filter((e) => !inStockHere(e)).length;
-  // What is in stock nearby is the default. A search always reaches every
-  // store — someone looking for a specific scent wants to know it exists in
-  // Lagos, not to be told it doesn't exist.
-  let list = listings.filter((e) => {
-    const p = e.product;
-    if (catIds && !catIds.has(p.cat)) return false;
-    if (segIds && !segIds.includes(p.id)) return false;
-    if (brandName && (p.brand || "").toLowerCase() !== String(brandName).toLowerCase()) return false;
-    if (collection && !collection.productIds.includes(p.id)) return false;
-    if (ctx.search) {
-      // Sizes, SKUs and the brand are searchable too, now that they are real
-      // identities on the product rather than words in its description.
-      const hay = (p.name + " " + p.brand + " " + p.notes + " " + e.variants.map((v) => `${v.size} ${v.sku || ""}`).join(" ")).toLowerCase();
-      if (!hay.includes(ctx.search.toLowerCase())) return false;
-    }
-    if (!searching && ctx.fScope === "city" && !inStockHere(e)) return false;
-    return true;
-  });
-  // Sorting reads the cheapest variation on the card, so a card never sorts by
-  // a price the shopper can't actually see on it.
-  const priceOf = (e) => Math.min(...e.variants.map((v) => v.ngn));
-  // "Newest" and "Best selling" reuse the rankings the New arrivals and Best
-  // sellers pages are built from, so the shop sorts by what the server knows
-  // actually sold rather than by anything the browser guesses at.
-  const rankBy = (key) => {
-    const ids = segments[key] || [];
-    const rank = new Map(ids.map((id, i) => [id, i]));
-    const at = (e) => (rank.has(e.product.id) ? rank.get(e.product.id) : ids.length);
-    return (a, b) => at(a) - at(b);
-  };
-  // What people searched for, and — the useful half — what they searched for
-  // and the shop had nothing to show. That second list is a buying brief and an
-  // SEO brief at once, written by customers.
-  useSearchRecord(ctx.search, list.length);
-  if (ctx.fSort === "new") list = list.slice().sort(rankBy("new-arrivals"));
-  else if (ctx.fSort === "best") list = list.slice().sort(rankBy("best-sellers"));
-  else if (ctx.fSort === "low") list = list.slice().sort((a, b) => priceOf(a) - priceOf(b));
-  else if (ctx.fSort === "high") list = list.slice().sort((a, b) => priceOf(b) - priceOf(a));
-  else if (ctx.fSort === "name") list = list.slice().sort((a, b) => a.product.name.localeCompare(b.product.name));
-  // On new arrivals, deals or best sellers, "featured" means the order that
-  // page is already in — newest first, best-selling first — rather than city
-  // stock, which would shuffle the ranking the page exists to show.
-  else if (segRank) list = list.slice().sort((a, b) => segRank.get(a.product.id) - segRank.get(b.product.id));
-  else list = list.slice().sort((a, b) => (inStockHere(b) ? 1 : 0) - (inStockHere(a) ? 1 : 0));
-  const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || !!seg || !!brand || ctx.fScope !== "city";
+  const {
+    listings, collections, cityName, searching, collection, seg, segCopy, brand, brandName, activeCat, trail, runningDeals, subLine, scopedOut, list, filtersDirty,
+  } = useShopList(ctx);
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", background: "var(--surface-card)", color: "var(--text-strong)", outline: "none", cursor: "pointer" };
   const chip = (on, onClick, label, key) => (
     <button key={key} onClick={onClick} style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 16px", borderRadius: "var(--radius-pill)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : "var(--mr-purple-800)", transition: "all var(--dur-fast) var(--ease-standard)" }}>
@@ -904,7 +742,7 @@ export function ProductPage({ ctx }) {
     ctx.setPrVariantId(v.id);
     ctx.setPrSku(v.sku);
     // Keep the URL on the chosen variation so it can be shared and indexed.
-    window.history.replaceState({}, "", `/product/${encodeURIComponent(pr.id)}${v.sku ? `?variant=${encodeURIComponent(v.sku)}` : ""}`);
+    window.history.replaceState(window.history.state, "", `/product/${encodeURIComponent(pr.id)}${v.sku ? `?variant=${encodeURIComponent(v.sku)}` : ""}`);
   };
 
   // "You may also like" was filed by category: it recommended whatever happened
@@ -1184,7 +1022,7 @@ function LockIcon() {
 
 // The one line the shopper actually wants from all of the routing machinery:
 // when it turns up, and in how many parcels.
-function arrivalLine(ctx) {
+export function arrivalLine(ctx) {
   const { plan, co, cc } = ctx;
   if (co.fulfill === "collect") return "Ready to collect in about 3 hours";
   if (!plan || plan.mode === "unavailable") return cc.items.length ? "" : "";

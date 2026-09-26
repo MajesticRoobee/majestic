@@ -154,3 +154,20 @@ a:hover { color: var(--mr-orchid-500); }
   .mr-marquee-track { animation: none; width: 100%; justify-content: center; }
   .mr-marquee-track > :nth-child(n+2) { display: none; }
 }
+
+/* ---- The phone ------------------------------------------------------------
+   From "Majestic Roobee Mobile.dc.html". Rails scroll sideways without a bar,
+   a card's name stops at two lines, and sheets glide in rather than blink. */
+.mr-rail { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.mr-rail::-webkit-scrollbar { display: none; }
+.mr-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mr-clamp4 { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.mr-sheet-up { animation: mr-sheet-up var(--dur-base) var(--ease-glide); }
+.mr-sheet-left { animation: mr-sheet-left var(--dur-base) var(--ease-glide); }
+@keyframes mr-sheet-up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes mr-sheet-left { from { transform: translateX(-24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .mr-sheet-up, .mr-sheet-left { animation: none; }
+}
+:root { --mr-tabs-h: 0px; --mr-bar-h: 0px; --mr-bar-safe: 0px; }
+.mr-search::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }

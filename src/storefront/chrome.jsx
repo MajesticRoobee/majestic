@@ -637,13 +637,15 @@ function CartDrawer({ ctx }) {
 // already at checkout, it takes no for an answer for days at a time, and it is
 // a card in the corner rather than a sheet over the shop. A pop-up is the
 // easiest thing in this sprint to make a shop worse with.
-function LeaveNudge({ ctx }) {
+export function LeaveNudge({ ctx }) {
   if (!ctx.nudge) return null;
   const st = ctx.settings || {};
   const n = ctx.cart.reduce((a, c) => a + c.qty, 0);
   // The consent banner owns the bottom of the screen until it is answered, and
   // two cards stacked on the same 16px would sit on top of each other.
-  const bottom = ctx.showConsent ? 128 : 16;
+  // On a phone everything floating sits above the tab bar and any pinned
+  // action bar; on a desktop both of those are zero.
+  const bottom = `calc(${ctx.showConsent ? 128 : 16}px + var(--mr-tabs-h, 0px) + var(--mr-bar-h, 0px))`;
   return (
     <div role="dialog" aria-label={st.nudgeTitle || "Still deciding?"}
       style={{ position: "fixed", left: 16, right: 16, bottom, zIndex: 175, maxWidth: 400, margin: "0 auto", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "18px 20px" }}>
@@ -715,12 +717,12 @@ function SupportDock({ ctx }) {
   );
 }
 
-function ChatWidget({ ctx }) {
+export function ChatWidget({ ctx, mobile = false }) {
   const { chat, setChat } = ctx;
   return (
     <>
       {chat.open && (
-        <div style={{ position: "fixed", bottom: 92, right: 20, width: "min(340px, calc(100vw - 40px))", height: 430, background: "var(--surface-card)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", border: "1px solid var(--border-hairline)", zIndex: 160, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ position: "fixed", bottom: mobile ? "calc(12px + var(--mr-tabs-h, 0px) + var(--mr-bar-h, 0px))" : 92, right: mobile ? 12 : 20, width: mobile ? "calc(100vw - 24px)" : "min(340px, calc(100vw - 40px))", height: mobile ? "min(430px, 70vh)" : 430, background: "var(--surface-card)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", border: "1px solid var(--border-hairline)", zIndex: 160, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ background: "var(--mr-purple-900)", color: "var(--mr-cream)", padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#8fd694" }} />
             <div style={{ flex: 1 }}>
@@ -742,9 +744,11 @@ function ChatWidget({ ctx }) {
           </div>
         </div>
       )}
-      <button onClick={() => setChat((s) => ({ ...s, open: !s.open }))} style={{ position: "fixed", bottom: 20, right: 20, width: 56, height: 56, borderRadius: "50%", background: "var(--mr-purple-900)", border: "none", cursor: "pointer", boxShadow: "var(--shadow-md)", zIndex: 159, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Live chat">
+      {/* A phone opens this from its own chat button, which offers WhatsApp
+          and a call as well. */}
+      {!mobile && <button onClick={() => setChat((s) => ({ ...s, open: !s.open }))} style={{ position: "fixed", bottom: 20, right: 20, width: 56, height: 56, borderRadius: "50%", background: "var(--mr-purple-900)", border: "none", cursor: "pointer", boxShadow: "var(--shadow-md)", zIndex: 159, display: "flex", alignItems: "center", justifyContent: "center" }} aria-label="Live chat">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--mr-gold-400)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5Z" /></svg>
-      </button>
+      </button>}
     </>
   );
 }
@@ -858,10 +862,10 @@ function Footer({ ctx }) {
 // A slim, non-blocking bottom bar (no backdrop — the whole store stays usable
 // while it's open). Says what the cookies are for and takes an answer either
 // way; it never stands between a shopper and the store.
-function ConsentBanner({ ctx }) {
+export function ConsentBanner({ ctx }) {
   if (!ctx.showConsent) return null;
   return (
-    <div style={{ position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 180, maxWidth: 720, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+    <div style={{ position: "fixed", left: 16, right: 16, bottom: "calc(16px + var(--mr-tabs-h, 0px) + var(--mr-bar-h, 0px))", zIndex: 180, maxWidth: 720, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span style={{ fontSize: 13, lineHeight: 1.5, flex: 1, minWidth: 220 }}>
         We use cookies to run the store and, if you accept, to measure and improve it.
         {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--mr-gold-400)" }}>Privacy policy</a>
@@ -878,7 +882,7 @@ function ConsentBanner({ ctx }) {
 // the top of the store. A shopper who doesn't want it can close it, and it
 // stays closed — keyed on the message itself, so the next promotion is still
 // shown rather than being suppressed by a dismissal of the one before it.
-function AnnouncementBar({ ctx }) {
+export function AnnouncementBar({ ctx }) {
   const message = (ctx.settings.announcement || "").trim();
   const key = "mr-announce-dismissed";
   const [dismissed, setDismissed] = useState(() => {
@@ -918,7 +922,7 @@ function AnnouncementBar({ ctx }) {
 // shopper. It rotates through the last dozen; closing it puts it away for the
 // rest of the visit rather than for one card, because a shopper who dismisses
 // this is telling us they don't want it, not that they want the next one.
-function PurchaseProof({ ctx }) {
+export function PurchaseProof({ ctx }) {
   const list = ctx.proof.purchases;
   const [i, setI] = useState(0);
   const [shown, setShown] = useState(false);
@@ -945,7 +949,7 @@ function PurchaseProof({ ctx }) {
     setClosed(true);
   };
   return (
-    <div aria-live="polite" style={{ position: "fixed", left: 16, bottom: 16, zIndex: 155, maxWidth: "min(330px, calc(100vw - 32px))", background: "var(--mr-purple-900)", color: "var(--mr-cream)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 40px 14px 16px", opacity: shown ? 1 : 0, transform: shown ? "translateY(0)" : "translateY(10px)", transition: "opacity var(--dur-base) var(--ease-glide), transform var(--dur-base) var(--ease-glide)", pointerEvents: shown ? "auto" : "none" }}>
+    <div aria-live="polite" style={{ position: "fixed", left: 16, bottom: "calc(16px + var(--mr-tabs-h, 0px) + var(--mr-bar-h, 0px))", zIndex: 155, maxWidth: "min(330px, calc(100vw - 32px))", background: "var(--mr-purple-900)", color: "var(--mr-cream)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 40px 14px 16px", opacity: shown ? 1 : 0, transform: shown ? "translateY(0)" : "translateY(10px)", transition: "opacity var(--dur-base) var(--ease-glide), transform var(--dur-base) var(--ease-glide)", pointerEvents: shown ? "auto" : "none" }}>
       <div style={{ fontSize: 13, lineHeight: 1.5 }}>
         <strong style={{ fontWeight: 600 }}>{p.name}</strong>{p.city ? ` from ${p.city}` : ""} purchased <strong style={{ fontWeight: 600 }}>{p.item}</strong>
       </div>

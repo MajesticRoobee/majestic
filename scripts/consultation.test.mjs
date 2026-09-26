@@ -133,10 +133,15 @@ check("the header has a booking button", /function BookButton\(/.test(chromeSrc)
 check("...which stands down when the studio is switched off", /function BookButton[\s\S]{0,200}if \(!c\.on\) return null;/.test(chromeSrc), true);
 check("...sits beside the search box in the band", /<BookButton ctx=\{ctx\} onDark \/>\s*\{searchBox\(true\)\}/.test(chromeSrc), true);
 check("...and beside it in the top bar when search moves there", /\{searchBox\(false\)\}<\/div>\s*<BookButton ctx=\{ctx\} \/>/.test(chromeSrc), true);
-check("...and on a phone, next to the cart", /<BookButton ctx=\{ctx\} compact \/>/.test(chromeSrc), true);
 check("...and is not width-gated like the old tab was", /page: "consultation", from:/.test(chromeSrc), false);
-check("the phone drawer lists it only while open",
-  /ctx\.consultation && ctx\.consultation\.on \? \[\{ label: ctx\.consultation\.ctaLabel/.test(chromeSrc), true);
+// A phone has its own chrome (mobile-chrome.jsx): the booking button is a
+// gold chip beside the city and currency on every browsing page, and a button
+// at the top of the menu — both only while the studio is taking bookings.
+const mobileSrc = readFileSync(new URL("../src/storefront/mobile-chrome.jsx", import.meta.url), "utf8");
+check("...and on a phone, beside the city and currency",
+  /function SearchRow[\s\S]*?\{consult\.on && \([\s\S]{0,200}ctx\.nav\("consultation"\)/.test(mobileSrc), true);
+check("the phone's menu lists it only while open",
+  /function MenuSheet[\s\S]*?\{consult\.on && \([\s\S]{0,200}ctx\.nav\("consultation"\)/.test(mobileSrc), true);
 
 // /consultation has to be a route, not an information page: the storefront's
 // catch-all turns any unknown single segment into "no such page".

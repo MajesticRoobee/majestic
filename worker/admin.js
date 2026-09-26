@@ -1821,7 +1821,7 @@ async function freePageSlug(db, want) {
 // Paths the storefront already answers for itself. A page may not claim one, or
 // it would shadow the shop and never be reachable.
 const RESERVED_SLUGS = new Set([
-  "shop", "product", "blog", "about", "faq", "track", "contact", "checkout", "confirm",
+  "shop", "product", "blog", "about", "faq", "track", "contact", "cart", "checkout", "confirm",
   "account", "wishlist", "locations", "reviews", "consultation", "brand", "brands", "admin", "api", "images",
   "new-arrivals", "best-sellers", "deals", "gift-sets", "robots.txt", "sitemap.xml",
 ]);

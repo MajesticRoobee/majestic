@@ -1,7 +1,7 @@
 // Path-based routing for the storefront so every page (and every product) has a
 // real, crawlable URL. The Worker serves the SPA shell for all these paths.
 
-const STATIC = ["home", "shop", "about", "faq", "track", "contact", "checkout", "confirm", "account", "wishlist", "locations", "reviews", "consultation"];
+const STATIC = ["home", "shop", "about", "faq", "track", "contact", "cart", "checkout", "confirm", "account", "wishlist", "locations", "reviews", "consultation"];
 
 // The header's merchandising tabs are the shop grid with one filter already
 // applied, so they share its implementation — but each gets its own short URL,
@@ -46,6 +46,9 @@ export function pathToRoute(pathname = window.location.pathname, search = window
     const fCat = catParam(params);
     return { page: "shop", fSeg: PATH_SEGMENTS[parts[0]], ...(fCat ? { fCat } : {}) };
   }
+  // The category index — the phone's "Shop" tab. On a desktop the header's
+  // menu does this job, but the address works there too.
+  if (parts[0] === "shop" && parts[1] === "categories") return { page: "categories" };
   if (parts[0] === "shop") {
     const fCat = catParam(params);
     const fCol = params.get("collection");
@@ -78,6 +81,7 @@ export function routeToPath(page, extra = {}) {
   if (page === "post" && extra.postSlug) return `/blog/${encodeURIComponent(extra.postSlug)}`;
   if (page === "info") return extra.pageSlug ? `/${encodeURIComponent(extra.pageSlug)}` : "/";
   if (page === "post") return "/blog";
+  if (page === "categories") return "/shop/categories";
   if (page === "shop") {
     // A segment owns the path; a category alongside it rides as a query, so
     // "new arrivals in body mists" is still one linkable address.

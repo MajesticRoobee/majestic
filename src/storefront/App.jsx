@@ -2,10 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { api } from "../lib/api.js";
 import { useWindowWidth, cap, fmtCurrency } from "../lib/hooks.js";
 import { Chrome } from "./chrome.jsx";
+import { MobileChrome } from "./mobile-chrome.jsx";
 import {
   HomePage, ShopPage, ProductPage, AboutPage, CheckoutPage, ConfirmPage, TrackPage, ContactPage, InfoPage,
   WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, FaqPage, ConsultationPage,
 } from "./pages.jsx";
+import { CategoriesPage, CartPage, MobileHome, MobileShop, MobileProduct, MobileCheckout, MobileWishlist } from "./mobile-pages.jsx";
 import { AccountPage } from "./account.jsx";
 import { pathToRoute, routeToPath } from "./router.js";
 import { consultationContent } from "../lib/consultation.js";
@@ -101,6 +103,29 @@ export default function App() {
   const [proof, setProof] = useState({ enabled: false, purchases: [], intervalMs: 14000 });
   const w = useWindowWidth();
   const isMobile = w < 860;
+  // Callbacks built once (addToCart, the recovery link) still need to know
+  // which layout they are acting in, without being rebuilt on every resize.
+  const isMobileRef = useRef(isMobile);
+  isMobileRef.current = isMobile;
+  // The phone's sheets — menu, search, city, "choose a size", "added to your
+  // cart", chat — are one at a time, so one piece of state says which is up.
+  // `{ kind, ...data }` or null.
+  const [sheet, setSheet] = useState(null);
+  // A one-line note at the foot of the screen ("Link copied").
+  const [note, setNote] = useState("");
+  const noteTimer = useRef(null);
+  const flash = useCallback((text) => {
+    clearTimeout(noteTimer.current);
+    setNote(text);
+    noteTimer.current = setTimeout(() => setNote(""), 3200);
+  }, []);
+  // The filters the phone's filter sheet adds on top of the shop's own:
+  // price bands, and "for" / scent family where the catalogue actually varies.
+  const [mf, setMf] = useState({ price: "all", gender: "all", fam: "all" });
+  // How deep into this visit's history the shopper is. The phone header shows
+  // a back arrow instead of the menu once there is somewhere to go back to —
+  // which the browser can't be asked directly, so each entry carries its index.
+  const [histIdx, setHistIdx] = useState(() => (window.history.state && window.history.state.idx) || 0);
 
   // Bootstrap
   useEffect(() => {
@@ -178,7 +203,7 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const no = params.get("psorder");
     if (!no) return;
-    window.history.replaceState({}, "", window.location.pathname);
+    window.history.replaceState(window.history.state, "", window.location.pathname);
     let stored = null;
     try { stored = JSON.parse(sessionStorage.getItem("mr-pending-order") || "null"); } catch {}
     const base = stored && stored.no === no ? stored : { no, totalLabel: "", pay: "Paystack", payKey: "paystack", deliverTo: "", eta: "" };
@@ -205,10 +230,13 @@ export default function App() {
     api.get("/api/social-proof").then(setProof).catch(() => {});
   }, []);
 
-  const nav = useCallback((p, extra = {}) => {
+  // `opts.replace` refines the page the shopper is already on — a filter chip,
+  // a sort — without leaving a history entry per tap or jumping to the top.
+  const nav = useCallback((p, extra = {}, opts = {}) => {
     setPage(p);
     setMnav(false);
     setCartOpen(false);
+    setSheet(null);
     // A category and a collection are two ways of narrowing the same grid, so
     // naming one clears the other. The order matters: `fCol: null` means "no
     // collection", and reading it as "a collection was chosen" is what used to
@@ -231,13 +259,21 @@ export default function App() {
       setPrSku(extra.prSku ?? null);
       setPrQty(1);
     }
-    window.history.pushState({}, "", routeToPath(p, extra));
+    if (opts.replace) {
+      window.history.replaceState(window.history.state, "", routeToPath(p, extra));
+      return;
+    }
+    const idx = ((window.history.state && window.history.state.idx) || 0) + 1;
+    window.history.pushState({ idx }, "", routeToPath(p, extra));
+    setHistIdx(idx);
     window.scrollTo(0, 0);
   }, []);
 
   // Back/forward buttons
   useEffect(() => {
-    const onPop = () => {
+    const onPop = (e) => {
+      setHistIdx((e.state && e.state.idx) || 0);
+      setSheet(null);
       const r = pathToRoute();
       setPage(r.page);
       setProductId(r.productId || null);
@@ -296,7 +332,7 @@ export default function App() {
     // Drop the token out of the URL so it isn't left in history or a shared
     // link, then land on the dashboard the new password just unlocked.
     setResetToken("");
-    window.history.replaceState({}, "", "/account");
+    window.history.replaceState(window.history.state, "", "/account");
   }, []);
   const updateProfile = useCallback(async (p) => { await api.patch("/api/account/me", p, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
   const addAddress = useCallback(async (a) => { await api.post("/api/account/addresses", a, localStorage.getItem("mr-cust-token")); loadCust(); }, [loadCust]);
@@ -413,7 +449,10 @@ export default function App() {
       else next.push({ id: productId, variantId: variant.id, sku: variant.sku, size: variant.size, qty });
       return next;
     });
-    setCartOpen(true);
+    // A drawer on a desktop; on a phone a short sheet that says what went in and
+    // offers the cart or more shopping, so the shopper isn't pulled off the page.
+    if (isMobileRef.current) setSheet({ kind: "added", productId, variantId: variant.id, qty });
+    else setCartOpen(true);
     const D0 = dataRef.current;
     const p = D0 && D0.products.find((x) => x.id === productId);
     if (p) trackEvent("add_to_cart", { id: variant.sku || productId, name: `${p.name} ${variant.size}`.trim(), value: variant.ngn * qty, items: [{ id: variant.sku || productId, name: p.name, price: variant.ngn, qty }] });
@@ -442,6 +481,9 @@ export default function App() {
     const prices = variants.map((v) => v.ngn);
     const cheapest = Math.min(...prices);
     const rangeLabel = !e.split && variants.length > 1 && cheapest !== Math.max(...prices) ? "From " + fmt(cheapest) : "";
+    // A card with more than one size can't be added in one tap without picking
+    // for the shopper, so on a phone it opens the size sheet instead.
+    const chooseSize = () => setSheet({ kind: "variant", productId: p.id, variantIds: variants.map((v) => v.id), selId: def.id, qty: 1 });
 
     return {
       key: e.key,
@@ -462,9 +504,17 @@ export default function App() {
       // products) that show a card's headline without a picker.
       imageUrl: def.imageUrl || p.imageUrl,
       priceLabel: rangeLabel || fmt(def.ngn),
+      // What the phone's card shows under the name: the size (or how many), and
+      // the badge — a real mark-down or a place on the new-arrivals shelf.
+      sizeLabel: e.split || variants.length === 1 ? def.size : `${variants.length} sizes`,
+      offPct: def.compareAtNgn && def.compareAtNgn > def.ngn ? Math.round((1 - def.ngn / def.compareAtNgn) * 100) : 0,
+      isNew: (segments["new-arrivals"] || []).includes(p.id),
+      chooseSize: variants.length > 1 ? chooseSize : null,
       open: () => nav("product", { productId: p.id, prSku: def.sku, prVariantId: def.id }),
       variants: variants.map((v) => {
         const a = variantAvail(v);
+        const scarce = scarcity(v);
+        const alt = a.inCity || a.soldOut ? null : bestAlt(v);
         return {
           id: v.id, sku: v.sku, label: v.size,
           imageUrl: v.imageUrl || p.imageUrl,
@@ -472,13 +522,18 @@ export default function App() {
           compareAtLabel: v.compareAtNgn && v.compareAtNgn > v.ngn ? fmt(v.compareAtNgn) : "",
           avail: a.avail, badgeBg: a.badgeBg, badgeFg: a.badgeFg, outline: !!a.outline,
           soldOut: a.soldOut,
+          // The phone's one line of availability, in words a shopper can act on.
+          availLine: a.inCity
+            ? (scarce !== null ? `Only ${scarce} left in ${cityName}` : `In stock in ${cityName}`)
+            : alt ? `Ships from ${alt.city} · 3–5 days` : "Out of stock",
+          availColor: a.inCity ? (scarce !== null ? "var(--mr-orchid-600)" : "#3f6b45") : "var(--text-muted)",
           addLabel: a.soldOut ? "Notify me" : "Add to cart",
           open: () => nav("product", { productId: p.id, prSku: v.sku, prVariantId: v.id }),
           add: () => (a.soldOut ? joinWaitlist(p.id, v) : addToCart(p.id, v, 1)),
         };
       }),
     };
-  }, [variantAvail, defaultVariant, catLabel, fmt, nav, addToCart, wishlist, toggleWishlist, joinWaitlist]);
+  }, [variantAvail, defaultVariant, catLabel, fmt, nav, addToCart, wishlist, toggleWishlist, joinWaitlist, scarcity, bestAlt, cityName, segments]);
 
   // Cart derivation (subtotal, shipping, discount, routing)
   const cc = useMemo(() => {
@@ -508,6 +563,8 @@ export default function App() {
         key: "v" + v.id, id: c.id, variantId: v.id, name: p.name, size: v.size, qty: c.qty,
         imageUrl: v.imageUrl || p.imageUrl,
         lineLabel: fmt(v.ngn * c.qty),
+        unitLabel: fmt(v.ngn),
+        inCity,
         availNote: inCity ? "In " + cityName : alt ? "Ships from " + alt.city : "Backorder",
         inc: () => setCart((s) => s.map((x, i) => (i === idx ? { ...x, qty: x.qty + 1 } : x))),
         dec: () => setCart((s) => s.map((x, i) => (i === idx ? { ...x, qty: Math.max(1, x.qty - 1) } : x))),
@@ -665,15 +722,17 @@ export default function App() {
       .then((r) => {
         const url = new URL(window.location.href);
         url.searchParams.delete("recover");
-        window.history.replaceState({}, "", url.pathname + url.search);
+        window.history.replaceState(window.history.state, "", url.pathname + url.search);
         if (!r.items || !r.items.length) return;
         setCart(r.items.map((i) => ({ id: i.id, variantId: i.variantId, sku: i.sku, size: i.size, qty: i.qty })));
         if (r.city) setCity(r.city);
-        setCartOpen(true);
+        // A phone has no drawer: its cart is a page.
+        if (isMobileRef.current) nav("cart");
+        else setCartOpen(true);
         mrRecord("nudge_clicked", { path: "/recover" });
       })
       .catch(() => {});
-  }, []);
+  }, [nav]);
 
   // SEO head + consent-gated analytics
   useEffect(() => { if (D) setGscVerification(D.settings.gscVerification); }, [D]);
@@ -927,9 +986,14 @@ export default function App() {
       setCity(c); setGateOpen(false);
     },
     gateOpen,
-    currency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
+    currency, setCurrency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
     fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, lowLine, scarcity, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,
+    // The phone's cart is a page; a desktop's is the drawer.
+    openCart: () => (isMobile ? nav("cart") : setCartOpen(true)),
+    sheet, setSheet, note, flash, mf, setMf,
+    canGoBack: histIdx > 0,
+    goBack: () => window.history.back(),
     collections, segments, deals, dailyDeal, brands, testimonials, latestPosts, refreshStore,
     search, setSearch, fCat, setFCat, fCol, setFCol, fScope, setFScope, fSort, setFSort,
     fSeg, setFSeg, fBrand, setFBrand,
@@ -961,7 +1025,8 @@ export default function App() {
       setNudge(false);
       try { localStorage.setItem("mr-nudge-at", String(Date.now())); } catch {}
       mrRecord("nudge_clicked", {});
-      setCartOpen(true);
+      if (isMobile) nav("cart");
+      else setCartOpen(true);
     },
     closePopup: () => { try { localStorage.setItem("mr-popup-seen", "1"); } catch {} setPopup(false); },
     consent, showConsent: !consent,
@@ -977,25 +1042,33 @@ export default function App() {
     resetToken, custForgotPassword, custResetPassword,
   };
 
+  // The shopping pages have a phone layout of their own (mobile-pages.jsx);
+  // the rest are already single-column and simply sit in the phone's chrome.
+  // Switched here rather than inside each page so a resize swaps components
+  // instead of changing how many hooks one component calls.
   const pageEl =
-    page === "home" ? <HomePage ctx={ctx} /> :
-    page === "shop" ? <ShopPage ctx={ctx} /> :
-    page === "product" ? <ProductPage ctx={ctx} /> :
+    page === "home" ? (isMobile ? <MobileHome ctx={ctx} /> : <HomePage ctx={ctx} />) :
+    page === "shop" ? (isMobile ? <MobileShop ctx={ctx} /> : <ShopPage ctx={ctx} />) :
+    page === "categories" ? <CategoriesPage ctx={ctx} /> :
+    page === "cart" ? <CartPage ctx={ctx} /> :
+    page === "product" ? (isMobile ? <MobileProduct ctx={ctx} /> : <ProductPage ctx={ctx} />) :
     page === "about" ? <AboutPage ctx={ctx} /> :
-    page === "checkout" ? <CheckoutPage ctx={ctx} /> :
+    page === "checkout" ? (isMobile ? <MobileCheckout ctx={ctx} /> : <CheckoutPage ctx={ctx} />) :
     page === "confirm" ? <ConfirmPage ctx={ctx} /> :
     page === "track" ? <TrackPage ctx={ctx} /> :
     page === "contact" ? <ContactPage ctx={ctx} /> :
     page === "faq" ? <FaqPage ctx={ctx} /> :
     page === "info" ? <InfoPage ctx={ctx} /> :
     page === "account" ? <AccountPage ctx={ctx} /> :
-    page === "wishlist" ? <WishlistPage ctx={ctx} /> :
+    page === "wishlist" ? (isMobile ? <MobileWishlist ctx={ctx} /> : <WishlistPage ctx={ctx} />) :
     page === "locations" ? <LocationsPage ctx={ctx} /> :
     page === "reviews" ? <ReviewsPage ctx={ctx} /> :
     page === "blog" ? <BlogPage ctx={ctx} /> :
     page === "post" ? <BlogPostPage ctx={ctx} /> :
     page === "consultation" ? <ConsultationPage ctx={ctx} /> :
-    <HomePage ctx={ctx} />;
+    isMobile ? <MobileHome ctx={ctx} /> : <HomePage ctx={ctx} />;
 
-  return <Chrome ctx={ctx}>{pageEl}</Chrome>;
+  // A phone gets its own chrome — tab bar, sheets, pinned actions — around the
+  // same pages; see mobile-chrome.jsx.
+  return isMobile ? <MobileChrome ctx={ctx}>{pageEl}</MobileChrome> : <Chrome ctx={ctx}>{pageEl}</Chrome>;
 }
