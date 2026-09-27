@@ -118,7 +118,7 @@ const fieldsFor = (overrides, key) => {
 // admin; getting it wrong produces a 401 the connection test reports verbatim,
 // rather than anything silent.
 export const AUTH_STYLES = {
-  hmac: { label: "Signed request — HMAC-SHA256 (ERPRev v2)" },
+  hmac: { label: "Signed request — ERPRev v2 (X-Api-* headers, v1= HMAC-SHA256)" },
   raw: { label: "The token on its own (Authorization: <token>)" },
   bearer: { label: "Bearer token (Authorization: Bearer <token>)" },
   "key-secret-headers": { label: "Two headers (X-API-KEY / X-API-SECRET)" },
@@ -128,122 +128,41 @@ export const AUTH_STYLES = {
 };
 
 /**
- * The signing contract for a request-signed API.
+ * ERPRev's request signing, exactly as their *Signing requests* page states it.
  *
- * ERPRev's v2 API does not send the secret at all: every request carries an
- * HMAC-SHA256 signature computed over its method, path, timestamp, nonce and
- * body, and the server recomputes it. That is a better design than a bearer
- * token and it is also the one thing a connector cannot improvise — the
- * canonical string has to match byte for byte or every call is a 401.
+ * Every request carries four headers:
  *
- * So the pieces are *configuration*, defaulted to the documented shape and
- * editable in the admin, rather than constants compiled into a build. When
- * ERPRev's "Signing requests" page pins the exact order, it is a text field,
- * not a release. `{ph}` placeholders are substituted; `\n` in the template
- * means a real newline.
+ *   X-Api-Key        the public key id
+ *   X-Api-Timestamp  Unix seconds, within ±300 s of the ERP's clock
+ *   X-Api-Nonce      32 hex characters (16 random bytes), never reused
+ *   X-Api-Signature  "v1=" + hex HMAC-SHA256(secret, canonical string)
+ *
+ * and the canonical string is exactly five lines joined by "\n":
+ *
+ *   <METHOD, upper-case>
+ *   <path>[?<query, its key=value pairs sorted ascending, joined by &>]
+ *   <the same timestamp as the header>
+ *   <the same nonce as the header>
+ *   <hex SHA-256 of the raw body — e3b0c442… for the empty body of a GET>
+ *
+ * This replaces a configurable signer and a negotiator that searched header
+ * names and orderings, written while that page was missing. Both guessed the
+ * header names (X-Timestamp rather than X-Api-Timestamp), the nonce (a
+ * 36-character UUID rather than 32 hex), the signature (bare hex rather than
+ * "v1=…") and the last line (the raw body rather than its hash) — four ways to
+ * be refused, any one of them enough. The contract is published now, so it is
+ * code, not configuration: there is nothing left for a settings box to get
+ * wrong.
  */
-export const SIGNING_DEFAULTS = {
-  // "an HMAC-SHA256 signature over its method, path, timestamp, nonce and
-  // body" — ERPRevolution User Guide, The ERPRev API.
-  // Written with a *visible* backslash-n rather than a real newline, because
-  // this is edited in a one-line text field: a real newline there shows as
-  // nothing at all, and the first person to retype the box would silently
-  // drop the separators and 401 every request afterwards. `canonicalString`
-  // turns the two characters into the one.
-  canonical: String.raw`{method}\n{path}\n{timestamp}\n{nonce}\n{body}`,
-  keyHeader: "X-Api-Key",          // documented: "the public key id you'll send as X-Api-Key"
-  timestampHeader: "X-Timestamp",
-  nonceHeader: "X-Nonce",
-  signatureHeader: "X-Signature",
-  // Some APIs want `t=<ts>,v1=<hex>`; ERPRev's *webhooks* do. Whether its
-  // request signing does is on the page we do not have, so it is a switch.
-  signatureFormat: "hex",          // "hex" | "t,v1"
-  // Whether `{path}` means the path with its query string or without it. A
-  // real ambiguity — both are common, and picking the wrong one is a 401 that
-  // looks exactly like a wrong key.
-  pathMode: "full",                // "full" | "pathname"
-  // Where the signature is *carried*, which is a separate question from what
-  // it is computed over. Blank means the four headers above. Set it and the
-  // four collapse into one header built from this template — the convention
-  // an API follows when it answers `auth.missing` (rather than "bad
-  // signature") for a request that had no `Authorization` on it at all,
-  // because presence is judged by that one header before anything is
-  // verified. `{key}` `{timestamp}` `{nonce}` `{signature}` are filled in.
-  authTemplate: "",
-  authHeader: "Authorization",
+export const ERPREV_HEADERS = {
+  key: "X-Api-Key",
+  timestamp: "X-Api-Timestamp",
+  nonce: "X-Api-Nonce",
+  signature: "X-Api-Signature",
 };
 
-/**
- * The axes of a signing contract, for `erpNegotiateSigning` to search.
- *
- * ERPRev's API overview says the signature covers "its method, path,
- * timestamp, nonce and body" but the page that pins the exact bytes wasn't
- * among the reference pages we were sent. Rather than wait for it, the
- * connector asks the ERP — and the ERP answers in about twenty seconds.
- *
- * These are kept as **separate axes** rather than a hand-written list of
- * combinations, because a hand-written list is exactly how you miss the one
- * that was right: the first version of this had X-ERPRev headers with a full
- * path and X-ERPRev headers with a t=,v1= signature, and the real answer was
- * X-ERPRev headers with *both*. Crossing the axes cannot miss a corner.
- */
-/**
- * Where the four parts are carried, likeliest first.
- *
- * The first three put each part in its own `X-` header. The rest pack them
- * into `Authorization`, and they are here because of a real result: an ERPRev
- * that answered `auth.missing` to all three `X-` sets. `auth.missing` means
- * *no credentials were found*, not *the signature was wrong* — and an API
- * only reaches that verdict when the place it looks is empty. Every `X-` set
- * leaves `Authorization` empty, so all three look identical to such an API,
- * and no amount of renaming `X-` headers would ever have got past it.
- */
-export const SIGNING_HEADER_SETS = [
-  { label: "X-Timestamp / X-Nonce / X-Signature", timestampHeader: "X-Timestamp", nonceHeader: "X-Nonce", signatureHeader: "X-Signature" },
-  { label: "X-ERPRev-*", timestampHeader: "X-ERPRev-Timestamp", nonceHeader: "X-ERPRev-Nonce", signatureHeader: "X-ERPRev-Signature" },
-  { label: "X-Api-*", timestampHeader: "X-Api-Timestamp", nonceHeader: "X-Api-Nonce", signatureHeader: "X-Api-Signature" },
-  {
-    label: "Authorization: ERPRev Key=…,Timestamp=…,Nonce=…,Signature=…",
-    authTemplate: "ERPRev Key={key},Timestamp={timestamp},Nonce={nonce},Signature={signature}",
-  },
-  {
-    label: "Authorization: HMAC-SHA256 Key=…,Timestamp=…,Nonce=…,Signature=…",
-    authTemplate: "HMAC-SHA256 Key={key},Timestamp={timestamp},Nonce={nonce},Signature={signature}",
-  },
-  {
-    label: "Authorization: HMAC <key>:<signature>",
-    authTemplate: "HMAC {key}:{signature}",
-    withHeaders: true, timestampHeader: "X-Timestamp", nonceHeader: "X-Nonce",
-  },
-  {
-    label: "Authorization: Signature keyId=…,signature=…",
-    authTemplate: `Signature keyId="{key}",algorithm="hmac-sha256",signature="{signature}"`,
-    withHeaders: true, timestampHeader: "X-Timestamp", nonceHeader: "X-Nonce",
-  },
-];
-
-/** The orderings and separators worth trying, likeliest first. */
-export const SIGNING_SHAPES = [
-  String.raw`{method}\n{path}\n{timestamp}\n{nonce}\n{body}`,
-  String.raw`{method}\n{path}\n{timestamp}\n{nonce}`,
-  String.raw`{method}{path}{timestamp}{nonce}{body}`,
-  String.raw`{method}|{path}|{timestamp}|{nonce}|{body}`,
-  String.raw`{timestamp}\n{nonce}\n{method}\n{path}\n{body}`,
-  String.raw`{method} {path}\n{timestamp}\n{nonce}\n{body}`,
-  String.raw`{method}\n{path}\n{body}\n{timestamp}\n{nonce}`,
-  // The shape their *webhooks* document, in case both halves share a helper.
-  String.raw`{timestamp}.{body}`,
-];
-
-export const SIGNING_PATH_MODES = ["full", "pathname"];
-export const SIGNING_FORMATS = ["hex", "t,v1"];
-
-/** Fill `{method}` / `{path}` / `{timestamp}` / `{nonce}` / `{body}` / `{query}`. */
-export function canonicalString(template, parts) {
-  return String(template || SIGNING_DEFAULTS.canonical)
-    .replace(/\\n/g, "\n")
-    .replace(/\{(\w+)\}/g, (_, k) => (parts[k] === undefined ? "" : String(parts[k])));
-}
+/** SHA-256 of the empty string — the body line of every GET. */
+export const EMPTY_BODY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -254,51 +173,61 @@ export async function hmacHex(secret, message) {
   return hex(await crypto.subtle.sign("HMAC", k, enc.encode(message)));
 }
 
+/** SHA-256 of a string's UTF-8 bytes, hex. */
+export async function sha256Hex(text) {
+  return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text ?? ""))));
+}
+
+/** 16 random bytes as 32 hex characters — ERPRev's nonce format. */
+export function newNonce() {
+  return hex(crypto.getRandomValues(new Uint8Array(16)));
+}
+
 /**
- * The four headers a signed request carries.
+ * A query string in ERPRev's canonical order: its `key=value` pieces, as
+ * they will be sent, sorted ascending (code-unit order, which is what their
+ * reference clients' `sort()` does) and joined by `&`.
  *
- * `now` and `nonce` are injectable so this is testable; in production they are
- * the clock and a random id. ERPRev checks the timestamp against its own clock
- * with a ±300 second window, which is why the connection test reports the
- * server time it saw.
+ * The URL is then *sent* with the query in this same order, so the string
+ * signed and the string the server re-sorts are the same bytes — an unsorted
+ * query "produces a valid-looking but wrong signature", in their words.
  */
-export async function signedHeaders(cfg, { method, path, url, body = "", now = Date.now(), nonce } = {}) {
-  const sign = { ...SIGNING_DEFAULTS, ...(cfg.signing || {}) };
-  const timestamp = String(Math.floor(now / 1000));
-  const n = nonce || crypto.randomUUID();
-  // `pathMode` is part of the signing contract, so it is applied *here*
-  // rather than by whoever calls this. Hand it a URL and it decides; hand it
-  // a `path` string and that string is taken as already decided. Leaving the
-  // decision to the caller meant a config that set pathMode and a caller that
-  // ignored it were indistinguishable from a working setup until the 401.
-  const signedPath = url
-    ? (sign.pathMode === "pathname" ? url.pathname : url.pathname + (url.search || ""))
-    : String(path || "");
-  const message = canonicalString(sign.canonical, {
-    method: String(method || "GET").toUpperCase(), path: signedPath, timestamp, nonce: n, body,
+export function sortedQuery(search) {
+  const raw = typeof search === "string" ? search : search instanceof URLSearchParams ? search.toString() : "";
+  return raw.replace(/^\?/, "").split("&").filter(Boolean).sort().join("&");
+}
+
+/** The five-line canonical string. */
+export function canonicalRequest({ method, path, query = "", timestamp, nonce, bodyHash }) {
+  const sq = sortedQuery(query);
+  return [String(method || "GET").toUpperCase(), sq ? `${path}?${sq}` : path, String(timestamp), nonce, bodyHash].join("\n");
+}
+
+/**
+ * Sign one request. Takes the URL that will be fetched and returns the
+ * headers, plus that URL with its query put into canonical order — fetch
+ * *that* one. `now` and `nonce` are injectable for the tests; the canonical
+ * string is returned so a refusal can print it, which is the first thing
+ * ERPRev's own debugging advice says to do (it holds no secret).
+ */
+export async function signRequest({ key, secret, method = "GET", url, body = "", now = Date.now(), nonce = newNonce() }) {
+  const u = new URL(String(url));
+  const sq = sortedQuery(u.search);
+  u.search = sq ? `?${sq}` : "";
+  const timestamp = Math.floor(now / 1000);
+  const canonical = canonicalRequest({
+    method, path: u.pathname, query: sq, timestamp, nonce,
+    bodyHash: body ? await sha256Hex(body) : EMPTY_BODY_SHA256,
   });
-  const mac = await hmacHex(cfg.secret, message);
-  const signature = sign.signatureFormat === "t,v1" ? `t=${timestamp},v1=${mac}` : mac;
-  // One header carrying all four parts, when the API judges credentials
-  // present or absent by `Authorization` alone.
-  if (sign.authTemplate) {
-    const one = {
-      [sign.authHeader || "Authorization"]: canonicalString(sign.authTemplate, {
-        key: cfg.key, timestamp, nonce: n, signature, mac,
-      }),
-    };
-    // Some APIs carry only the signature in `Authorization` and still expect
-    // the key, timestamp and nonce as headers of their own. `withHeaders`
-    // says so; without it the one header is the whole of it.
-    return sign.withHeaders
-      ? { ...one, [sign.keyHeader]: cfg.key, [sign.timestampHeader]: timestamp, [sign.nonceHeader]: n }
-      : one;
-  }
   return {
-    [sign.keyHeader]: cfg.key,
-    [sign.timestampHeader]: timestamp,
-    [sign.nonceHeader]: n,
-    [sign.signatureHeader]: signature,
+    url: u,
+    canonical,
+    headers: {
+      [ERPREV_HEADERS.key]: String(key || ""),
+      [ERPREV_HEADERS.timestamp]: String(timestamp),
+      [ERPREV_HEADERS.nonce]: nonce,
+      [ERPREV_HEADERS.signature]: `v1=${await hmacHex(String(secret || ""), canonical)}`,
+    },
   };
 }
 
@@ -306,7 +235,7 @@ export function authFor(style, key, secret) {
   const k = str(key), s = str(secret);
   switch (style) {
     case "hmac":
-      // Handled by `signedHeaders`, which is async and needs the request.
+      // Handled by `signRequest`, which is async and needs the request.
       return { headers: {}, query: {}, signed: true };
     case "token":
       return { headers: { authorization: `token ${k}:${s}` }, query: {} };
@@ -388,6 +317,10 @@ function genericNormaliseProduct(row, f = {}) {
     // Present only when the price rides the product row; `erp.js` decides
     // whether to believe it.
     inlinePrice: num(pick(row, fieldsFor(f, "price"))),
+    // Identifiers other than the code, for recognising a product the shop
+    // already has — a barcode, a SKU — when the code is an internal id.
+    altCodes: ["barcode", "sku", "item_code", "product_code", "code", "reference"]
+      .map((k) => str(row && row[k])).filter(Boolean),
     inlineStock: pick(row, fieldsFor(f, "onHand")),
   };
 }
@@ -450,7 +383,7 @@ const genericNormalise = {
 const erprev = {
   id: "erprev",
   label: "ERPRevolution (ERPrev) — API v2",
-  note: "Set up from ERPRev's own API reference. The base URL is your system's address with /api/v2 on the end; the endpoints and field names below are theirs. The one thing still to confirm is the exact signing canonical string — see the note under Authentication.",
+  note: "Set up from ERPRev's own API reference. The base URL is your system's address with /api/v2 on the end; the endpoints and field names below are theirs. Requests are signed exactly as ERPRev's Signing requests page specifies.",
   docs: "https://erprev.com/user-guide/developers/",
   defaults: {
     // "Every request is authenticated with an HMAC-SHA256 signature over its
@@ -478,6 +411,10 @@ const erprev = {
     // anything written in this file.
     specPath: "/docs",
     pageSize: 200,
+    // A stock row names its product by `product_id`, which is the product's
+    // `id`. Were the reader to take a `sku` or `code` off the product first —
+    // the generic order — stock would join to nothing. Pinned, not guessed.
+    fields: { code: "id" },
   },
   // ERPRev has no variant/parent concept on a product: `/products` rows are
   // flat, each with its own price, and `measure` ("pcs", "30ml") is the

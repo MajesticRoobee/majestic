@@ -19,11 +19,12 @@
 // `buildFeed` (wrong, and variations land under the wrong parent or stock in
 // the wrong city) and `stockGuard` (wrong, and an expired key empties the
 // shop silently).
-import { buildFeed, groupByUnit, stockGuard, ERP_SOURCE } from "../worker/erp.js";
+import { createHash, createHmac } from "node:crypto";
+import { buildFeed, groupByUnit, stockGuard, matchToShop, matchKey, stockByCode, ERP_SOURCE } from "../worker/erp.js";
 import {
   adapterFor, authFor, unwrap, pageQuery, ADAPTERS, ALIASES,
-  signedHeaders, canonicalString, hmacHex, SIGNING_DEFAULTS,
-  SIGNING_HEADER_SETS, SIGNING_SHAPES, SIGNING_PATH_MODES, SIGNING_FORMATS,
+  signRequest, canonicalRequest, sortedQuery, sha256Hex, newNonce, hmacHex,
+  ERPREV_HEADERS, EMPTY_BODY_SHA256,
 } from "../worker/erp-adapters.js";
 
 let failures = 0;
@@ -87,137 +88,61 @@ check("a list caps at 200 rows", rev.pageSize, 200);
 check("reachability has an endpoint that needs no key at all", rev.pingPath, "/ping");
 check("and the API publishes its own spec, so the guesswork has an answer", rev.specPath, "/docs");
 
-// The signature is computed, never sent. Getting the canonical string wrong
-// is a 401 on every call, which is why it is configuration and why it is
-// pinned here against what the reference says it covers.
-console.log("\nSigning a request");
-
-check("the canonical string covers method, path, timestamp, nonce and body",
-  ["method", "path", "timestamp", "nonce", "body"].filter((k) => !SIGNING_DEFAULTS.canonical.includes(`{${k}}`)), []);
-check("the key goes in the header the reference names", SIGNING_DEFAULTS.keyHeader, "X-Api-Key");
-check("\\n in the template becomes one real newline in the signed string",
-  canonicalString(String.raw`{method}\n{path}`, { method: "GET", path: "/products" }), "GET\n/products");
-// The template is edited in a one-line text field, so it is *stored* with a
-// visible backslash-n. A real newline there would show as nothing, and the
-// first person to retype the box would drop the separators and 401 every
-// request from then on.
-check("...and the default is stored visibly, not as an invisible newline",
-  SIGNING_DEFAULTS.canonical.includes("\n"), false);
-check("...while still signing exactly the same bytes",
-  canonicalString(SIGNING_DEFAULTS.canonical, { method: "GET", path: "/p", timestamp: "1", nonce: "n", body: "" }),
-  "GET\n/p\n1\nn\n");
-check("a placeholder nobody filled in is empty, not the word undefined",
-  canonicalString("{method}|{nothing}", { method: "GET" }), "GET|");
+// ---- ERPRev's Signing requests page, to the byte --------------------------
+console.log("\nSigning a request, as ERPRev's Signing requests page states it");
 
 // HMAC-SHA256, hex — checked against a published RFC 4231 test vector, so
 // this is right in the absolute rather than merely self-consistent.
 check("HMAC-SHA256 is HMAC-SHA256",
   await hmacHex("key", "The quick brown fox jumps over the lazy dog"),
   "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8");
+check("the body line of a GET is the SHA-256 of nothing, as the page prints it",
+  [await sha256Hex(""), EMPTY_BODY_SHA256], ["e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"]);
 
-const signed = await signedHeaders(
-  { key: "k_pub", secret: "s_sec", signing: SIGNING_DEFAULTS },
-  { method: "get", path: "/api/v2/products?limit=200", now: 1751620522000, nonce: "n-1" }
-);
-check("the four headers are sent", Object.keys(signed).sort(),
-  ["X-Api-Key", "X-Nonce", "X-Signature", "X-Timestamp"]);
-check("the timestamp is unix seconds, which is what the ±300s window compares",
-  signed["X-Timestamp"], "1751620522");
-check("the method is upper-cased before it is signed, whatever the caller passed",
-  signed["X-Signature"],
-  await hmacHex("s_sec", "GET\n/api/v2/products?limit=200\n1751620522\nn-1\n"));
-check("the secret itself is never in a header",
-  Object.values(signed).some((v) => String(v).includes("s_sec")), false);
-check("...and the key id is, because the server needs to know which secret to use",
-  signed["X-Api-Key"], "k_pub");
+check("the four headers are the four the page names",
+  Object.values(ERPREV_HEADERS), ["X-Api-Key", "X-Api-Timestamp", "X-Api-Nonce", "X-Api-Signature"]);
+check("a nonce is 32 hex characters — 16 random bytes", /^[0-9a-f]{32}$/.test(newNonce()), true);
+check("...and never the same twice", newNonce() === newNonce(), false);
 
-const asWebhook = await signedHeaders(
-  { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, signatureFormat: "t,v1" } },
-  { method: "GET", path: "/x", now: 1000000, nonce: "n" }
-);
-check("the t=,v1= shape is available, because their webhooks use it",
-  /^t=1000,v1=[0-9a-f]{64}$/.test(asWebhook["X-Signature"]), true);
+check("the query is its key=value pairs sorted and joined by &", sortedQuery("?limit=5&cursor=abc&a=1"), "a=1&cursor=abc&limit=5");
+check("no query, no question mark",
+  canonicalRequest({ method: "get", path: "/api/v2/customers", timestamp: 1, nonce: "n", bodyHash: "h" }),
+  "GET\n/api/v2/customers\n1\nn\nh");
+check("five lines exactly, with the sorted query on the path line",
+  canonicalRequest({ method: "GET", path: "/api/v2/products", query: "limit=200&cursor=c1", timestamp: 1751620522, nonce: "ab", bodyHash: EMPTY_BODY_SHA256 }).split("\n"),
+  ["GET", "/api/v2/products?cursor=c1&limit=200", "1751620522", "ab", EMPTY_BODY_SHA256]);
 
-// The search `erpNegotiateSigning` runs when ERPRev's Signing requests page
-// isn't to hand. Kept as axes rather than a hand-written list of combinations
-// — a hand-written list is how the first version missed the answer, which was
-// X-ERPRev headers with a pathname-only path *and* a t=,v1= signature while
-// the list held each of those with the other two defaults.
-console.log("\nThe shapes it will try when nobody can tell it");
-
-// A set is one of two kinds: four headers, one part each, or a single
-// `Authorization` header carrying all four. Both are complete contracts; a
-// set that is neither would send a signature nowhere and read as a wrong
-// canonical string for the rest of the search.
-const isFourHeader = (h) => !!(h.timestampHeader && h.nonceHeader && h.signatureHeader);
-check("every header set is a complete contract — four headers, or one that carries all four",
-  SIGNING_HEADER_SETS.filter((h) => !h.label || !(isFourHeader(h) || h.authTemplate)), []);
-check("...and no two of them collide",
-  new Set(SIGNING_HEADER_SETS.map((h) => h.authTemplate || h.signatureHeader)).size, SIGNING_HEADER_SETS.length);
-
-// The reason the carriers exist. A real ERPRev answered `auth.missing` to all
-// three X- sets, and `auth.missing` means *no credentials found* rather than
-// *bad signature* — a verdict an API only reaches about a place that is
-// empty. Every X- set leaves `Authorization` empty, so renaming X- headers
-// forever could never have got past it.
-check("Authorization is searched too, not just X- headers",
-  SIGNING_HEADER_SETS.some((h) => h.authTemplate), true);
-check("...and a carrier puts the signature in one header, not four",
-  Object.keys(await signedHeaders(
-    { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "ERPRev Key={key},Signature={signature}" } },
-    { method: "GET", path: "/x", now: 1000000, nonce: "n" }
-  )), ["Authorization"]);
-check("...with the key and the signature actually in it",
-  /^ERPRev Key=k,Signature=[0-9a-f]{64}$/.test((await signedHeaders(
-    { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "ERPRev Key={key},Signature={signature}" } },
-    { method: "GET", path: "/x", now: 1000000, nonce: "n" }
-  )).Authorization), true);
-check("...and `withHeaders` keeps the key, timestamp and nonce beside it",
-  Object.keys(await signedHeaders(
-    { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "HMAC {key}:{signature}", withHeaders: true } },
-    { method: "GET", path: "/x", now: 1000000, nonce: "n" }
-  )).sort(), ["Authorization", "X-Api-Key", "X-Nonce", "X-Timestamp"]);
-// A carrier signs the same bytes as any other set — only the envelope differs.
-check("a carrier changes where the signature rides, never what it covers",
-  (await signedHeaders({ key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, authTemplate: "X {signature}" } },
-    { method: "GET", path: "/x", now: 1000000, nonce: "n" })).Authorization.slice(2),
-  (await signedHeaders({ key: "k", secret: "s", signing: SIGNING_DEFAULTS },
-    { method: "GET", path: "/x", now: 1000000, nonce: "n" }))["X-Signature"]);
-check("the documented order leads the shapes", SIGNING_SHAPES[0], SIGNING_DEFAULTS.canonical);
-check("every shape is a usable template",
-  SIGNING_SHAPES.filter((t) => !/\{method\}|\{timestamp\}/.test(t)), []);
-check("both readings of {path} are searched", SIGNING_PATH_MODES, ["full", "pathname"]);
-check("both signature formats are searched", SIGNING_FORMATS, ["hex", "t,v1"]);
-
-// The corner the hand-written list missed. Crossing the axes cannot miss one,
-// and this is the assertion that says so.
-const corners = [];
-for (const h of SIGNING_HEADER_SETS) for (const c of SIGNING_SHAPES) for (const pm of SIGNING_PATH_MODES) for (const f of SIGNING_FORMATS) {
-  corners.push(`${h.authTemplate || h.signatureHeader}|${c}|${pm}|${f}`);
+// Their Node reference client, transcribed from the page and run with
+// node:crypto — a different implementation from the Worker's WebCrypto — so
+// agreement means agreement with ERPRev, not with ourselves.
+function reference({ secret, method, path, query = "", body = "", ts, nonce }) {
+  const sq = query.split("&").filter(Boolean).sort().join("&");
+  const pwq = sq ? path + "?" + sq : path;
+  const hash = createHash("sha256").update(body || "").digest("hex");
+  const canonical = [method.toUpperCase(), pwq, ts, nonce, hash].join("\n");
+  return { pwq, sig: "v1=" + createHmac("sha256", secret).update(canonical).digest("hex") };
 }
-check("the search covers every corner of the three axes",
-  corners.length, SIGNING_HEADER_SETS.length * SIGNING_SHAPES.length * 2 * 2);
-check("...including the one a hand-written list missed: X-ERPRev + pathname + t,v1",
-  corners.includes(`X-ERPRev-Signature|${SIGNING_DEFAULTS.canonical}|pathname|t,v1`), true);
-
-// Each shape has to actually produce a different signature, or searching them
-// is theatre.
-const sigFor = async (over) => (await signedHeaders(
-  { key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, ...over } },
-  // A URL, so the signing config's own `pathMode` decides what {path} means.
-  { method: "GET", url: new URL("https://x.erprev.com/api/v2/products?limit=1"), now: 1e12, nonce: "n" }
-))[(over.signatureHeader || SIGNING_DEFAULTS.signatureHeader)];
-// pathMode is part of the contract, so it has to be applied by the signer —
-// a caller that set it and a signer that ignored it would look identical to a
-// working setup right up until the 401.
-check("path-with-query and path-without sign differently",
-  (await sigFor({ pathMode: "full" })) === (await sigFor({ pathMode: "pathname" })), false);
-check("...and two different orderings do too",
-  (await sigFor({ canonical: SIGNING_SHAPES[0] })) === (await sigFor({ canonical: SIGNING_SHAPES[1] })), false);
-check("the signature goes in whichever header the set names",
-  Object.keys(await signedHeaders({ key: "k", secret: "s", signing: { ...SIGNING_DEFAULTS, ...SIGNING_HEADER_SETS[1] } },
-    { method: "GET", path: "/x", now: 1e12, nonce: "n" })).sort(),
-  ["X-Api-Key", "X-ERPRev-Nonce", "X-ERPRev-Signature", "X-ERPRev-Timestamp"]);
+const nonce = "0123456789abcdef0123456789abcdef";
+const now = 1751620522000;
+const ours = await signRequest({ key: "k_live_1", secret: "s3cr3t", method: "get", url: "https://majesticroobee.erprev.com/api/v2/products?limit=200&cursor=eyJpZCI6NDJ9", now, nonce });
+const theirs = reference({ secret: "s3cr3t", method: "GET", path: "/api/v2/products", query: "limit=200&cursor=eyJpZCI6NDJ9", ts: 1751620522, nonce });
+check("the signature is byte-for-byte what ERPRev's own client computes", ours.headers["X-Api-Signature"], theirs.sig);
+check("...and carries the v1= prefix the page insists on", ours.headers["X-Api-Signature"].startsWith("v1="), true);
+check("the URL fetched carries the query in the order that was signed",
+  ours.url.pathname + ours.url.search, theirs.pwq);
+check("the path signed includes /api/v2, as the server receives it", ours.canonical.split("\n")[1].startsWith("/api/v2/products"), true);
+check("the timestamp header is unix seconds, and the same one that was signed",
+  [ours.headers["X-Api-Timestamp"], ours.canonical.split("\n")[2]], ["1751620522", "1751620522"]);
+check("the nonce header is the nonce that was signed", ours.headers["X-Api-Nonce"], nonce);
+check("the key id is sent", ours.headers["X-Api-Key"], "k_live_1");
+check("the secret itself is never in a header",
+  Object.values(ours.headers).some((v) => String(v).includes("s3cr3t")), false);
+const withBody = await signRequest({ key: "k", secret: "s", method: "POST", url: "https://x.test/api/v2/orders", body: '{"a":1}', now, nonce });
+check("a body is signed by its SHA-256, and still matches the reference",
+  withBody.headers["X-Api-Signature"], reference({ secret: "s", method: "POST", path: "/api/v2/orders", body: '{"a":1}', ts: 1751620522, nonce }).sig);
+const unsorted = await signRequest({ key: "k", secret: "s", url: "https://x.test/api/v2/p?z=1&a=2", now, nonce });
+check("an unsorted query is sorted before signing — the mistake the page warns about",
+  unsorted.headers["X-Api-Signature"], reference({ secret: "s", method: "GET", path: "/api/v2/p", query: "a=2&z=1", ts: 1751620522, nonce }).sig);
 
 console.log("\nPaging");
 check("a cursor page sends a limit and nothing else the first time",
@@ -535,6 +460,69 @@ check("the first pull ever, with nothing to lose, passes",
   stockGuard({ before: {}, after: { A: 50 }, pct: 25 }).ok, true);
 check("a guard of 0 refuses any drop at all", stockGuard({ before: shelf, after: { A: 39 }, pct: 0 }).ok, false);
 check("a guard of 100 lets anything through", stockGuard({ before: shelf, after: { A: 0, B: 0, C: 0 }, pct: 100 }).ok, true);
+
+// ---- Recognising the shop's own products --------------------------------
+console.log("\nERPRev items onto the sizes the shop already sells");
+
+// Shaped like production: products typed in by hand, one row per size, with
+// the shop's own SKUs and nothing linked to the ERP yet.
+const shopRows = [
+  { id: 1, productId: "2sexy2resist", productName: "2sexy2resist", size: "30ml", sku: "2sexy2resist-30ml", sizes: 1 },
+  { id: 2, productId: "2sexy2resist-edp", productName: "2sexy2resist EDP", size: "30ml", sku: "2sexy2resist-edp-30ml", sizes: 1 },
+  { id: 3, productId: "00-1-diffuser", productName: "00.1 diffuser", size: "150ml", sku: "00-1-diffuser-150ml", sizes: 2 },
+  { id: 4, productId: "00-1-diffuser", productName: "00.1 diffuser", size: "500ml", sku: "00-1-diffuser-500ml", sizes: 2 },
+  { id: 5, productId: "armpitox", productName: "Armpitox", size: "One size", sku: "armpitox-onesize", sizes: 1 },
+  { id: 6, productId: "b17", productName: "B17", size: "30ml", sku: "b17-30ml", sizes: 1 },
+  { id: 7, productId: "linked", productName: "Already Linked", size: "50ml", sku: "al-50", sizes: 1, extSource: ERP_SOURCE, extId: "900" },
+];
+const erpItem = (code, name, measure = "", altCodes = []) => ({ code: String(code), name, options: measure ? [measure] : [], altCodes });
+const m = matchToShop([
+  erpItem(101, "2SEXY2RESIST", "30ml"),            // name, product with one size
+  erpItem(102, "2sexy2resist EDP 30ml", "pcs"),     // name already carries the size
+  erpItem(103, "00.1 Diffuser", "500ml"),           // name + unit, product with two sizes
+  erpItem(104, "00.1 diffuser"),                    // two sizes, no unit — can't tell which
+  erpItem(105, "Arm-pit-ox"),                       // punctuation isn't identity… but equal once stripped
+  erpItem(106, "Some Packaging Box", "pcs"),        // the shop doesn't sell it
+  erpItem(107, "Blue Label", "", ["B17-30ML"]),     // a barcode/SKU equal to the shop's SKU
+  erpItem(900, "Renamed In The ERP"),               // linked before: stays linked, whatever its name now
+], shopRows);
+const to = (code) => (m.matched.get(code) ? m.matched.get(code).variant.sku : null);
+check("an ERP name equal to a one-size product's name finds it", to("101"), "2sexy2resist-30ml");
+check("a name that already carries the size finds that size", to("102"), "2sexy2resist-edp-30ml");
+check("name plus unit finds the right one of several sizes", to("103"), "00-1-diffuser-500ml");
+check("a name alone never picks between two sizes", to("104"), null);
+check("...it is reported as ambiguous instead", m.ambiguous.some((a) => a.code === "104"), true);
+check("case, spaces and punctuation are not identity", to("105"), "armpitox-onesize");
+check("the shop's SKU found by the ERP's barcode", [to("107"), m.matched.get("107").how], ["b17-30ml", "barcode"]);
+check("an existing link wins over the name", [to("900"), m.matched.get("900").how], ["al-50", "linked"]);
+check("something the shop doesn't sell is left unmatched", m.unmatched.map((x) => x.code), ["106"]);
+check("and the shop's sizes no ERP item reached are listed", m.shopOnly.map((v) => v.sku), ["00-1-diffuser-150ml"]);
+check("keys drop case, spaces and punctuation, and read & as and", [matchKey("00.1 Diffuser – 150 ML"), matchKey("Oud & Rose")], ["001diffuser150ml", "oudandrose"]);
+
+const rivals = matchToShop([erpItem(201, "B17", "30ml"), erpItem(202, "b17 30ml")], shopRows);
+check("two ERP items claiming one size: neither gets it", [rivals.matched.size, rivals.ambiguous.length], [0, 2]);
+const stolen = matchToShop([erpItem(301, "Already Linked", "50ml")], shopRows);
+check("a size linked to another ERP item is never re-linked by name", stolen.matched.size, 0);
+
+check("stock per item per shop is on hand less reserved, summed across locations",
+  Object.fromEntries(stockByCode([
+    { code: "101", warehouse: "7", onHand: 12, reserved: 2 },
+    { code: "101", warehouse: "8", onHand: 5, reserved: 0 },
+    { code: "101", warehouse: "9", onHand: 99, reserved: 0 },
+  ], { 7: "abuja", 8: "abuja" }).get("101") ? [["abuja", stockByCode([
+    { code: "101", warehouse: "7", onHand: 12, reserved: 2 },
+    { code: "101", warehouse: "8", onHand: 5, reserved: 0 },
+    { code: "101", warehouse: "9", onHand: 99, reserved: 0 },
+  ], { 7: "abuja", 8: "abuja" }).get("101").abuja]] : []), { abuja: 15 });
+
+// ERPRev's stock rows name a product by `product_id` — its `id`. A product
+// row that also carries a `sku` must still key on `id`, or no stock joins.
+const pinned = adapterFor("erprev").normalise.product({ id: 55, sku: "VR-30", name: "Velvet Reign", price: 1 }, ADAPTERS.erprev.defaults.fields);
+check("ERPRev products key on id even when they carry a sku", pinned.code, "55");
+check("...and the sku is kept for matching the shop's", pinned.altCodes.includes("VR-30"), true);
+
+const later = matchToShop([erpItem(104, "00.1 diffuser")], shopRows.map((v) => (v.id === 4 ? { ...v, extSource: ERP_SOURCE, extId: "103" } : v)));
+check("a size-less name stays ambiguous after one of its sizes is linked", [later.ambiguous.length, later.unmatched.length], [1, 0]);
 
 console.log(failures ? `\n${failures} failing` : "\nAll good");
 process.exit(failures ? 1 : 0);

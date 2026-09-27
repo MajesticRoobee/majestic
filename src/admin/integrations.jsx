@@ -181,7 +181,7 @@ function EmailPanel({ mail, ctx, reload }) {
           ? <>Sending as <strong>{mail.from}</strong>{mail.replyTo ? <> · replies go to <strong>{mail.replyTo}</strong></> : null}. Order updates, back-in-stock alerts, abandoned-cart reminders, password resets and the low-stock digest all go out through it, in the shop&rsquo;s letterhead.</>
           : <>Add these as GitHub repository secrets (Settings → Secrets and variables → Actions) and redeploy:
             <br />· <code style={code}>RESEND_API_KEY</code> — resend.com → API Keys → create one with <em>Sending access</em>
-            <br />· <code style={code}>RESEND_FROM</code> — e.g. <code style={code}>Majestic Roobee &lt;hello@majesticroobee.com&gt;</code>, on a domain verified in Resend → Domains
+            <br />· <code style={code}>RESEND_FROM</code> — e.g. <code style={code}>Majestic Roobee &lt;hello@majesticroobee.shop&gt;</code>, on a domain verified in Resend → Domains
             <br />· <code style={code}>RESEND_REPLY_TO</code> — optional, where customers&rsquo; replies should land
             {mail.keyLooksWrong && <><br /><span style={{ color: "#c0587a" }}>A key is set but it doesn&rsquo;t start with re_ — check it was pasted without &ldquo;Bearer&rdquo; or quotes.</span></>}
             {mail.queued > 0 && <><br />{mail.queued} message{mail.queued === 1 ? " is" : "s are"} waiting in the log below from before email was connected.</>}</>}
@@ -191,7 +191,7 @@ function EmailPanel({ mail, ctx, reload }) {
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 240px" }}>
-          <Input label="Send a test email to" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@majesticroobee.com" />
+          <Input label="Send a test email to" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@majesticroobee.shop" />
         </div>
         <Button variant="secondary" size="sm" disabled={busy || !mail.connected || !to.includes("@")} onClick={test}>{busy ? "Sending…" : "Send test"}</Button>
       </div>
@@ -300,7 +300,7 @@ function ErpPanel({ erp, ctx, reload }) {
     finally { setBusy(""); }
   };
   const SAVED = ["erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle", "erpPaths", "erpFields",
-    "erpEnvelopeKey", "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits", "erpDefaultShop", "erpEmptyGuardPct", "erpSyncEveryMins"];
+    "erpEnvelopeKey", "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits", "erpDefaultShop", "erpImportNew", "erpEmptyGuardPct", "erpSyncEveryMins"];
   const saveConfig = async () => {
     setBusy("config");
     try {
@@ -312,6 +312,7 @@ function ErpPanel({ erp, ctx, reload }) {
         erpPublish: form.publish ? "1" : "0", erpDefaultCat: form.defaultCat,
         erpGroupUnits: form.groupUnits ? "1" : "0",
         erpDefaultShop: form.defaultShop ?? "abuja",
+        erpImportNew: form.importNew ? "1" : "0",
         erpEmptyGuardPct: form.emptyGuardPct, erpSyncEveryMins: form.syncEveryMins,
       };
       await api.put("/api/admin/settings", { settings: Object.fromEntries(SAVED.map((k) => [k, patch[k]])) }, ctx.token);
@@ -327,8 +328,6 @@ function ErpPanel({ erp, ctx, reload }) {
     setForm((f) => ({ ...f, vendor: id, ...(v ? { authStyle: v.defaults.authStyle, pageStyle: v.defaults.pageStyle, paths: { ...v.defaults.paths } } : {}) }));
   };
   const setPath = (k, v) => setForm((f) => ({ ...f, paths: { ...paths, [k]: v } }));
-  const sign = { ...(erp.signingDefaults || {}), ...(form.signing || {}) };
-  const setSign = (k, v) => setForm((f) => ({ ...f, signing: { ...sign, [k]: v } }));
   const setField = (k, v) => setForm((f) => ({ ...f, fields: { ...fields, [k]: v } }));
   const setMap = async (w, locationId) => {
     try { await api.patch(`/api/admin/erp/warehouses/${encodeURIComponent(w.warehouse)}`, { locationId }, ctx.token); reload(); }
@@ -343,11 +342,6 @@ function ErpPanel({ erp, ctx, reload }) {
   const noteBox = (d, body) => d && (
     <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6, borderRadius: "var(--radius-md)", padding: "10px 12px", background: bad(d) ? "#f7e3ea" : "#e4efe4", color: bad(d) ? "#c0587a" : "#3f6b45", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{body}</div>
   );
-  // The ERP's own verdict on what a valid signature looks like.
-  const signingNote = (d) => noteBox(d, d && (d.ok
-    ? `${d.summary}${d.saved ? "\n\nSaved — the fields above now hold it, and the connection test should pass." : ""}`
-    : [d.error, "", ...(d.attempts || []).map((a) => `\u00b7 ${a.label}\n   \u2192 ${a.result}`)].join("\n")));
-
   // What the ERP's own published specification says — worth more than
   // anything written in this repo about a vendor's API.
   const specNote = (d) => noteBox(d, d && (d.error || [
@@ -356,7 +350,7 @@ function ErpPanel({ erp, ctx, reload }) {
     "How it says requests are authenticated:",
     ...(d.security.length
       ? d.security.map((x) => `\u00b7 ${x.name}: ${x.type}${x.header ? ` — header ${x.header}` : ""}${x.scheme ? ` (${x.scheme})` : ""}${x.description ? `\n   ${x.description}` : ""}`)
-      : ["\u00b7 it names none — the signing settings above have to be confirmed from the Signing requests page"]),
+      : ["\u00b7 it names none — requests are signed as ERPRev's Signing requests page specifies"]),
     "",
     "Endpoints it publishes for what we need:",
     ...Object.entries(d.found || {}).map(([k, v]) => `\u00b7 ${k}: ${v.length ? v.join(", ") : "— none found"}`),
@@ -379,7 +373,21 @@ function ErpPanel({ erp, ctx, reload }) {
       "",
       d.sample,
     ].join("\n"))));
-  const pullNote = (d) => noteBox(d, d && (d.error || `${d.dryRun ? "Dry run — nothing was written. " : ""}${d.rows} SKU(s) read · ${d.variantsCreated || 0} created · ${d.variantsUpdated || 0} updated · ${d.productsCreated || 0} new product(s), ${d.productsAdopted || 0} adopted${d.readErrors && d.readErrors.length ? `\n\nSkipped:\n${d.readErrors.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}${d.warnings && d.warnings.length ? `\n\nWorth a look:\n${d.warnings.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : ""}`));
+  // What a pull did — or, dry, would do — told as the house needs to check it:
+  // which ERP item became which shop size, and what was left alone and why.
+  const money = (n) => (n > 0 ? `₦${Math.round(n).toLocaleString("en-NG")}` : "price unchanged");
+  const stockText = (st) => (st ? Object.entries(st).map(([k, v]) => `${k} ${v}`).join(", ") : "stock unchanged");
+  const pullNote = (d) => noteBox(d, d && (d.error || [
+    `${d.dryRun ? "Dry run — nothing was written.\n" : ""}${d.rows} ERP item(s) read. ${d.matched} matched to sizes the shop already sells${d.byHow ? ` (${Object.entries(d.byHow).map(([k, v]) => `${v} by ${k}`).join(", ")})` : ""}.`,
+    ...(d.matches || []).map((m) => `· ${m.erp} → ${m.shop} · ${money(m.price)} · ${stockText(m.stock)}`),
+    d.matched > (d.matches || []).length ? `  …and ${d.matched - d.matches.length} more.` : "",
+    d.unmappedLocations && d.unmappedLocations.length ? `\nStock in ERP locations that aren't mapped to a shop, so not counted — map them in step 5:\n${d.unmappedLocations.map((u) => `· ${u.location}: ${u.units} unit(s)`).join("\n")}` : "",
+    d.ambiguous && d.ambiguous.length ? `\nNot linked — ambiguous (link these by hand or make the names unique):\n${d.ambiguous.map((a) => `· ${a.name}: ${a.why}`).join("\n")}` : "",
+    d.notInShop ? `\n${d.notInShop} ERP item(s) the shop doesn't sell${d.importNew ? ` — ${d.productsCreated || 0} brought in as drafts this run` : " — left alone (switch on “bring in new ERP items” to import them as drafts)"}: ${d.notInShopSample.join(", ")}${d.notInShop > d.notInShopSample.length ? "…" : ""}` : "",
+    d.shopOnly ? `\n${d.shopOnly} shop size(s) with no ERP item — their stock stays as the shop has it: ${d.shopOnlySample.join(", ")}${d.shopOnly > d.shopOnlySample.length ? "…" : ""}` : "",
+    d.warnings && d.warnings.length ? `\nWorth a look:\n${d.warnings.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : "",
+    d.readErrors && d.readErrors.length ? `\nSkipped:\n${d.readErrors.map((x) => `· ${x.item}: ${x.error}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n")));
   const discoverNote = (d) => noteBox(d, d && (d.error || `Found ${d.warehouses} location(s) and ${d.itemGroups} categor${d.itemGroups === 1 ? "y" : "ies"}.`));
 
   // The webhook counts as connected in its own right: it needs no request
@@ -470,52 +478,20 @@ function ErpPanel({ erp, ctx, reload }) {
               placeholder="perfumes" hint="Where a new product lands when its category isn't mapped below." />
           </div>
           {form.authStyle === "hmac" && (
-            <div style={{ border: "1px solid var(--mr-gold-400)", background: "var(--mr-gold-200)", borderRadius: "var(--radius-md)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontSize: 12, color: "var(--mr-gold-600)", lineHeight: 1.6 }}>
-                <strong>Signed requests.</strong> The secret is never sent &mdash; each call carries an HMAC-SHA256 signature over its
-                method, path, timestamp, nonce and body. The header names and order below come from ERPRev&rsquo;s API overview; the
-                exact byte order lives on their <em>Signing requests</em> page. If every call comes back <code>auth.invalid</code>
-                {" "}while the key is definitely right, this is what to correct. You should not have to:
-                <strong> Work out the signing</strong> signs one harmless read under each plausible shape and keeps whichever one
-                the ERP accepts, which takes about ten seconds and settles it with fact rather than inference.
-              </div>
-              <Input label="Canonical string" value={sign.canonical} onChange={(e) => setSign("canonical", e.target.value)}
-                hint={"\\n is a newline. Placeholders: {method} {path} {timestamp} {nonce} {body}"} />
-              <Input label="Authorization header template (leave blank for the four headers below)"
-                value={sign.authTemplate || ""} onChange={(e) => setSign("authTemplate", e.target.value)}
-                hint={"Placeholders: {key} {timestamp} {nonce} {signature}. Fill this in when the ERP answers auth.missing to every header name — auth.missing means it found no credentials at all, and most APIs judge that by Authorization alone. Example: ERPRev Key={key},Timestamp={timestamp},Nonce={nonce},Signature={signature}"} />
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, opacity: sign.authTemplate && !sign.withHeaders ? 0.45 : 1 }}>
-                <Input label="Key header" value={sign.keyHeader} onChange={(e) => setSign("keyHeader", e.target.value)} />
-                <Input label="Timestamp header" value={sign.timestampHeader} onChange={(e) => setSign("timestampHeader", e.target.value)} />
-                <Input label="Nonce header" value={sign.nonceHeader} onChange={(e) => setSign("nonceHeader", e.target.value)} />
-                <Input label="Signature header" value={sign.signatureHeader} onChange={(e) => setSign("signatureHeader", e.target.value)} />
-              </div>
-              {sign.authTemplate ? (
-                <label style={{ display: "flex", gap: 8, alignItems: "center", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-muted)" }}>
-                  <input type="checkbox" checked={!!sign.withHeaders} onChange={(e) => setSign("withHeaders", e.target.checked)} />
-                  Send the key, timestamp and nonce as their own headers as well
-                </label>
-              ) : null}
-              <div>
-                <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Signature format</div>
-                <select value={sign.signatureFormat} onChange={(e) => setSign("signatureFormat", e.target.value)} style={{ ...selStyle, width: "100%", padding: "9px 12px" }}>
-                  <option value="hex">The hex digest on its own</option>
-                  <option value="t,v1">t=&lt;timestamp&gt;,v1=&lt;hex&gt; (the shape their webhooks use)</option>
-                </select>
-              </div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6, background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: "10px 12px" }}>
+              <strong style={{ color: "var(--text-strong)" }}>Signed exactly as ERPRev&rsquo;s Signing requests page specifies</strong> &mdash;
+              X-Api-Key, X-Api-Timestamp, X-Api-Nonce and X-Api-Signature (<code>v1=</code> + HMAC-SHA256 over method, path with
+              sorted query, timestamp, nonce and the body&rsquo;s SHA-256). Nothing to configure. If the test says
+              {" "}<code>auth.signature_invalid</code>, the secret is the thing to re-check; the error shows the exact string that was signed.
             </div>
           )}
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>{busy === "config" ? "Saving…" : "Save"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "test"} onClick={() => run("test", "/api/admin/erp/test", {})}>{busy === "test" ? "Calling…" : "Test the connection"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "spec"} onClick={() => run("spec", "/api/admin/erp/spec", {})}>{busy === "spec" ? "Reading…" : "Read the API’s own spec"}</Button>
-            <Button variant="primary" size="sm" disabled={busy === "signing"} onClick={() => run("signing", "/api/admin/erp/signing", { save: true })}>
-              {busy === "signing" ? "Asking the ERP…" : "Work out the signing"}
-            </Button>
             <Button variant="secondary" size="sm" disabled={busy === "probe"} onClick={() => run("probe", "/api/admin/erp/probe", { resource: "products" })}>{busy === "probe" ? "Reading…" : "Show me a row"}</Button>
           </div>
           {testNote(out("test"))}
-          {signingNote(out("signing"))}
           {specNote(out("spec"))}
           {probeNote(out("probe"))}
         </div>
@@ -642,6 +618,11 @@ function ErpPanel({ erp, ctx, reload }) {
             become one listing with a size picker: &ldquo;Velvet Reign 30ml&rdquo; and &ldquo;Velvet Reign 50ml&rdquo; become
             Velvet Reign, 30ml and 50ml. It never merges on a near-match, and never on a name only one product has.
             <strong> Dry-run it first</strong> and read what it would group.
+          </div>
+          <Switch label="Bring in ERP items the shop doesn't sell yet" checked={!!form.importNew} onChange={(e) => setForm({ ...form, importNew: e.target.checked })} />
+          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -4, lineHeight: 1.6 }}>
+            Off (recommended to start): the pull keeps the shop&rsquo;s own products&rsquo; price and stock in step with the ERP and leaves
+            everything else in the ERP &mdash; packaging, raw materials, retired lines &mdash; out of the shop. The dry run lists what it is leaving out.
           </div>
           <Switch label="Items new to the shop go live immediately" checked={!!form.publish} onChange={(e) => setForm({ ...form, publish: e.target.checked })} />
           <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -4 }}>

@@ -35,12 +35,12 @@ console.log("\nConfiguration");
 check("no key, not connected", emailConfig({}).connected, false);
 check("a Resend key is connected", emailConfig({ RESEND_API_KEY: "re_123" }).connected, true);
 check("a mangled key is called out", emailConfig({ RESEND_API_KEY: "Bearer re_123" }).keyLooksWrong, true);
-check("the sending domain is read off From", emailConfig({ RESEND_FROM: "MR <hello@majesticroobee.com>" }).domain, "majesticroobee.com");
+check("the sending domain is read off From", emailConfig({ RESEND_FROM: "MR <hello@majesticroobee.shop>" }).domain, "majesticroobee.shop");
 
 console.log("\nSending");
 let last = null;
 globalThis.fetch = async (url, init) => { last = { url, init, body: JSON.parse(init.body) }; return new Response(JSON.stringify({ id: "em_1" }), { status: 200 }); };
-const env = { DB: db, RESEND_API_KEY: "re_test", RESEND_FROM: "MR <hello@majesticroobee.com>", RESEND_REPLY_TO: "care@majesticroobee.com" };
+const env = { DB: db, RESEND_API_KEY: "re_test", RESEND_FROM: "MR <hello@majesticroobee.shop>", RESEND_REPLY_TO: "care@majesticroobee.shop" };
 
 check("no key: nothing is sent", (await sendEmail({ DB: db }, { to: "a@b.co", subject: "s", text: "t" })).sent, false);
 check("no address: nothing is sent", (await sendEmail(env, { to: "08012345678", subject: "s", text: "t" })).detail, "no email address to send to");
@@ -48,12 +48,12 @@ check("no address: nothing is sent", (await sendEmail(env, { to: "08012345678", 
 const r = await sendEmail(env, { to: "ada@example.com", subject: "Hello", text: "Body", idempotencyKey: "run-42", tags: ["order_paid"] });
 check("a send goes to Resend's API", [r.sent, r.id, last.url], [true, "em_1", "https://api.resend.com/emails"]);
 check("...as HTML and text both", [typeof last.body.html, last.body.text], ["string", "Body"]);
-check("...from the configured address, with replies routed", [last.body.from, last.body.reply_to], ["MR <hello@majesticroobee.com>", "care@majesticroobee.com"]);
+check("...from the configured address, with replies routed", [last.body.from, last.body.reply_to], ["MR <hello@majesticroobee.shop>", "care@majesticroobee.shop"]);
 check("...carrying the idempotency key, so a retry is sent once", last.init.headers["idempotency-key"], "run-42");
 check("...and tagged with what it was", last.body.tags, [{ name: "kind", value: "order_paid" }]);
 check("...with the key as a bearer token", last.init.headers.authorization, "Bearer re_test");
 
-globalThis.fetch = async () => new Response(JSON.stringify({ name: "validation_error", message: "The majesticroobee.com domain is not verified." }), { status: 403 });
+globalThis.fetch = async () => new Response(JSON.stringify({ name: "validation_error", message: "The majesticroobee.shop domain is not verified." }), { status: 403 });
 const refused = await sendEmail(env, { to: "ada@example.com", subject: "s", text: "t" });
 check("a refusal carries Resend's own reason", refused.detail.includes("domain is not verified"), true);
 check("...and says what to do", refused.detail.includes("Resend → Domains"), true);

@@ -506,6 +506,13 @@ default, set up from their reference), ERPNext, and a blank one.
 
 ### 7.6 The signature, settled by asking
 
+> **Superseded 27 Sep.** ERPRev's *Signing requests* page arrived and the
+> negotiator below is gone: `signRequest` in `worker/erp-adapters.js`
+> implements the page exactly (X-Api-Key / X-Api-Timestamp / X-Api-Nonce /
+> X-Api-Signature `v1=…`, five-line canonical string with the sorted query and
+> the body's SHA-256), tested against ERPRev's own reference client. Kept below
+> as the record of how it was approached.
+
 ERPRev's *Signing requests* page was not among the pages sent, so the exact
 bytes are undocumented here. Rather than wait for it, **the connector asks the
 ERP**: `erpNegotiateSigning` signs one harmless read under each plausible

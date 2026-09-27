@@ -39,5 +39,5 @@ ADMIN_TOKEN_SECRET=dev-only-change-me
 # access"); RESEND_FROM must be on a domain verified in Resend → Domains.
 # Unset, emails are recorded as "queued" in Admin → Integrations instead.
 # RESEND_API_KEY=re_xxx
-# RESEND_FROM=Majestic Roobee <hello@majesticroobee.com>
-# RESEND_REPLY_TO=care@majesticroobee.com
+# RESEND_FROM=Majestic Roobee <hello@majesticroobee.shop>
+# RESEND_REPLY_TO=care@majesticroobee.shop
