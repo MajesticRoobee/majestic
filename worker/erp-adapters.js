@@ -33,16 +33,58 @@
 // with no fallback: without it there is nothing to upsert against.
 
 /** First present value among several spellings of the same field. */
-export function pick(row, keys) {
+/**
+ * A key with its case, underscores and hyphens taken out, so "ProductID",
+ * "product_id" and "productId" are one key. ERPRev's live API answers in
+ * PascalCase — `ID`, `Name`, `Measure`, `Barcode`, `Category` — which no
+ * lower-case alias list matched character for character, so every one of its
+ * 534 products read as having no code and the pull read nothing at all.
+ */
+export const keyOf = (k) => String(k).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+// Per row, its keys by their loose spelling — built once, not per lookup.
+const looseKeys = new WeakMap();
+function looseIndex(row) {
+  let m = looseKeys.get(row);
+  if (!m) {
+    m = new Map();
+    for (const k of Object.keys(row)) if (!m.has(keyOf(k))) m.set(keyOf(k), k);
+    looseKeys.set(row, m);
+  }
+  return m;
+}
+
+/**
+ * The row's own key for the first of `keys` it carries with a value — the
+ * exact spelling first, then the same name in any case or separator style.
+ * Exported so the probe can say which key it actually read.
+ */
+export function findKey(row, keys) {
+  if (!row || typeof row !== "object") return undefined;
+  const has = (k) => k !== undefined && row[k] !== undefined && row[k] !== null && row[k] !== "";
+  for (const k of keys) if (k && has(k)) return k;
+  const idx = looseIndex(row);
   for (const k of keys) {
     if (!k) continue;
-    const v = row[k];
-    if (v !== undefined && v !== null && v !== "") return v;
+    const real = idx.get(keyOf(k));
+    if (has(real)) return real;
   }
   return undefined;
 }
 
-const str = (v) => (v === undefined || v === null ? "" : String(v).trim());
+export function pick(row, keys) {
+  const k = findKey(row, keys);
+  return k === undefined ? undefined : row[k];
+}
+
+// ERPRev HTML-encodes text in JSON ("Currency": " &#x20A6; "), so a name
+// can arrive as "Oud &amp; Rose". Decoded here, once, for everything read.
+const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+const decode = (s) => s
+  .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+  .replace(/&(amp|lt|gt|quot|apos|nbsp);/g, (_, n) => ENTITIES[n]);
+const str = (v) => (v === undefined || v === null ? "" : decode(String(v)).replace(/\s+/g, " ").trim());
 const num = (v) => {
   if (v === undefined || v === null || v === "") return 0;
   // "₦35,000.00" and "35000" both have to survive: an ERP that renders money
@@ -86,7 +128,7 @@ export const ALIASES = {
   isTemplate: ["has_variants", "hasVariants", "is_template", "isTemplate", "is_parent", "has_children"],
   group: ["item_group", "itemGroup", "category", "category_name", "categoryName", "product_group", "productGroup", "class", "class_name", "department", "cat"],
   description: ["description", "descr", "details", "long_description", "notes", "body"],
-  image: ["image", "image_url", "imageUrl", "thumb_image_url", "thumbImageUrl", "photo", "picture", "thumbnail", "img"],
+  image: ["image", "image_url", "imageUrl", "thumb_image_url", "thumbImageUrl", "thumb_image", "photo", "picture", "thumbnail", "img"],
   disabled: ["disabled", "is_disabled", "inactive", "is_deleted", "deleted", "archived"],
   active: ["active", "enabled", "is_active", "status"],
   option: ["variant", "variant_name", "variantName", "option", "option1", "size", "measure", "unit", "uom", "attribute_value", "spec"],
@@ -100,7 +142,7 @@ export const ALIASES = {
   // keys first.
   stockCode: ["product_id", "productId", "sku", "item_code", "itemCode", "product_code", "productCode", "code", "item_id", "barcode"],
   stockWarehouse: ["warehouse_id", "warehouseId", "warehouse", "warehouse_name", "location_id", "locationId", "location", "location_name", "store_id", "store", "branch_id", "branch", "branch_name", "site", "outlet"],
-  onHand: ["actual_qty", "actualQty", "qty", "quantity", "stock", "stock_qty", "on_hand", "onHand", "available", "available_qty", "balance", "closing_qty", "in_stock"],
+  onHand: ["actual_qty", "actualQty", "qty", "quantity", "qty_on_hand", "quantity_on_hand", "stock", "stock_qty", "stock_level", "current_stock", "on_hand", "onHand", "available", "available_qty", "qty_available", "available_quantity", "balance", "closing_qty", "closing_balance", "in_stock"],
   reserved: ["reserved_qty", "reservedQty", "reserved", "committed", "committed_qty", "allocated", "allocated_qty", "on_order"],
   modified: ["modified", "updated_at", "updatedAt", "last_modified", "lastModified", "date_modified", "changed_at"],
 };
@@ -320,7 +362,7 @@ function genericNormaliseProduct(row, f = {}) {
     // Identifiers other than the code, for recognising a product the shop
     // already has — a barcode, a SKU — when the code is an internal id.
     altCodes: ["barcode", "sku", "item_code", "product_code", "code", "reference"]
-      .map((k) => str(row && row[k])).filter(Boolean),
+      .map((k) => str(pick(row || {}, [k]))).filter(Boolean),
     inlineStock: pick(row, fieldsFor(f, "onHand")),
   };
 }
