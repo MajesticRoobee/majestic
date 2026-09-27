@@ -16,7 +16,7 @@ import { parseEmbed, embedUrlFor, dealIsLive, pickDailyDeal, resolveDailyDeal } 
 import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
 import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
-import { erpStatus, erpPing, erpProbe, erpReadSpec, erpNegotiateSigning, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
+import { erpStatus, erpPing, erpProbe, erpReadSpec, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
 import { webhookStatus } from "./erp-webhook.js";
 import { emailConfig, sendEmail } from "./email.js";
 
@@ -1073,8 +1073,8 @@ admin.put("/settings", async (c) => {
     // written by the connector rather than by a person, so it is absent.
     "erpVendor", "erpOn", "erpBaseUrl", "erpAuthStyle", "erpPageStyle",
     "erpPaths", "erpFields", "erpEnvelopeKey", "erpCursorKey", "erpPingPath",
-    "erpPageSize", "erpSigning",
-    "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits", "erpDefaultShop",
+    "erpPageSize",
+    "erpPriceList", "erpPublish", "erpDefaultCat", "erpGroupUnits", "erpDefaultShop", "erpImportNew",
     "erpEmptyGuardPct", "erpSyncEveryMins",
     // The Perfume Studio's consultation page: whether the studio is taking
     // bookings at all, the Calendly link the calendar is framed from, and the
@@ -2374,16 +2374,6 @@ admin.post("/erp/test", requireSuper, async (c) => c.json(await erpPing(c.env)))
 // This is the answer to not having a vendor's API reference to hand: read the
 // keys off a real response instead of guessing them. Guessing is what produced
 // a connector aimed at the wrong ERP entirely.
-// Let the ERP settle what the signature looks like.
-//
-// Signs one harmless read under each candidate shape and keeps the first the
-// ERP accepts. Reads only, a fresh nonce per attempt, stops on the first
-// success — and writes nothing unless `save` says to.
-admin.post("/erp/signing", requireSuper, async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  return c.json(await erpNegotiateSigning(c.env, { save: b.save === true }));
-});
-
 // Ask the API for its own specification. ERPRev publishes a live OpenAPI 3
 // document publicly, which names the real security scheme and endpoint paths
 // — the ERP's own answer, rather than this repo's reading of a PDF.

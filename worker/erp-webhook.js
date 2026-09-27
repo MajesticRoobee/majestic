@@ -30,7 +30,7 @@
 
 import { getSettings, allLocations } from "./util.js";
 import { syncCatalogue } from "./integrations.js";
-import { erpConfig, buildFeed, warehouseMap, effectiveWarehouseMap, ERP_SOURCE, runErpPull } from "./erp.js";
+import { erpConfig, buildFeed, warehouseMap, effectiveWarehouseMap, ERP_SOURCE, runErpPull, matchToShop, shopVariants, applyToShop } from "./erp.js";
 import { hmacHex } from "./erp-adapters.js";
 
 /** ERPRev's signed timestamps must be within this many seconds of ours. */
@@ -240,6 +240,20 @@ export async function applyDelivery(env, body, { at = 0, ctx = null } = {}) {
       result.deactivated += (r.meta && r.meta.changes) || 0;
     }
   } else if (normalised.length) {
+    // The shop's own sizes first — exactly as the pull recognises them — so a
+    // price change lands on the product the shop already sells, keeping its
+    // SKU, size, photographs and copy, rather than on a duplicate.
+    const match = matchToShop(normalised, await shopVariants(db));
+    const updates = [...match.matched].map(([code, m]) => {
+      const p = normalised.find((x) => String(x.code) === code);
+      return { variantId: m.variant.id, code, price: p ? p.inlinePrice : 0 };
+    });
+    if (updates.length) { await applyToShop(db, updates); result.productsUpdated += updates.length; }
+    for (const a of match.ambiguous) result.unknown.push(`${a.name}: ${a.why} — not linked.`);
+    const fresh = match.unmatched;
+    if (fresh.length && !cfg.importNew) {
+      result.unknown.push(`${fresh.length} item${fresh.length === 1 ? " isn't" : "s aren't"} in the shop, and bringing in new ERP items is off.`);
+    }
     const known = new Set((await db.prepare("SELECT external_id FROM products WHERE external_source=?").bind(ERP_SOURCE).all())
       .results.map((r) => r.external_id));
     const groups = Object.fromEntries((await db.prepare("SELECT item_group, cat FROM erp_item_groups WHERE cat IS NOT NULL").all())
@@ -247,11 +261,13 @@ export async function applyDelivery(env, body, { at = 0, ctx = null } = {}) {
     // Inline stock on a product row goes to the default shop only when that
     // is unambiguous — the same rule the pull uses.
     const whMap = await effectiveWarehouseMap(db, defaultShop);
-    const { rows, skipped } = buildFeed({ products: normalised, warehouses: whMap, groups, defaultCat: cfg.defaultCat, known, groupUnits: false });
+    const { rows, skipped } = cfg.importNew && fresh.length
+      ? buildFeed({ products: fresh, warehouses: whMap, groups, defaultCat: cfg.defaultCat, known, groupUnits: false })
+      : { rows: [], skipped: [] };
     if (rows.length) {
       const r = await syncCatalogue(env, { source: ERP_SOURCE, items: rows, publish: cfg.publish });
       result.productsCreated = r.productsCreated;
-      result.productsUpdated = r.variantsUpdated;
+      result.productsUpdated += r.variantsUpdated;
       if (r.errors.length) result.unknown.push(...r.errors.map((e) => e.error));
     }
     for (const s of skipped) if (!s.warning) result.unknown.push(`${s.item}: ${s.error}`);
@@ -288,7 +304,7 @@ export async function applyDelivery(env, body, { at = 0, ctx = null } = {}) {
   }
   for (const { code, shop, qty } of sums.values()) {
     const variants = (await db.prepare("SELECT id, sku FROM variants WHERE external_source=? AND external_id=?").bind(ERP_SOURCE, code).all()).results;
-    if (!variants.length) { result.unknown.push(`Product ${code} isn't in the shop yet — the next pull will bring it in.`); continue; }
+    if (!variants.length) { result.unknown.push(`Product ${code} isn't linked to a shop product yet — the next pull will match it.`); continue; }
     for (const v of variants) {
       // Never let an older event overwrite a newer count.
       const mark = await db.prepare("SELECT at_ms FROM erp_stock_marks WHERE variant_id=? AND location_id=?").bind(v.id, shop).first();
@@ -309,7 +325,7 @@ export async function applyDelivery(env, body, { at = 0, ctx = null } = {}) {
 
   // Something the ERP knows and the shop does not: ask the pull to catch up,
   // after the response has gone, if the pull is set up to run at all.
-  if (result.unknown.some((u) => /isn't in the shop yet/.test(u)) && ctx && ctx.waitUntil) {
+  if (result.unknown.some((u) => /isn't linked to a shop product yet/.test(u)) && ctx && ctx.waitUntil) {
     ctx.waitUntil(runErpPull(env).catch(() => {}));
   }
   return result;

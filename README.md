@@ -42,10 +42,30 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERP pull — see below |
 | `ERP_WEBHOOK_SECRET` | Lets ERPRev push stock and price changes to `/api/erp/webhook` — see below |
 | `RESEND_API_KEY` | Sends email (order updates, password resets, alerts) through Resend — see below |
-| `RESEND_FROM` | The From address, e.g. `Majestic Roobee <hello@majesticroobee.com>` — must be on a domain verified in Resend |
+| `RESEND_FROM` | The From address, e.g. `Majestic Roobee <hello@majesticroobee.shop>` — must be on a domain verified in Resend |
 | `RESEND_REPLY_TO` | Optional — where customers' replies land |
 
 To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above.
+
+## Moving to majesticroobee.shop
+
+The Worker answers on `majestic-roobee.victorugwu4real.workers.dev` today. Once
+the domain is on Cloudflare:
+
+1. **Add the domain to the Worker.** Cloudflare dashboard → Workers & Pages →
+   `majestic-roobee` → Settings → Domains & Routes → **Add → Custom domain** →
+   `majesticroobee.shop` (and again for `www.majesticroobee.shop`). Cloudflare
+   creates the DNS records and the certificate. Nothing in the repo changes;
+   the workers.dev address keeps working, which the deploy's smoke test uses.
+2. **Tell the shop its address.** Admin → Settings → *The shop's web address* →
+   `https://majesticroobee.shop`. Abandoned-cart links, the email letterhead's
+   logo and links, and the sitemap read it.
+3. **Re-point the webhooks** at the new address: Paystack
+   (`/api/paystack/webhook`) and ERPRev (`/api/erp/webhook`). Admin →
+   Integrations shows both URLs to copy.
+4. **Email.** Verify `majesticroobee.shop` in resend.com → Domains (add the DNS
+   records it lists, in Cloudflare) and set `RESEND_FROM` to an address on it,
+   e.g. `Majestic Roobee <hello@majesticroobee.shop>`.
 
 ## Paystack
 
@@ -279,7 +299,7 @@ single link — "Pick up where you left off: https://…" — becomes a button.
 | Secret | What |
 | --- | --- |
 | `RESEND_API_KEY` | resend.com → **API Keys** → create one with *Sending access* (restrict it to your domain) |
-| `RESEND_FROM` | `Majestic Roobee <hello@majesticroobee.com>` — the domain must be verified in resend.com → **Domains** (they give you the DNS records to add) |
+| `RESEND_FROM` | `Majestic Roobee <hello@majesticroobee.shop>` — the domain must be verified in resend.com → **Domains** (they give you the DNS records to add) |
 | `RESEND_REPLY_TO` | Optional — where customers' replies land, e.g. the customer-service inbox |
 
 Add them as GitHub Actions secrets and the next deploy pushes them to the
@@ -348,7 +368,8 @@ that would rather send the whole feed.
 | | |
 | --- | --- |
 | **Base URL** | `https://<your-system's-address>/api/v2` — ERPRev is multi-tenant on a subdomain |
-| **Auth** | **Signed requests.** Every call carries an HMAC-SHA256 signature over its method, path, timestamp, nonce and body. **The secret never travels.** The key id goes in `X-Api-Key` |
+| **Auth** | **Signed requests** — four headers on every call: `X-Api-Key` (the key id), `X-Api-Timestamp` (Unix seconds), `X-Api-Nonce` (32 hex, never reused), `X-Api-Signature` (`v1=` + hex HMAC-SHA256). **The secret never travels.** |
+| **Canonical string** | Five lines joined by `\n`: the method upper-cased · the path (with `/api/v2`) plus `?` and the query's `key=value` pairs **sorted** · the timestamp · the nonce · the hex SHA-256 of the raw body (`e3b0c442…b855` for a GET). Implemented in `signRequest` (`worker/erp-adapters.js`) and tested byte-for-byte against ERPRev's own Node reference client |
 | **Clock** | The signing timestamp must be within **±300 seconds** of the ERP's. Outside that, `auth.clock_skew` |
 | **Paging** | Cursor, not page numbers: `limit` (1–200, default 50) and `cursor` |
 | **Envelope** | `{ "data": [ … ], "page": { limit, count, has_more, next_cursor } }` |
@@ -368,7 +389,7 @@ checklist in the order it has to be done.
 | 2 | **The credentials.** See *What you have to do in ERPRev* below. Then `wrangler secret put ERP_API_KEY` and `wrangler secret put ERP_API_SECRET`, or add them as GitHub Actions secrets and let the deploy push them. They never go in the database and never reach a browser. | Worker secrets |
 | 3 | **The base URL**, then **Test the connection** — which calls the unauthenticated `/ping` first, so "we can't reach your ERP" and "your ERP won't accept this key" come back as two different answers rather than one 401. It also reports the clock difference, because past 300 seconds every signed call is refused however right the key is. **Read the API's own spec** asks ERPRev for its published OpenAPI document and prints the security scheme and endpoint paths it declares. | Admin |
 | 4 | **Field names**, only if step 3 shows something came back empty. **Show me a row** prints ERPRev's own keys beside the ones the reader matched. | Admin |
-| 5 | **The location map.** *Fetch locations* lists them from `/warehouses`; assign each to a shop. One with no shop against it is **ignored, not defaulted**. | Admin |
+| 5 | **The location map.** *Fetch locations* lists them from `/warehouses` (a pull does it too). A single location goes to Abuja automatically; with several, assign each to a shop — one with no shop against it is **not counted**. | Admin |
 | 6 | **The category map** (optional). Unmapped categories fall to the default and are reported. | Admin |
 | 7 | **Dry run.** Every read, every check, nothing written. | Admin |
 | 8 | **Let it run.** A switch, a cadence (15 minutes at the fastest) and the empty-feed guard. | Admin |
@@ -396,37 +417,43 @@ checklist in the order it has to be done.
    from where, with request and response detail. Manage API Access disables a
    compromised key in one click.
 
-### Working out the signature
+### What the pull does when it runs
 
-ERPRev's *Signing requests* page — "the four headers, canonical string, five
-reference clients" — was not among the pages we have, so the exact bytes the
-signature covers are not documented here. **You do not need it.**
+It runs on its own — the cron calls it every 15 minutes and it pulls every
+*n* minutes (60 by default; Admin → Integrations → step 8). **Recent pulls** on
+the same screen is the log of every run.
 
-**Work out the signing** (Admin → Integrations, next to the connection test)
-signs one harmless read — `GET /products?limit=1` — under each plausible shape
-and keeps whichever one the ERP accepts. It is a yes/no question with an
-authoritative answer one request away, so it is answered with fact rather than
-inference.
+1. **Reads** products, stock and locations from ERPRev, walking the cursor to
+   the end of each list.
+2. **Places the stock.** On hand less reserved, per location, into the shop
+   the location is mapped to. A single ERPRev location goes to **Abuja**
+   automatically and is written into the map; with several, each has to be
+   mapped (or **Map every location to Abuja**). Stock in an unmapped location
+   is counted nowhere and named in the report.
+3. **Recognises what the shop already sells** — the shop was stocked by hand
+   before the ERP was connected, with its own SKUs, photos and copy. In order:
+   an existing link; an ERPRev barcode/SKU equal to the shop's SKU; the ERPRev
+   name (or name + unit) equal to the shop's product name + size, ignoring
+   case, spaces and punctuation. Two items reaching for one size, or a name
+   the shop sells in several sizes with nothing saying which, is **ambiguous**
+   and not linked — a wrong link moves the wrong bottle's stock.
+4. **Writes price and stock onto those sizes and nothing else.** The shop's
+   SKU, size label, photographs, copy, compare-at price and on/off switch are
+   never touched. Other cities' stock is never touched.
+5. **Leaves out** ERPRev items the shop doesn't sell (packaging, raw
+   materials, retired lines) unless **Bring in ERP items the shop doesn't sell
+   yet** is on — then they arrive as drafts, 40 a run.
+6. **Refuses** any pull that would cut the stock it looks after, in the shops
+   it feeds, by more than the guard (25%) — the expired-key-returns-nothing
+   failure. Nothing is written and the refusal is in the log.
 
-It is cheap because ERPRev distinguishes its own failures. `auth.missing`
-means it never found the signature headers; anything else means it found them
-and disliked the signature. So the search is two phases — three requests to
-name the header set, then the orderings, path readings and signature formats
-under that set alone — and it typically lands in **under ten**.
-
-It only ever reads, uses a fresh nonce per attempt so a replay is never
-mistaken for a bad signature, checks the clock first (outside the ±300-second
-window every shape fails identically, and "none worked" would be a lie), and
-stops the moment one is accepted. If none are, it hands back every attempt
-with the ERP's own error code beside it — which is the thing to send ERPRev
-support.
-
-The result is saved into the signing fields, which stay editable: if their
-page later says something different, it is one field and no deploy.
+**Dry run** shows all of it — every match (ERP item → shop size, price, stock),
+what is ambiguous, what is left out, and which shop sizes have no ERPRev item —
+without writing anything. Run it once after the first deploy and read it.
 
 ### What the reader copes with on its own
 
-- **Authentication** — signed HMAC-SHA256 (ERPRev), the token on its own,
+- **Authentication** — ERPRev's signed requests, exactly as documented; for other ERPs the token on its own,
   Bearer, two headers, a token pair, HTTP Basic, or credentials in the query
   string.
 - **Paging** — cursor, `?page=&per_page=`, `?limit=&offset=`, Frappe's, or none.

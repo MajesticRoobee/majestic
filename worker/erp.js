@@ -32,9 +32,8 @@
 import { getSettings, putSettings, allLocations } from "./util.js";
 import { syncCatalogue } from "./integrations.js";
 import {
-  adapterFor, adapterList, authFor, signedHeaders, pageQuery, unwrap,
-  AUTH_STYLES, PAGE_STYLES, ALIASES, SIGNING_DEFAULTS,
-  SIGNING_HEADER_SETS, SIGNING_SHAPES, SIGNING_PATH_MODES, SIGNING_FORMATS,
+  adapterFor, adapterList, authFor, signRequest, pageQuery, unwrap,
+  AUTH_STYLES, PAGE_STYLES, ALIASES,
 } from "./erp-adapters.js";
 
 /**
@@ -92,8 +91,10 @@ export async function erpConfig(env) {
     authStyle: AUTH_STYLES[s.erpAuthStyle] ? s.erpAuthStyle : adapter.defaults.authStyle,
     pageStyle: PAGE_STYLES[s.erpPageStyle] ? s.erpPageStyle : adapter.defaults.pageStyle,
     paths,
-    // Per-field overrides for an ERP whose spelling isn't on the alias list.
-    fields: parseJson(s.erpFields, {}),
+    // Per-field overrides for an ERP whose spelling isn't on the alias list,
+    // over the adapter's own (ERPRev pins the product code to `id`, which is
+    // what its stock rows' `product_id` refers to).
+    fields: { ...(adapter.defaults.fields || {}), ...parseJson(s.erpFields, {}) },
     // Where the array sits in the response, when it isn't somewhere obvious.
     envelopeKey: String(s.erpEnvelopeKey || "").trim() || adapter.defaults.envelopeKey || "",
     // Where the next page's cursor sits, for a cursor-paged API.
@@ -102,10 +103,13 @@ export async function erpConfig(env) {
     pingPath: String(s.erpPingPath || "").trim() || adapter.defaults.pingPath || "",
     specPath: adapter.defaults.specPath || "",
     pageSize: Math.max(1, Math.min(200, parseInt(s.erpPageSize, 10) || adapter.defaults.pageSize || PAGE)),
-    // The signing contract, defaulted to what the vendor documents.
-    signing: { ...SIGNING_DEFAULTS, ...parseJson(s.erpSigning, {}) },
     priceList: String(s.erpPriceList || "").trim(),
     publish: String(s.erpPublish) === "1",
+    // Whether ERP items the shop has no product for are brought in (as drafts)
+    // or left alone. Off by default: an ERP holds packaging, raw materials and
+    // retired lines as well as what the shop sells, and the job asked of it is
+    // keeping the shop's own products' stock right.
+    importNew: String(s.erpImportNew) === "1",
     defaultCat: String(s.erpDefaultCat || "perfumes").trim(),
     // See `groupByUnit`. Off unless the house asks for it.
     groupUnits: String(s.erpGroupUnits) === "1",
@@ -138,15 +142,16 @@ async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) 
   }
 
   // A signed API computes its signature over the path the server will see, so
-  // the query string has to be settled before anything is signed.
+  // the query string has to be settled before anything is signed — and the
+  // URL fetched is the one the signer hands back, with its query in the same
+  // sorted order it signed.
   const headers = { ...auth.headers, accept: "application/json" };
+  let canonical = "";
   if (auth.signed) {
-    Object.assign(headers, await signedHeaders(
-      { key: env.ERP_API_KEY, secret: env.ERP_API_SECRET, signing: cfg.signing },
-      // The URL, not a path string: `pathMode` is the signing contract's to
-      // apply, not this function's to second-guess.
-      { method: "GET", url, body: "" }
-    ));
+    const signed = await signRequest({ key: env.ERP_API_KEY, secret: env.ERP_API_SECRET, method: "GET", url });
+    url = signed.url;
+    canonical = signed.canonical;
+    Object.assign(headers, signed.headers);
   }
 
   let res;
@@ -172,8 +177,14 @@ async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) 
       ? (rawCode.split(/[?#]/)[0].replace(/\/+$/, "").split("/").pop() || "")
       : rawCode;
     const known = {
-      "auth.missing": "No credentials reached the ERP — it found none in the place it looks. That is a different thing from a wrong signature: the packaging is wrong, not the key. Its own words below usually name the header it wanted.",
-      "auth.invalid": "The ERP rejected the key. If it says \"not a v2 key\", the key was issued on an older build — re-issue it from Manage API Access.",
+      "auth.missing": "One of the four X-Api-* headers didn't reach the ERP. If this persists, something between the Worker and the ERP is stripping headers.",
+      "auth.invalid": "The ERP doesn't know this key, or it is disabled or not a v2 key. Check ERP_API_KEY is the key *id* and that the key shows as Active on ERPRev's key-management screen.",
+      "auth.signature_invalid": "The ERP recomputed the signature and got a different answer. The key id was accepted, so the usual cause is ERP_API_SECRET — check it was copied whole, with no space or quote, from the form that showed it once.",
+      "auth.replay_detected": "The ERP saw this nonce before. Every request here uses a fresh one, so a repeat means the same request was sent twice by something in between — run it again.",
+      "auth.key_revoked": "An administrator revoked this key. Issue a new one in ERPRev and update ERP_API_KEY and ERP_API_SECRET.",
+      "auth.key_expired": "This key has expired. Issue a new one in ERPRev and update ERP_API_KEY and ERP_API_SECRET.",
+      "auth.key_locked": "The key is locked for a while after repeated failed attempts. Wait, then run the test once.",
+      "auth.tls_required": "The ERP only answers over HTTPS — the base URL must start with https://.",
       "auth.clock_skew": "The signature timestamp is outside the ERP's ±300-second window. This machine's clock and the ERP's disagree.",
       "auth.insufficient_scope": "The key's scopes don't cover this. It needs products.read, stocks.read and warehouses.read.",
       "auth.insufficient_privilege": "The key authenticated, but its attached user lacks the module privilege. Both gates have to pass — give the service user read on products, stock and warehouses.",
@@ -183,7 +194,7 @@ async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) 
     const hint = known
       ? `${known} (${res.status} ${code})`
       : res.status === 401 || res.status === 403
-        ? `The ERP refused the credentials (${res.status}). Check the key and secret, that "Allow use of API" is ticked in company preferences, and that the signing settings match the ERP's own reference.`
+        ? `The ERP refused the credentials (${res.status}). Check the key and secret, that "Allow use of API" is ticked in company preferences, and that the key is Active in ERPRev.`
         : res.status === 404
           ? `The ERP answered 404 for ${url.pathname}. That endpoint path is wrong — check it against the API reference.`
           : `The ERP answered ${res.status}.`;
@@ -203,6 +214,9 @@ async function erpCall(env, cfg, path, { search = {}, anonymous = false } = {}) 
       if (typeof prob.type === "string" && /^https?:/.test(prob.type)) said += ` (${prob.type})`;
     } catch { /* not JSON — fall through to the raw text */ }
     if (!said && text && text.trim()) said = ` It said: ${text.trim().slice(0, 500)}`;
+    // ERPRev's own advice for a signature mismatch is to print the canonical
+    // string and check it line by line. It holds no secret, so it rides along.
+    if (code === "auth.signature_invalid" && canonical) said += `\n\nWhat was signed:\n${canonical}`;
     const err = new Error(`${hint}${said}`);
     // Carried on the error rather than left to be re-read out of the prose.
     // The negotiator has to tell `auth.missing` (no credentials found) from
@@ -348,165 +362,6 @@ export async function erpPing(env) {
   } catch { /* the reachability answer stands on its own */ }
 
   return { ok: true, vendor: cfg.vendor, ms: Date.now() - started, reached, mapped, ping };
-}
-
-/**
- * Work out the signing contract by asking the ERP.
- *
- * ERPRev's API overview says the signature covers "method, path, timestamp,
- * nonce and body", but the page that pins the exact bytes was not among the
- * reference pages we were given. The options were to wait for it, to guess,
- * or to let the ERP settle it — and the ERP settling it is strictly better
- * than either, because a signature is a yes/no question with an authoritative
- * answer one request away.
- *
- * **The ERP distinguishes the two failures, and that is what makes this cheap
- * rather than brute force.** `auth.missing` means it never found the headers;
- * anything else means it found them and disliked the signature. So:
- *
- *   Phase 1 — one request per header set, reading missing-vs-anything-else.
- *             Three requests name the header set.
- *   Phase 2 — cross the shapes, path modes and formats under that set alone.
- *
- * Three axes crossed rather than a hand-written list of combinations, because
- * a hand-written list is how you miss the one that was right: the first
- * version of this listed X-ERPRev-with-full-path and X-ERPRev-with-t,v1 and
- * the real answer was X-ERPRev with *both*.
- *
- * It is careful about four things:
- *   · **it only ever reads** — every attempt is `GET … ?limit=1`
- *   · **a fresh nonce each time**, since a replayed one is refused on its own
- *     merits and would read as a wrong signature
- *   · **it stops the moment something works**, and writes nothing unless
- *     asked, so a run is safe to repeat
- *   · **it checks the clock first**, because outside the ±300s window every
- *     shape fails identically and "none of them worked" would be a lie
- */
-export async function erpNegotiateSigning(env, { save = false } = {}) {
-  const cfg = await erpConfig(env);
-  if (!cfg.baseUrl) return { ok: false, error: "No base URL yet." };
-  if (!cfg.hasKey) return { ok: false, error: "No credentials — set ERP_API_KEY and ERP_API_SECRET as Worker secrets first." };
-  if (!cfg.paths.products) return { ok: false, error: "No products endpoint to test against." };
-
-  if (cfg.pingPath) {
-    try {
-      const body = await erpCall(env, cfg, cfg.pingPath, { anonymous: true });
-      const t = body.time || body.server_time || body.timestamp || body.now;
-      const skew = t ? Math.abs(Date.now() - new Date(t).getTime()) / 1000 : 0;
-      if (skew > 300) {
-        return { ok: false, error: `The ERP's clock and this one are ${Math.round(skew)}s apart, past its ±300s window. Every signature would be refused as auth.clock_skew whatever its shape, so there is nothing to learn from trying. Fix the clock first.` };
-      }
-    } catch { /* unreachability is reported by the attempts themselves */ }
-  }
-
-  const attempts = [];
-  const finish = async (signing, note) => {
-    if (save) await putSettings(env.DB, { erpSigning: JSON.stringify(signing) });
-    return { ok: true, saved: !!save, signing, summary: note, attempts };
-  };
-
-  // One attempt. Returns "ok" | "wrong-signature" | "no-headers" | "other".
-  const tryIt = async (signing, label) => {
-    try {
-      const body = await erpCall(env, { ...cfg, signing }, cfg.paths.products, { search: { limit: 1 } });
-      attempts.push({ label, result: `accepted — ${unwrap(body, cfg.envelopeKey).length} row(s)`, ok: true });
-      return "ok";
-    } catch (e) {
-      const msg = String(e.message || e);
-      // Not truncated to a stub: the ERP's problem-detail body is the only
-      // thing here that knows what it actually wanted, and cutting it at 150
-      // characters threw that away mid-field.
-      attempts.push({ label, result: msg.slice(0, 600) });
-      if (e.code === "auth.missing" || (!e.code && /auth\.missing/i.test(msg))) return "no-headers";
-      if (e.code?.startsWith("auth.") || e.status === 401 || e.status === 403 || /auth\.|401|403/i.test(msg)) return "wrong-signature";
-      return "other";
-    }
-  };
-
-  // Every unsigned way of presenting a key/secret pair, in one sweep.
-  // Reached from both dead ends: when no carrier is even looked at, and when
-  // one is looked at but no canonical string satisfies it — because the
-  // second can also mean "that header was read as a malformed bearer token",
-  // which is not a signing problem at all.
-  const tryUnsigned = async () => {
-    for (const style of ["bearer", "key-secret-headers", "token", "basic", "raw", "query"]) {
-      const label = `unsigned — ${AUTH_STYLES[style].label}`;
-      try {
-        const body = await erpCall(env, { ...cfg, authStyle: style }, cfg.paths.products, { search: { limit: 1 } });
-        attempts.push({ label, result: `accepted — ${unwrap(body, cfg.envelopeKey).length} row(s)`, ok: true });
-        if (save) await putSettings(env.DB, { erpAuthStyle: style });
-        return {
-          ok: true, saved: !!save, authStyle: style, attempts,
-          summary: `This API isn't signing requests at all — it accepted ${AUTH_STYLES[style].label}. The auth style has been set to that, so there is no canonical string to get right and the Signing requests page isn't needed.`,
-        };
-      } catch (e) {
-        attempts.push({ label, result: String(e.message || e).slice(0, 600) });
-      }
-    }
-    return null;
-  };
-
-  // ---- Phase 1: which headers does it even look at? ----
-  const probe = SIGNING_SHAPES[0];
-  let headerSet = null;
-  for (const set of SIGNING_HEADER_SETS) {
-    const signing = { ...SIGNING_DEFAULTS, ...set, canonical: probe };
-    const verdict = await tryIt(signing, `headers ${set.label}`);
-    if (verdict === "ok") return finish(signing, `The ERP accepted the very first shape: ${probe} with ${set.label}.`);
-    if (verdict === "other") {
-      return { ok: false, error: `Stopped: this isn't a signing problem. ${attempts[attempts.length - 1].result}`, attempts };
-    }
-    // It read the headers and disliked the signature — that names the set.
-    if (verdict === "wrong-signature") { headerSet = set; break; }
-  }
-  // ---- Phase 1b: is it signed at all? ----
-  //
-  // Every carrier above says `auth.missing`. The reading that costs us a week
-  // is "the header names are wrong, fetch the documentation"; the reading
-  // worth testing first is that this API is not signature-authenticated, and
-  // a bearer token or a key/secret pair is all it ever wanted. `hmac` is what
-  // the ERPRev adapter *defaults* to, inferred from one sentence in their
-  // overview — it is not something the ERP has ever confirmed. Six more reads
-  // settle it, and they are the same harmless `GET …?limit=1`.
-  if (!headerSet) {
-    const plain = await tryUnsigned();
-    if (plain) return plain;
-    return {
-      ok: false,
-      error: "Every way of presenting the credentials was answered `auth.missing` — signed four ways, and unsigned six ways. `auth.missing` means the ERP found no credentials at all, which after fourteen attempts is more likely to be about the key than about its packaging: check that the key is a v2 key, that \"Allow use of API\" is ticked in company preferences, and that the base URL points at the API root (a gateway in front of the ERP can strip unknown headers before the ERP ever sees them). The full text of each refusal is below — ERPRev's problem-detail body names what it looked for.",
-      attempts,
-    };
-  }
-
-  // ---- Phase 2: the shape, under the headers it does read ----
-  for (const canonical of SIGNING_SHAPES) {
-    for (const pathMode of SIGNING_PATH_MODES) {
-      for (const signatureFormat of SIGNING_FORMATS) {
-        // Phase 1 already ruled this exact one out.
-        if (canonical === probe && pathMode === "full" && signatureFormat === "hex") continue;
-        const signing = { ...SIGNING_DEFAULTS, ...headerSet, canonical, pathMode, signatureFormat };
-        const verdict = await tryIt(signing, `${canonical} [${pathMode}, ${signatureFormat}]`);
-        if (verdict === "ok") {
-          return finish(signing, `The ERP accepted: ${canonical}, with the path ${pathMode === "pathname" ? "without" : "with"} its query string, the signature as ${signatureFormat === "t,v1" ? "t=<timestamp>,v1=<hex>" : "plain hex"}, in ${headerSet.label}.`);
-        }
-        if (verdict === "other") {
-          return { ok: false, error: `Stopped: this isn't a signing problem. ${attempts[attempts.length - 1].result}`, attempts };
-        }
-      }
-    }
-  }
-
-  // The carrier was read and every shape refused. Before concluding that the
-  // canonical string is exotic, rule out the duller explanation: that the
-  // header was read as a malformed credential of some ordinary kind.
-  const plain = await tryUnsigned();
-  if (plain) return plain;
-
-  return {
-    ok: false,
-    error: `The ERP reads the ${headerSet.label} carrier — that much is settled — but refused every signature shape tried, and no unsigned style worked either. The canonical string is a shape not on the list. The refusals below quote the ERP's own problem-detail text, which names what it expected; send those to ERPRev support, or their "Signing requests" page to us, and it is one field.`,
-    attempts,
-  };
 }
 
 /**
@@ -712,12 +567,18 @@ export async function warehouseMap(db) {
  * always has: that is the case where defaulting would put Lagos's bottles on
  * Abuja's shelf.
  */
-export async function effectiveWarehouseMap(db, defaultShop) {
+export async function effectiveWarehouseMap(db, defaultShop, { seen = [], write = true } = {}) {
   const map = await warehouseMap(db);
   if (!defaultShop || !(await db.prepare("SELECT id FROM locations WHERE id=?").bind(defaultShop).first())) return map;
-  const known = (await db.prepare("SELECT warehouse, location_id FROM erp_warehouses WHERE disabled=0").all()).results;
+  const rows = (await db.prepare("SELECT warehouse, location_id FROM erp_warehouses WHERE disabled=0").all()).results;
+  // Locations on this pull's own stock rows count as known too, so the very
+  // first pull — before anybody has pressed "Fetch locations" — can still see
+  // that the ERP has exactly one.
+  for (const w of seen) if (w && !rows.some((r) => r.warehouse === w)) rows.push({ warehouse: w, location_id: null });
+  const known = rows;
   const out = { "": defaultShop, ...map };
   if (known.length === 1 && !known[0].location_id) {
+    if (!write) { out[known[0].warehouse] = defaultShop; return out; }
     // Written down, not just assumed: when a second location appears later,
     // this one stays the default shop's rather than silently dropping out.
     await db.prepare("UPDATE erp_warehouses SET location_id=? WHERE warehouse=? AND location_id IS NULL").bind(defaultShop, known[0].warehouse).run();
@@ -792,6 +653,161 @@ export function groupByUnit(products) {
   });
 }
 
+/**
+ * Units free to sell per ERP item per shop: on hand less reserved, summed over
+ * every ERP location that maps to the same shop. A location with no shop is
+ * not counted anywhere.
+ */
+export function stockByCode(stock, warehouses) {
+  const out = new Map();
+  for (const s of stock) {
+    const shop = warehouses[s.warehouse];
+    if (!shop || !s.code) continue;
+    const free = Math.max(0, Math.round(s.onHand - s.reserved));
+    const cur = out.get(s.code) || {};
+    cur[shop] = (cur[shop] || 0) + free;
+    out.set(s.code, cur);
+  }
+  return out;
+}
+
+// ---- recognising what the shop already sells -----------------------------
+
+/** "2SEXY2RESIST  EDP – 30 ml" → "2sexy2resistedp30ml". */
+export const matchKey = (s) => String(s || "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, "");
+
+/**
+ * Which of the shop's existing sizes is each ERP item?
+ *
+ * The shop was stocked by hand before the ERP was connected: 188 products,
+ * each size with its own SKU, photographs and copy. The ERP knows the same
+ * bottles by numeric ids. Without this, the first pull would recognise almost
+ * none of them — the ingest only adopts a product whose *slug* happens to
+ * equal the ERP's name — so the real counts would land on a pile of new
+ * drafts while the live products kept whatever the shop had typed in.
+ *
+ * In order, and only ever onto one size that nothing else has claimed:
+ *
+ *   1. **already linked** — an earlier pull or the house tied them together
+ *   2. **barcode / SKU** — an ERP barcode or SKU equal to the shop's SKU
+ *   3. **name** — the ERP's name, or its name plus its unit, equal to the
+ *      shop's product name plus size ("2sexy2resist" + "30ml"), or to the
+ *      product name alone where the product has only one size. Compared with
+ *      case, spaces and punctuation taken out — nothing looser: no stems, no
+ *      edit distance, nothing that could decide two fragrances are one.
+ *
+ * Two ERP items reaching for the same size, or one reaching two sizes, is
+ * *ambiguous* and neither is linked: a wrong link moves the wrong bottle's
+ * stock, which is worse than no link. Pure, so it can be proved without a
+ * database.
+ *
+ * `items`: [{ code, name, options, altCodes }] — normalised ERP products.
+ * `shop`:  [{ id, productId, productName, size, sku, extSource, extId, sizes }]
+ */
+export function matchToShop(items, shop) {
+  const linked = new Map();
+  const bySku = new Map();
+  const byName = new Map();
+  const byProduct = new Map();
+  const add = (m, k, v) => { if (!k) return; if (!m.has(k)) m.set(k, new Set()); m.get(k).add(v); };
+  for (const v of shop) {
+    if (v.extSource === ERP_SOURCE && v.extId) linked.set(String(v.extId), v);
+    add(bySku, matchKey(v.sku), v);
+    add(byName, matchKey(`${v.productName} ${v.size}`), v);
+    if (v.sizes === 1) add(byName, matchKey(v.productName), v);
+    add(byProduct, matchKey(v.productName), v);
+  }
+  const free = (v, code) => !(v.extSource === ERP_SOURCE && v.extId && String(v.extId) !== String(code));
+  const proposals = new Map(); // code -> { variant, how }
+  const ambiguous = [];
+  for (const it of items) {
+    const code = String(it.code || "");
+    if (!code) continue;
+    const had = linked.get(code);
+    if (had) { proposals.set(code, { variant: had, how: "linked" }); continue; }
+    let found = null;
+    for (const [how, keys, idx] of [
+      ["barcode", (it.altCodes || []).map(matchKey), bySku],
+      ["name", [matchKey(it.name), matchKey(`${it.name} ${(it.options || [])[0] || ""}`)], byName],
+    ]) {
+      const cands = new Set();
+      for (const k of new Set(keys)) for (const v of (idx.get(k) || [])) if (free(v, code)) cands.add(v);
+      if (cands.size === 1) { found = { variant: [...cands][0], how }; break; }
+      if (cands.size > 1) { ambiguous.push({ code, name: it.name, why: `matches ${cands.size} of the shop's sizes` }); found = "ambiguous"; break; }
+    }
+    if (!found) {
+      // The shop does sell it — in several sizes — and nothing on the ERP row
+      // says which. That is worth a line in the report, not "not in the shop".
+      // Counting every size, linked or not: that one of them is already tied
+      // to another ERP item doesn't make this row any more specific.
+      const sizes = [...(byProduct.get(matchKey(it.name)) || [])];
+      if (sizes.length > 1) ambiguous.push({ code, name: it.name, why: `the shop sells it in ${sizes.length} sizes and the ERP row doesn't say which` });
+    }
+    if (found && found !== "ambiguous") proposals.set(code, found);
+  }
+  // One size, one ERP item. A size two items both claim goes to neither.
+  const claims = new Map();
+  for (const [code, p] of proposals) {
+    if (!claims.has(p.variant.id)) claims.set(p.variant.id, []);
+    claims.get(p.variant.id).push(code);
+  }
+  const matched = new Map();
+  for (const [code, p] of proposals) {
+    const rivals = claims.get(p.variant.id);
+    if (rivals.length > 1 && p.how !== "linked") {
+      const it = items.find((x) => String(x.code) === code);
+      ambiguous.push({ code, name: it ? it.name : code, why: `${rivals.length} ERP items match "${p.variant.productName} ${p.variant.size}"` });
+      continue;
+    }
+    matched.set(code, p);
+  }
+  const unmatched = items.filter((it) => it.code && !matched.has(String(it.code)) && !ambiguous.some((a) => a.code === String(it.code)));
+  const taken = new Set([...matched.values()].map((p) => p.variant.id));
+  return { matched, ambiguous, unmatched, shopOnly: shop.filter((v) => !taken.has(v.id)) };
+}
+
+/** The shop's sizes, in the shape `matchToShop` reads. One query. */
+export async function shopVariants(db) {
+  const rows = (await db.prepare(
+    `SELECT v.id, v.product_id, v.size, v.sku, v.external_source, v.external_id, p.name AS product_name,
+            (SELECT COUNT(*) FROM variants x WHERE x.product_id = v.product_id) AS sizes
+       FROM variants v JOIN products p ON p.id = v.product_id`
+  ).all()).results;
+  return rows.map((r) => ({
+    id: r.id, productId: r.product_id, productName: r.product_name, size: r.size, sku: r.sku,
+    extSource: r.external_source, extId: r.external_id, sizes: r.sizes,
+  }));
+}
+
+/**
+ * Price and stock onto sizes the shop already has, in a handful of batched
+ * statements rather than several queries per item — a full catalogue in one
+ * cron run would otherwise run into the Worker's per-invocation query limit.
+ *
+ * Writes only what the ERP owns: the price, the per-shop count, and the link
+ * itself. The shop's SKU, size label, photographs, copy, compare-at price and
+ * on/off switch are never touched — which is exactly what the general ingest
+ * could not promise for a product it had not created.
+ *
+ * `updates`: [{ variantId, code, price, stock: { shop: qty } }]
+ */
+export async function applyToShop(db, updates) {
+  const stmts = [];
+  for (const u of updates) {
+    stmts.push(db.prepare(
+      `UPDATE variants SET external_source=?, external_id=?, price_ngn=CASE WHEN ? > 0 THEN ? ELSE price_ngn END WHERE id=?`
+    ).bind(ERP_SOURCE, String(u.code), u.price || 0, Math.round(u.price || 0), u.variantId));
+    for (const [shop, qty] of Object.entries(u.stock || {})) {
+      stmts.push(db.prepare(
+        `INSERT INTO stock (variant_id, location_id, qty) VALUES (?, ?, ?)
+         ON CONFLICT(variant_id, location_id) DO UPDATE SET qty = excluded.qty`
+      ).bind(u.variantId, shop, Math.max(0, Math.round(qty))));
+    }
+  }
+  for (let i = 0; i < stmts.length; i += 80) await db.batch(stmts.slice(i, i + 80));
+  return stmts.length;
+}
+
 export function buildFeed({ products, prices = [], stock = [], warehouses, groups, defaultCat, known = new Set(), groupUnits = false }) {
   if (groupUnits) products = groupByUnit(products);
   const priceOf = new Map();
@@ -808,15 +824,7 @@ export function buildFeed({ products, prices = [], stock = [], warehouses, group
   // locations that all map to one shop, so this adds rather than overwrites.
   // On hand less what is already promised to somebody else: a bottle reserved
   // against an open order is not a bottle we can sell.
-  const stockOf = new Map();
-  for (const s of stock) {
-    const shop = warehouses[s.warehouse];
-    if (!shop || !s.code) continue;
-    const free = Math.max(0, Math.round(s.onHand - s.reserved));
-    const cur = stockOf.get(s.code) || {};
-    cur[shop] = (cur[shop] || 0) + free;
-    stockOf.set(s.code, cur);
-  }
+  const stockOf = stockByCode(stock, warehouses);
 
   const templates = new Map();
   for (const it of products) if (it.isTemplate && it.code) templates.set(it.code, it);
@@ -942,29 +950,43 @@ export function stockGuard({ before, after, pct }) {
 }
 
 /**
- * Units on hand per SKU, for the SKUs this connector manages.
+ * Units on hand per SKU, for the SKUs this connector manages, **in the shops
+ * the ERP feeds**.
  *
  * Scoped to `external_source`, which is what makes the guard's denominator
- * the ERP's own footprint rather than the whole shop — see `stockGuard`.
+ * the ERP's own footprint rather than the whole shop — see `stockGuard`. And
+ * scoped to the ERP's shops, because the feed only ever speaks for those: with
+ * the ERP feeding Abuja, a size's Lagos and Ibadan counts are the shop's own,
+ * and counting them as "before" made an unchanged Abuja feed read as a 66%
+ * drop and refused every pull after the first.
  */
-async function stockBySku(db) {
+async function stockBySku(db, shops = []) {
+  if (!shops.length) return {};
   const rows = (await db.prepare(
     `SELECT v.sku AS sku, COALESCE(SUM(s.qty), 0) AS qty
-       FROM variants v LEFT JOIN stock s ON s.variant_id = v.id
+       FROM variants v LEFT JOIN stock s ON s.variant_id = v.id AND s.location_id IN (${shops.map(() => "?").join(",")})
       WHERE v.sku IS NOT NULL AND v.external_source = ?
       GROUP BY v.sku`
-  ).bind(ERP_SOURCE).all()).results;
+  ).bind(...shops, ERP_SOURCE).all()).results;
   return Object.fromEntries(rows.map((r) => [r.sku, r.qty]));
 }
 
 /**
- * One pull: read the ERP, normalise it, build the feed, check the guard, and
- * hand it to the ingest that has been there all along.
+ * One pull: read the ERP, recognise what the shop already sells, check the
+ * guard, and write price and stock onto it.
  *
- * A dry run does every read and every check and writes nothing — the admin's
- * "show me what this would do" button, and the only honest answer to that
- * question.
+ * Items the shop already has (see `matchToShop`) get their price and per-shop
+ * stock and nothing else. Items it doesn't are left alone unless the house has
+ * switched on "bring in new items", in which case they go through the general
+ * ingest as drafts — at most `NEW_PER_RUN` a run, so one pull of a large ERP
+ * cannot run past the Worker's limits; the rest follow on the next.
+ *
+ * A dry run does every read and every check and writes nothing — and reports
+ * the match, so the house can read which ERP item became which shop size
+ * before anything moves.
  */
+const NEW_PER_RUN = 40;
+
 export async function erpPull(env, { dryRun = false } = {}) {
   const started = Date.now();
   const cfg = await erpConfig(env);
@@ -973,21 +995,12 @@ export async function erpPull(env, { dryRun = false } = {}) {
   }
 
   const db = env.DB;
-  const warehouses = await effectiveWarehouseMap(db, cfg.defaultShop);
-  if (!Object.keys(warehouses).length) {
-    return {
-      ok: false, dryRun,
-      error: "No ERP location is mapped to a shop yet. Until one is, a pull would carry prices with no stock behind them — map them under Integrations → Inventory & catalogue link.",
-    };
-  }
   const groups = await itemGroupMap(db);
 
-  let products, prices, stock;
+  let products, prices, stock, labels = {};
   try {
     const raw = await erpAll(env, cfg, "products");
     products = raw.map((r) => cfg.adapter.normalise.product(r, cfg.fields)).filter((p) => p.code);
-    // A price endpoint is optional: plenty of ERPs put the price on the
-    // product, and the feed builder falls back to it.
     prices = cfg.paths.prices
       ? (await erpAll(env, cfg, "prices", cfg.priceList ? { extra: { price_list: cfg.priceList } } : {}))
           .map((r) => cfg.adapter.normalise.price(r, cfg.fields)).filter((p) => p.code)
@@ -995,34 +1008,73 @@ export async function erpPull(env, { dryRun = false } = {}) {
     stock = cfg.paths.stock
       ? (await erpAll(env, cfg, "stock")).map((r) => cfg.adapter.normalise.stock(r, cfg.fields)).filter((s) => s.code)
       : [];
+    // The ERP's names for its locations, so the map screen and the report
+    // say "Main Store" rather than "#7". One request; optional.
+    if (cfg.paths.warehouses) {
+      try {
+        for (const raw of await erpAll(env, cfg, "warehouses")) {
+          const w = cfg.adapter.normalise.warehouse(raw);
+          if (w.key) labels[w.key] = w.label || w.key;
+        }
+      } catch { labels = {}; }
+    }
   } catch (e) {
     await logSync(db, { ok: 0, note: String(e.message || e), ms: Date.now() - started, dryRun });
     return { ok: false, dryRun, error: String(e.message || e) };
   }
 
-  if (!products.length) {
+  // Locations seen on stock rows join the map screen, so a warehouse the ERP
+  // added since discovery shows up to be assigned rather than silently not
+  // counting — and the first pull can tell whether there is only one.
+  const seen = [...new Set(stock.map((s) => s.warehouse).filter(Boolean))];
+  if (!dryRun && seen.length) {
+    await db.batch(seen.map((w) => db.prepare(
+      `INSERT INTO erp_warehouses (warehouse, label, seen_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(warehouse) DO UPDATE SET label=CASE WHEN excluded.label<>excluded.warehouse THEN excluded.label ELSE erp_warehouses.label END, seen_at=datetime('now')`
+    ).bind(w, labels[w] || w)));
+  }
+  const warehouses = await effectiveWarehouseMap(db, cfg.defaultShop, { seen, write: !dryRun });
+  // Stock the pull could not place, by location — the report names them so
+  // "why is Abuja still showing the old count" has an answer on the screen.
+  const unmapped = {};
+  for (const st of stock) {
+    if (st.warehouse && !warehouses[st.warehouse]) unmapped[st.warehouse] = (unmapped[st.warehouse] || 0) + Math.max(0, st.onHand - st.reserved);
+  }
+
+  const live = products.filter((p) => !p.disabled && !p.isTemplate);
+  if (!live.length) {
     const note = "The ERP returned no products the connector could read. If rows did come back, their field names aren't ones it recognises — run the probe and name them.";
     await logSync(db, { ok: 0, note, ms: Date.now() - started, dryRun });
     return { ok: false, dryRun, error: note, rows: 0 };
   }
 
-  const known = new Set((await db.prepare("SELECT external_id FROM products WHERE external_source=?").bind(ERP_SOURCE).all())
-    .results.map((r) => r.external_id));
+  // What each ERP item costs and holds, per shop.
+  const priceOf = new Map();
+  for (const p of prices) if (p.code && p.price > 0) priceOf.set(p.code, p.price);
+  const stockOf = stockByCode(stock, warehouses);
+  const shops = [...new Set(Object.values(warehouses))];
 
-  const { rows, skipped } = buildFeed({ products, prices, stock, warehouses, groups, defaultCat: cfg.defaultCat, known, groupUnits: cfg.groupUnits });
-  if (!rows.length) {
-    const note = `Read ${products.length} product(s) but none could be turned into a sellable row — ${(skipped[0] && skipped[0].error) || "no prices came through"}.`;
-    await logSync(db, { ok: 0, note, ms: Date.now() - started, dryRun });
-    return { ok: false, dryRun, error: note, rows: 0, readErrors: skipped.slice(0, 20) };
+  // Which of them the shop already sells.
+  const shop = await shopVariants(db);
+  const match = matchToShop(live, shop);
+  const updates = [];
+  const warnings = [];
+  for (const it of live) {
+    const m = match.matched.get(String(it.code));
+    if (!m) continue;
+    let counts = stockOf.get(it.code);
+    if (!counts && it.inlineStock !== undefined && shops.length === 1) {
+      counts = { [shops[0]]: Math.max(0, Math.round(Number(it.inlineStock) || 0)) };
+    }
+    const price = priceOf.get(it.code) || it.inlinePrice || 0;
+    updates.push({ variantId: m.variant.id, sku: m.variant.sku, code: it.code, price, stock: counts, how: m.how, label: `${m.variant.productName} ${m.variant.size}`, name: it.name });
+    if (!counts) warnings.push({ item: it.name || it.code, warning: true, error: "Matched, but the ERP holds no stock figure for it in a mapped location — its count was left as it is." });
   }
 
-  // The guard, on what the feed says about stock versus what is on the shelf.
-  const before = await stockBySku(db);
+  // The guard, on the sizes the ERP already looked after before this pull.
+  const before = await stockBySku(db, shops);
   const after = {};
-  for (const r of rows) {
-    if (!r.stock) continue;
-    after[r.sku] = Object.values(r.stock).reduce((n, q) => n + q, 0);
-  }
+  for (const u of updates) if (u.stock && u.sku) after[u.sku] = Object.values(u.stock).reduce((n, q) => n + q, 0);
   const guard = stockGuard({ before, after, pct: cfg.emptyGuardPct });
   if (!guard.ok) {
     const note = `Refused: this pull would cut ${guard.shareOfManaged}% off the stock this ERP looks after — ${guard.before} units down to ${guard.after}, out of ${guard.managed} it manages — past the ${cfg.emptyGuardPct}% guard. Nothing was changed. If the drop is real, raise the guard or run this once by hand.`;
@@ -1030,23 +1082,46 @@ export async function erpPull(env, { dryRun = false } = {}) {
     return { ok: false, dryRun, error: note, guard };
   }
 
-  const result = await syncCatalogue(env, { source: ERP_SOURCE, items: rows, dryRun, publish: cfg.publish });
+  // Items the shop has never had.
+  let created = { productsCreated: 0, productsAdopted: 0, variantsCreated: 0, variantsUpdated: 0, errors: [] };
+  let newRows = [];
+  const readErrors = [];
+  if (cfg.importNew && match.unmatched.length) {
+    const known = new Set((await db.prepare("SELECT external_id FROM products WHERE external_source=?").bind(ERP_SOURCE).all())
+      .results.map((r) => r.external_id));
+    const feed = buildFeed({ products: match.unmatched, prices, stock, warehouses, groups, defaultCat: cfg.defaultCat, known, groupUnits: cfg.groupUnits });
+    newRows = feed.rows.slice(0, NEW_PER_RUN);
+    for (const x of feed.skipped) (x.warning ? warnings : readErrors).push(x);
+    if (newRows.length) created = await syncCatalogue(env, { source: ERP_SOURCE, items: newRows, dryRun, publish: cfg.publish });
+  }
+
+  if (!dryRun) await applyToShop(db, updates);
   const ms = Date.now() - started;
-  const warnings = skipped.filter((x) => x.warning);
-  const errors = skipped.filter((x) => !x.warning);
+  const byHow = updates.reduce((o, u) => ({ ...o, [u.how]: (o[u.how] || 0) + 1 }), {});
   await logSync(db, {
     ok: 1, ms, dryRun,
-    note: `${dryRun ? "Dry run: " : ""}${rows.length} SKU${rows.length === 1 ? "" : "s"} read${errors.length ? `, ${errors.length} skipped` : ""}${guard.before !== guard.after ? `, stock ${guard.before}→${guard.after} units` : ""}.`,
+    note: `${dryRun ? "Dry run: " : ""}${live.length} ERP item${live.length === 1 ? "" : "s"} · ${updates.length} matched to the shop${match.ambiguous.length ? ` · ${match.ambiguous.length} ambiguous` : ""} · ${match.unmatched.length} not in the shop${cfg.importNew ? ` (${newRows.length} brought in)` : ""}${guard.before !== guard.after ? ` · stock ${guard.before}→${guard.after} units` : ""}.`,
   });
   if (!dryRun) await putSettings(db, { erpLastSync: nowStamp() });
 
   return {
-    ok: true, dryRun, rows: rows.length, guard, vendor: cfg.vendor,
-    warehouses: Object.keys(warehouses).length,
-    ...result,
+    ok: true, dryRun, vendor: cfg.vendor, ms, guard,
+    rows: live.length,
+    warehouses: Object.keys(warehouses).filter(Boolean).length,
+    matched: updates.length, byHow,
+    // What the house needs to read before trusting it.
+    matches: updates.slice(0, 40).map((u) => ({ erp: u.name, shop: u.label, how: u.how, price: u.price, stock: u.stock || null })),
+    ambiguous: match.ambiguous.slice(0, 30),
+    unmappedLocations: Object.entries(unmapped).map(([w, units]) => ({ location: labels[w] ? `${labels[w]} (#${w})` : w, units })),
+    notInShop: match.unmatched.length,
+    notInShopSample: match.unmatched.slice(0, 20).map((p) => p.name || p.code),
+    shopOnly: match.shopOnly.length,
+    shopOnlySample: match.shopOnly.slice(0, 20).map((v) => `${v.productName} ${v.size}`),
+    importNew: cfg.importNew,
+    productsCreated: created.productsCreated, productsAdopted: created.productsAdopted,
+    variantsCreated: created.variantsCreated,
     warnings: warnings.slice(0, 20),
-    readErrors: errors.slice(0, 20),
-    ms,
+    readErrors: readErrors.slice(0, 20),
   };
 }
 
@@ -1094,15 +1169,13 @@ export async function erpStatus(env) {
       vendor: cfg.vendor, on: cfg.on, baseUrl: cfg.baseUrl, hasKey: cfg.hasKey, configured: cfg.configured,
       authStyle: cfg.authStyle, pageStyle: cfg.pageStyle, paths: cfg.paths, fields: cfg.fields,
       envelopeKey: cfg.envelopeKey, cursorKey: cfg.cursorKey, pingPath: cfg.pingPath, pageSize: cfg.pageSize,
-      signing: cfg.signing,
-      priceList: cfg.priceList, publish: cfg.publish, defaultCat: cfg.defaultCat, groupUnits: cfg.groupUnits, defaultShop: cfg.defaultShop,
+      priceList: cfg.priceList, publish: cfg.publish, importNew: cfg.importNew, defaultCat: cfg.defaultCat, groupUnits: cfg.groupUnits, defaultShop: cfg.defaultShop,
       emptyGuardPct: cfg.emptyGuardPct, syncEveryMins: cfg.syncEveryMins, lastSync: cfg.lastSync,
     },
     vendors: adapterList(),
     authStyles: Object.entries(AUTH_STYLES).map(([id, v]) => ({ id, label: v.label })),
     pageStyles: Object.entries(PAGE_STYLES).map(([id, v]) => ({ id, label: v.label })),
     fieldNames: Object.keys(ALIASES),
-    signingDefaults: SIGNING_DEFAULTS,
     stores: (await allLocations(db)).map((l) => ({ id: l.id, city: l.city })),
     warehouses, itemGroups, syncs,
     linkedVariants: owned ? owned.n : 0,

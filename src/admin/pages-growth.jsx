@@ -476,7 +476,7 @@ export function Notifications({ ctx }) {
           )}
           {nType === "email" && (
             <div style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
-              <div style={{ background: "var(--surface-sunken)", padding: "10px 16px", fontSize: 12, color: "var(--text-muted)" }}>To: {f.aud} · From: Majestic Roobee &lt;hello@majesticroobee.com&gt;</div>
+              <div style={{ background: "var(--surface-sunken)", padding: "10px 16px", fontSize: 12, color: "var(--text-muted)" }}>To: {f.aud} · From: Majestic Roobee &lt;hello@majesticroobee.shop&gt;</div>
               <div style={{ padding: "22px 24px" }}>
                 <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", marginBottom: 8 }}>{prevTitle}</div>
                 <div style={{ fontSize: 13, lineHeight: 1.65, color: "var(--text-body)", marginBottom: 14 }}>{prevMsg}</div>
@@ -984,7 +984,7 @@ export function SettingsPage({ ctx }) {
       <div style={section}>
         {sectionHead("SEO", "How the store appears in search results and when shared. Product pages generate their own tags automatically.")}
         <Input label="Site name" value={form.siteName || ""} onChange={set("siteName")} placeholder="Majestic Roobee" />
-        <Input label="The shop's web address" value={form.siteUrl || ""} onChange={set("siteUrl")} placeholder="https://majesticroobee.com"
+        <Input label="The shop's web address" value={form.siteUrl || ""} onChange={set("siteUrl")} placeholder="https://majesticroobee.shop"
           hint="Used in the links we email — a cart-recovery link has no request to take the address from. Set this before switching on the abandoned-cart chase, or those messages go out without their link." />
         <Textarea label="Default meta description" value={form.metaDescription || ""} onChange={set("metaDescription")} rows={2} hint="Used on the homepage and as a fallback (aim for 150–160 characters)." />
         <ImagePicker ctx={ctx} label="Social share image (optional)" value={form.ogImage || ""} onChange={(url) => touch({ ogImage: url })}

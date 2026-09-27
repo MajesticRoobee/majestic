@@ -12,7 +12,7 @@
 //
 //   RESEND_API_KEY   re_… — resend.com → API Keys. "Sending access" is all it
 //                    needs; restrict it to the shop's domain.
-//   RESEND_FROM      "Majestic Roobee <hello@majesticroobee.com>" — the address
+//   RESEND_FROM      "Majestic Roobee <hello@majesticroobee.shop>" — the address
 //                    must be on a domain verified in Resend → Domains, or every
 //                    send is refused.
 //   RESEND_REPLY_TO  optional — where a customer's reply lands, if not the
@@ -23,7 +23,7 @@
 
 import { getSettings } from "./util.js";
 
-const DEFAULT_FROM = "Majestic Roobee <hello@majesticroobee.com>";
+const DEFAULT_FROM = "Majestic Roobee <hello@majesticroobee.shop>";
 
 /** What the admin screen shows, without ever handing back the key itself. */
 export function emailConfig(env) {
