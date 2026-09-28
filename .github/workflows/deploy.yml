@@ -77,11 +77,26 @@ jobs:
 
       # BUILD_SHA rides along so /api/health can name the build that is
       # answering, and the smoke test below can wait for *this* commit.
+      #
+      # The address the checks below test is read off wrangler's own output —
+      # the workers.dev URL of whichever account the token belongs to — so
+      # moving accounts doesn't leave the checks testing the old site. Set the
+      # repository variable SITE_URL to test a custom domain instead.
       - name: Deploy Worker
-        run: npx wrangler deploy --var BUILD_SHA:${{ github.sha }}
+        run: |
+          set -o pipefail
+          npx wrangler deploy --var BUILD_SHA:${{ github.sha }} | tee "$RUNNER_TEMP/deploy.log"
+          url="${SITE_URL_OVERRIDE:-$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1)}"
+          if [ -z "$url" ]; then
+            echo "::error::Couldn't tell the site's address from the deploy output. Set the repository variable SITE_URL (Settings → Secrets and variables → Actions → Variables)."
+            exit 1
+          fi
+          echo "SITE_URL=$url" >> "$GITHUB_ENV"
+          echo "Live at $url"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SITE_URL_OVERRIDE: ${{ vars.SITE_URL }}
 
       # Worker secrets persist across deploys; each is (re)applied only when
       # the matching GitHub secret is present.
@@ -119,7 +134,6 @@ jobs:
       # smoke test came to assert against the old Worker and pass.
       - name: Smoke test live site
         env:
-          SITE_URL: https://majestic-roobee.victorugwu4real.workers.dev
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           echo "— waiting for $EXPECTED_SHA to serve —"
@@ -159,6 +173,4 @@ jobs:
           echo "All smoke tests passed."
 
       - name: Render check (live)
-        env:
-          SITE_URL: https://majestic-roobee.victorugwu4real.workers.dev
         run: node scripts/render-check.mjs

@@ -231,7 +231,7 @@ Three changes close it:
 **Recommendation: disable Workers Builds and keep GitHub Actions.** Two pipelines on
 one push means double deploys and a race — and Workers Builds skips database
 migrations, linting and the render check, so it can ship code ahead of its schema.
-Disable it in the dashboard: **Workers & Pages → majestic-roobee → Settings → Builds
+Disable it in the dashboard: **Workers & Pages → majestic → Settings → Builds
 → disconnect the repository** (or toggle off automatic builds).
 
 **If you'd rather keep Workers Builds instead**, set one of these in that same
