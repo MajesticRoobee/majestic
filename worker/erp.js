@@ -32,7 +32,7 @@
 import { getSettings, putSettings, allLocations } from "./util.js";
 import { syncCatalogue } from "./integrations.js";
 import {
-  adapterFor, adapterList, authFor, signRequest, pageQuery, unwrap,
+  adapterFor, adapterList, authFor, signRequest, pageQuery, unwrap, findKey,
   AUTH_STYLES, PAGE_STYLES, ALIASES,
 } from "./erp-adapters.js";
 
@@ -449,7 +449,9 @@ export async function erpProbe(env, { resource = "products", path = "" } = {}) {
     const fields = FOR[resource] || Object.keys(ALIASES);
     const resolved = {};
     for (const field of fields) {
-      const hit = [cfg.fields[field], ...(ALIASES[field] || [])].find((k) => k && sample[k] !== undefined && sample[k] !== null && sample[k] !== "");
+      // The same loose lookup the reader uses — "ID" answers for "id" — so
+      // what this reports is what a pull will actually read.
+      const hit = findKey(sample, [cfg.fields[field], ...(ALIASES[field] || [])]);
       // Named so the admin reads "the product this row is about", not a
       // variable name only this file understands.
       const label = { stockCode: "the product it is about", stockWarehouse: "the location it is in", onHand: "quantity", code: "code" }[field] || field;
@@ -997,17 +999,24 @@ export async function erpPull(env, { dryRun = false } = {}) {
   const db = env.DB;
   const groups = await itemGroupMap(db);
 
-  let products, prices, stock, labels = {};
+  let rawProducts = [], products, prices, stock, labels = {}, stockRead = { rows: 0, readable: 0, keys: [] };
   try {
-    const raw = await erpAll(env, cfg, "products");
-    products = raw.map((r) => cfg.adapter.normalise.product(r, cfg.fields)).filter((p) => p.code);
+    rawProducts = await erpAll(env, cfg, "products");
+    products = rawProducts.map((r) => cfg.adapter.normalise.product(r, cfg.fields)).filter((p) => p.code);
     prices = cfg.paths.prices
       ? (await erpAll(env, cfg, "prices", cfg.priceList ? { extra: { price_list: cfg.priceList } } : {}))
           .map((r) => cfg.adapter.normalise.price(r, cfg.fields)).filter((p) => p.code)
       : [];
-    stock = cfg.paths.stock
-      ? (await erpAll(env, cfg, "stock")).map((r) => cfg.adapter.normalise.stock(r, cfg.fields)).filter((s) => s.code)
-      : [];
+    const rawStock = cfg.paths.stock ? await erpAll(env, cfg, "stock") : [];
+    stock = rawStock.map((r) => cfg.adapter.normalise.stock(r, cfg.fields)).filter((s) => s.code);
+    // Stock rows that came back but couldn't be read are the one failure
+    // that looks like success — every count silently "unchanged" — so it is
+    // named, with the keys the ERP actually sent.
+    stockRead = {
+      rows: rawStock.length,
+      readable: stock.length,
+      keys: rawStock[0] && typeof rawStock[0] === "object" ? Object.keys(rawStock[0]) : [],
+    };
     // The ERP's names for its locations, so the map screen and the report
     // say "Main Store" rather than "#7". One request; optional.
     if (cfg.paths.warehouses) {
@@ -1043,7 +1052,9 @@ export async function erpPull(env, { dryRun = false } = {}) {
 
   const live = products.filter((p) => !p.disabled && !p.isTemplate);
   if (!live.length) {
-    const note = "The ERP returned no products the connector could read. If rows did come back, their field names aren't ones it recognises — run the probe and name them.";
+    const note = products.length
+      ? `The ERP returned ${products.length} product(s), but all are inactive or templates.`
+      : `The ERP returned ${rawProducts.length} product row(s) but none had a code the reader recognises${rawProducts[0] && typeof rawProducts[0] === "object" ? ` (keys: ${Object.keys(rawProducts[0]).join(", ")})` : ""} — run the probe and name the fields.`;
     await logSync(db, { ok: 0, note, ms: Date.now() - started, dryRun });
     return { ok: false, dryRun, error: note, rows: 0 };
   }
@@ -1054,11 +1065,15 @@ export async function erpPull(env, { dryRun = false } = {}) {
   const stockOf = stockByCode(stock, warehouses);
   const shops = [...new Set(Object.values(warehouses))];
 
+  const warnings = [];
+  if (stockRead.rows && !stockRead.readable) {
+    warnings.push({ item: "Stock", warning: true, error: `${stockRead.rows} stock row(s) came back, but none named a product and a quantity the reader recognises, so no count was changed. Their keys: ${stockRead.keys.join(", ")}. Use “Show me a row” on Stock and name the fields in step 4.` });
+  }
+
   // Which of them the shop already sells.
   const shop = await shopVariants(db);
   const match = matchToShop(live, shop);
   const updates = [];
-  const warnings = [];
   for (const it of live) {
     const m = match.matched.get(String(it.code));
     if (!m) continue;
@@ -1100,7 +1115,7 @@ export async function erpPull(env, { dryRun = false } = {}) {
   const byHow = updates.reduce((o, u) => ({ ...o, [u.how]: (o[u.how] || 0) + 1 }), {});
   await logSync(db, {
     ok: 1, ms, dryRun,
-    note: `${dryRun ? "Dry run: " : ""}${live.length} ERP item${live.length === 1 ? "" : "s"} · ${updates.length} matched to the shop${match.ambiguous.length ? ` · ${match.ambiguous.length} ambiguous` : ""} · ${match.unmatched.length} not in the shop${cfg.importNew ? ` (${newRows.length} brought in)` : ""}${guard.before !== guard.after ? ` · stock ${guard.before}→${guard.after} units` : ""}.`,
+    note: `${dryRun ? "Dry run: " : ""}${stockRead.rows && !stockRead.readable ? "STOCK UNREADABLE · " : ""}${live.length} ERP item${live.length === 1 ? "" : "s"} · ${updates.length} matched to the shop${match.ambiguous.length ? ` · ${match.ambiguous.length} ambiguous` : ""} · ${match.unmatched.length} not in the shop${cfg.importNew ? ` (${newRows.length} brought in)` : ""}${guard.before !== guard.after ? ` · stock ${guard.before}→${guard.after} units` : ""}.`,
   });
   if (!dryRun) await putSettings(db, { erpLastSync: nowStamp() });
 
@@ -1112,6 +1127,7 @@ export async function erpPull(env, { dryRun = false } = {}) {
     // What the house needs to read before trusting it.
     matches: updates.slice(0, 40).map((u) => ({ erp: u.name, shop: u.label, how: u.how, price: u.price, stock: u.stock || null })),
     ambiguous: match.ambiguous.slice(0, 30),
+    stockRead,
     unmappedLocations: Object.entries(unmapped).map(([w, units]) => ({ location: labels[w] ? `${labels[w]} (#${w})` : w, units })),
     notInShop: match.unmatched.length,
     notInShopSample: match.unmatched.slice(0, 20).map((p) => p.name || p.code),

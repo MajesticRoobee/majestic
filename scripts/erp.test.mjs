@@ -194,7 +194,11 @@ check('status "Inactive" is not', read({ sku: "A", status: "Inactive" }).disable
 check("a row with no opinion is for sale", read({ sku: "A" }).disabled, false);
 
 check("an ERP description arrives as plain text, not as somebody's HTML",
-  read({ sku: "A", description: "<p>Oud &amp; saffron.</p>" }).description, "Oud &amp; saffron.");
+  read({ sku: "A", description: "<p>Oud &amp; saffron.</p>" }).description, "Oud & saffron.");
+// Entities are decoded before tags are stripped, so an *encoded* tag is
+// stripped too rather than surviving as text.
+check("...including a tag that arrived HTML-encoded",
+  read({ sku: "A", description: "&lt;b&gt;Bold&lt;/b&gt; claim" }).description, "Bold claim");
 
 // The escape hatch, for the field this reader cannot guess.
 check("a named override beats every alias",
@@ -523,6 +527,33 @@ check("...and the sku is kept for matching the shop's", pinned.altCodes.includes
 
 const later = matchToShop([erpItem(104, "00.1 diffuser")], shopRows.map((v) => (v.id === 4 ? { ...v, extSource: ERP_SOURCE, extId: "103" } : v)));
 check("a size-less name stays ambiguous after one of its sizes is linked", [later.ambiguous.length, later.unmatched.length], [1, 0]);
+
+// ---- What the live ERPRev actually sends --------------------------------
+console.log("\nThe live ERPRev's rows — PascalCase, strings, HTML entities");
+
+// Verbatim from the probe on the house's own ERPRev (27 Sep). Every product
+// came back like this, and the reader — whose aliases were all lower-case —
+// found no code in any of 534 rows and read the catalogue as empty.
+const liveRow = { SN: "1", ID: "1", Status: "1", Taxable: "1", Name: "OUD ISPAHAN  30ML", Measure: "Pcs", Currency: " &#x20A6;  ", ReOrderLevel: "0", Barcode: "P000001", Description: "", CategoryID: "2", ClassID: "1", Category: "DESIGNER FRAGRANCE OIL", Class: "N/A", ThumbImage: "" };
+const live = adapterFor("erprev").normalise.product(liveRow, ADAPTERS.erprev.defaults.fields);
+check("its code is its ID", live.code, "1");
+check("its name, with the double space closed up", live.name, "OUD ISPAHAN 30ML");
+check("its category", live.group, "DESIGNER FRAGRANCE OIL");
+check("Status \"1\" is live", live.disabled, false);
+check("Status \"0\" is not", adapterFor("erprev").normalise.product({ ...liveRow, Status: "0" }, ADAPTERS.erprev.defaults.fields).disabled, true);
+check("its barcode is kept for matching", live.altCodes, ["P000001"]);
+check("no price on the row reads as no price, not as zero naira", live.inlinePrice, 0);
+check("the SN serial number is never mistaken for the code", live.code === liveRow.SN && liveRow.SN !== liveRow.ID, false);
+check("HTML entities are decoded", adapterFor("erprev").normalise.product({ ...liveRow, Name: "Oud &amp; Rose &#x20A6;" }, {}).name, "Oud & Rose ₦");
+check("a stock row in the same style reads",
+  adapterFor("erprev").normalise.stock({ SN: "1", ID: "77", ProductID: "1", WarehouseID: "3", QtyOnHand: "12", ReservedQty: "2" }, {}),
+  { code: "1", warehouse: "3", onHand: 12, reserved: 2 });
+check("...and a stock row's own ID is still never the product", adapterFor("erprev").normalise.stock({ ID: "77", Quantity: "1" }, {}).code, "");
+check("a location row in the same style reads",
+  adapterFor("erprev").normalise.warehouse({ ID: "3", Name: "Abuja Main Store" }), { key: "3", label: "Abuja Main Store", isGroup: false, disabled: false });
+check("an exact spelling still wins over a loose one", adapterFor("erprev").normalise.product({ id: "exact", ID: "loose", name: "x" }, ADAPTERS.erprev.defaults.fields).code, "exact");
+const liveMatch = matchToShop([live], [{ id: 9, productId: "oud-ispahan", productName: "Oud Ispahan", size: "30ml", sku: "oud-ispahan-30ml", sizes: 2 }, { id: 10, productId: "oud-ispahan", productName: "Oud Ispahan", size: "50ml", sku: "oud-ispahan-50ml", sizes: 2 }]);
+check("\"OUD ISPAHAN  30ML\" finds the shop's Oud Ispahan 30ml", liveMatch.matched.get("1") && liveMatch.matched.get("1").variant.sku, "oud-ispahan-30ml");
 
 console.log(failures ? `\n${failures} failing` : "\nAll good");
 process.exit(failures ? 1 : 0);

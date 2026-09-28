@@ -459,7 +459,10 @@ without writing anything. Run it once after the first deploy and read it.
 - **Paging** — cursor, `?page=&per_page=`, `?limit=&offset=`, Frappe's, or none.
 - **Envelopes** — `{data:[…]}`, `{results:[…]}`, `{items:[…]}`, a bare array,
   Laravel's paginated `{data:{data:[…]}}`, or a key you name.
-- **Field names** — every common spelling, with a per-field override. Stock
+- **Field names** — every common spelling, in any case or separator style
+  (`ID`, `id`, `ProductID`, `product_id` are one name — ERPRev's live API
+  answers in PascalCase), with a per-field override. HTML entities in text
+  (`&amp;`, `&#x20A6;`) are decoded. Stock
   rows have their own list, because a stock row's `id` is the stock record's,
   not the product's, and joining on it would attach every quantity to the
   wrong product with nothing anywhere reporting an error.

@@ -275,6 +275,7 @@ function ErpPanel({ erp, ctx, reload }) {
   const [result, setResult] = useState(null);
   const [form, setForm] = useState(null);
   const [showFields, setShowFields] = useState(false);
+  const [probeOf, setProbeOf] = useState("products");
   useEffect(() => { if (erp && !form) setForm({ ...erp.config }); }, [erp]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!erp || !form) return null;
 
@@ -381,6 +382,7 @@ function ErpPanel({ erp, ctx, reload }) {
     `${d.dryRun ? "Dry run — nothing was written.\n" : ""}${d.rows} ERP item(s) read. ${d.matched} matched to sizes the shop already sells${d.byHow ? ` (${Object.entries(d.byHow).map(([k, v]) => `${v} by ${k}`).join(", ")})` : ""}.`,
     ...(d.matches || []).map((m) => `· ${m.erp} → ${m.shop} · ${money(m.price)} · ${stockText(m.stock)}`),
     d.matched > (d.matches || []).length ? `  …and ${d.matched - d.matches.length} more.` : "",
+    d.stockRead ? `\nStock: ${d.stockRead.readable} of ${d.stockRead.rows} stock row(s) read.` : "",
     d.unmappedLocations && d.unmappedLocations.length ? `\nStock in ERP locations that aren't mapped to a shop, so not counted — map them in step 5:\n${d.unmappedLocations.map((u) => `· ${u.location}: ${u.units} unit(s)`).join("\n")}` : "",
     d.ambiguous && d.ambiguous.length ? `\nNot linked — ambiguous (link these by hand or make the names unique):\n${d.ambiguous.map((a) => `· ${a.name}: ${a.why}`).join("\n")}` : "",
     d.notInShop ? `\n${d.notInShop} ERP item(s) the shop doesn't sell${d.importNew ? ` — ${d.productsCreated || 0} brought in as drafts this run` : " — left alone (switch on “bring in new ERP items” to import them as drafts)"}: ${d.notInShopSample.join(", ")}${d.notInShop > d.notInShopSample.length ? "…" : ""}` : "",
@@ -489,7 +491,18 @@ function ErpPanel({ erp, ctx, reload }) {
             <Button variant="secondary" size="sm" disabled={busy === "config"} onClick={saveConfig}>{busy === "config" ? "Saving…" : "Save"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "test"} onClick={() => run("test", "/api/admin/erp/test", {})}>{busy === "test" ? "Calling…" : "Test the connection"}</Button>
             <Button variant="secondary" size="sm" disabled={busy === "spec"} onClick={() => run("spec", "/api/admin/erp/spec", {})}>{busy === "spec" ? "Reading…" : "Read the API’s own spec"}</Button>
-            <Button variant="secondary" size="sm" disabled={busy === "probe"} onClick={() => run("probe", "/api/admin/erp/probe", { resource: "products" })}>{busy === "probe" ? "Reading…" : "Show me a row"}</Button>
+            <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              {/* Products, stock and locations are three different row shapes,
+                  and a stock row that can't be read is the failure that looks
+                  like success — so each can be looked at. */}
+              <select value={probeOf} onChange={(e) => setProbeOf(e.target.value)} style={{ ...selStyle, padding: "7px 10px" }} aria-label="Which list to show a row from">
+                <option value="products">Products</option>
+                <option value="stock">Stock</option>
+                <option value="warehouses">Locations</option>
+                <option value="groups">Categories</option>
+              </select>
+              <Button variant="secondary" size="sm" disabled={busy === "probe"} onClick={() => run("probe", "/api/admin/erp/probe", { resource: probeOf })}>{busy === "probe" ? "Reading…" : "Show me a row"}</Button>
+            </span>
           </div>
           {testNote(out("test"))}
           {specNote(out("spec"))}
