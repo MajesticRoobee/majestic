@@ -30,11 +30,6 @@ ADMIN_TOKEN_SECRET=dev-only-change-me
 # ERP_API_KEY=k_1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
 # ERP_API_SECRET=s_shown_once_copy_it_now_0000000
 
-# ERPRev → the shop, pushed (Admin → Integrations → "Instant updates from
-# ERPRev"). The signing secret ERPRev shows when you create the webhook. Unset,
-# every delivery to /api/erp/webhook is refused.
-# ERP_WEBHOOK_SECRET=whsec_xxx
-
 # Email, through Resend. RESEND_API_KEY is from resend.com → API Keys ("Sending
 # access"); RESEND_FROM must be on a domain verified in Resend → Domains.
 # Unset, emails are recorded as "queued" in Admin → Integrations instead.

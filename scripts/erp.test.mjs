@@ -20,7 +20,7 @@
 // the wrong city) and `stockGuard` (wrong, and an expired key empties the
 // shop silently).
 import { createHash, createHmac } from "node:crypto";
-import { buildFeed, groupByUnit, stockGuard, matchToShop, matchKey, stockByCode, ERP_SOURCE } from "../worker/erp.js";
+import { buildFeed, groupByUnit, stockGuard, matchToShop, matchKey, stockByCode, readStock, ERP_SOURCE } from "../worker/erp.js";
 import {
   adapterFor, authFor, unwrap, pageQuery, ADAPTERS, ALIASES,
   signRequest, canonicalRequest, sortedQuery, sha256Hex, newNonce, hmacHex,
@@ -549,6 +549,31 @@ check("a stock row in the same style reads",
   adapterFor("erprev").normalise.stock({ SN: "1", ID: "77", ProductID: "1", WarehouseID: "3", QtyOnHand: "12", ReservedQty: "2" }, {}),
   { code: "1", warehouse: "3", onHand: 12, reserved: 2 });
 check("...and a stock row's own ID is still never the product", adapterFor("erprev").normalise.stock({ ID: "77", Quantity: "1" }, {}).code, "");
+
+// **A missing quantity is not a zero.** Read as 0, a stock row whose quantity
+// sits under a name the reader doesn't know would empty the shelf, and the
+// pull would look clean. It has to read as "no figure" and change nothing.
+const revStock = adapterFor("erprev").normalise.stock;
+check("a stock row with no quantity the reader knows has no figure, not 0",
+  revStock({ ProductID: "1", WarehouseID: "3", UnitsHeld: "12" }, {}).onHand, null);
+check("...while a quantity that really is 0 reads as 0",
+  revStock({ ProductID: "1", WarehouseID: "3", Quantity: "0" }, {}).onHand, 0);
+check("...and a quantity field the house named in step 4 is read",
+  revStock({ ProductID: "1", WarehouseID: "3", UnitsHeld: "12" }, { onHand: "UnitsHeld" }).onHand, 12);
+const unknownQty = readStock([
+  { ProductID: "1", WarehouseID: "3", UnitsHeld: "12" },
+  { ProductID: "2", WarehouseID: "3", UnitsHeld: "4" },
+], revStock, {});
+check("rows with no quantity are left out of the pull, so no shelf is set",
+  [unknownQty.stock.length, stockByCode(unknownQty.stock, { 3: "abuja" }).size], [0, 0]);
+check("...and the pull reports them unread, with the keys the ERP sent",
+  unknownQty.stockRead, { rows: 2, readable: 0, keys: ["ProductID", "WarehouseID", "UnitsHeld"] });
+const mixedQty = readStock([
+  { ProductID: "1", WarehouseID: "3", Quantity: "5" },
+  { ProductID: "2", WarehouseID: "3", Quantity: null },
+], revStock, {});
+check("a row with a figure still counts beside one without",
+  [mixedQty.stockRead.readable, Object.fromEntries(stockByCode(mixedQty.stock, { 3: "abuja" }))], [1, { 1: { abuja: 5 } }]);
 check("a location row in the same style reads",
   adapterFor("erprev").normalise.warehouse({ ID: "3", Name: "Abuja Main Store" }), { key: "3", label: "Abuja Main Store", isGroup: false, disabled: false });
 check("an exact spelling still wins over a loose one", adapterFor("erprev").normalise.product({ id: "exact", ID: "loose", name: "x" }, ADAPTERS.erprev.defaults.fields).code, "exact");

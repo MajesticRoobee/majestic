@@ -18,9 +18,11 @@
 //
 // **Why a pull and not a webhook.** Webhooks drop — a network blip, a deploy,
 // a Worker restart mid-request — and a stock figure that silently drifts is
-// worse than one that is fifteen minutes old. The scheduled pull is the
-// reconciler, and it is the only transport that also works when the ERP sits
-// behind an office firewall with no inbound path at all.
+// worse than one that is an hour old. The scheduled pull is the reconciler,
+// and it is the only transport that also works when the ERP sits behind an
+// office firewall with no inbound path at all. It is also the only one there
+// is: ERPRev sends webhooks only on its Ultimate plan, which the house is not
+// on, so the inbound receiver was removed (migrations/0029).
 //
 // **Field ownership.** The ERP owns price and stock. The store owns the name,
 // the description, the photography, the category and the shelf order — which
@@ -660,6 +662,27 @@ export function groupByUnit(products) {
  * every ERP location that maps to the same shop. A location with no shop is
  * not counted anywhere.
  */
+/**
+ * The stock rows a pull may act on, and a count of the ones it can't.
+ *
+ * A row counts only when it names a product *and* a quantity. One with no
+ * quantity the reader recognises would otherwise read as 0 and empty the
+ * shelf; left out, its shelf keeps the count it has. Rows that came back but
+ * couldn't be read are the one failure that looks like success, so the count
+ * and the keys the ERP sent go into the report.
+ */
+export function readStock(rawStock, normalise, fields) {
+  const stock = rawStock.map((r) => normalise(r, fields)).filter((s) => s.code && s.onHand !== null);
+  return {
+    stock,
+    stockRead: {
+      rows: rawStock.length,
+      readable: stock.length,
+      keys: rawStock[0] && typeof rawStock[0] === "object" ? Object.keys(rawStock[0]) : [],
+    },
+  };
+}
+
 export function stockByCode(stock, warehouses) {
   const out = new Map();
   for (const s of stock) {
@@ -1008,15 +1031,7 @@ export async function erpPull(env, { dryRun = false } = {}) {
           .map((r) => cfg.adapter.normalise.price(r, cfg.fields)).filter((p) => p.code)
       : [];
     const rawStock = cfg.paths.stock ? await erpAll(env, cfg, "stock") : [];
-    stock = rawStock.map((r) => cfg.adapter.normalise.stock(r, cfg.fields)).filter((s) => s.code);
-    // Stock rows that came back but couldn't be read are the one failure
-    // that looks like success — every count silently "unchanged" — so it is
-    // named, with the keys the ERP actually sent.
-    stockRead = {
-      rows: rawStock.length,
-      readable: stock.length,
-      keys: rawStock[0] && typeof rawStock[0] === "object" ? Object.keys(rawStock[0]) : [],
-    };
+    ({ stock, stockRead } = readStock(rawStock, cfg.adapter.normalise.stock, cfg.fields));
     // The ERP's names for its locations, so the map screen and the report
     // say "Main Store" rather than "#7". One request; optional.
     if (cfg.paths.warehouses) {
@@ -1068,6 +1083,8 @@ export async function erpPull(env, { dryRun = false } = {}) {
   const warnings = [];
   if (stockRead.rows && !stockRead.readable) {
     warnings.push({ item: "Stock", warning: true, error: `${stockRead.rows} stock row(s) came back, but none named a product and a quantity the reader recognises, so no count was changed. Their keys: ${stockRead.keys.join(", ")}. Use “Show me a row” on Stock and name the fields in step 4.` });
+  } else if (stockRead.readable < stockRead.rows) {
+    warnings.push({ item: "Stock", warning: true, error: `${stockRead.rows - stockRead.readable} of ${stockRead.rows} stock row(s) had no product or no quantity the reader recognises; those shelves were left as they are.` });
   }
 
   // Which of them the shop already sells.
@@ -1113,9 +1130,15 @@ export async function erpPull(env, { dryRun = false } = {}) {
   if (!dryRun) await applyToShop(db, updates);
   const ms = Date.now() - started;
   const byHow = updates.reduce((o, u) => ({ ...o, [u.how]: (o[u.how] || 0) + 1 }), {});
+  // Every run says how much stock it read, so a log of pulls that all read
+  // 0 units stands out instead of passing as "nothing changed".
+  const units = Object.values(after).reduce((n, q) => n + q, 0);
+  const stockNote = stockRead.rows && !stockRead.readable
+    ? ` · STOCK UNREADABLE (keys: ${stockRead.keys.join(", ")})`
+    : ` · ${stockRead.readable} of ${stockRead.rows} stock rows read · ${guard.before !== guard.after ? `${guard.before}→${guard.after}` : units} units on matched sizes`;
   await logSync(db, {
     ok: 1, ms, dryRun,
-    note: `${dryRun ? "Dry run: " : ""}${stockRead.rows && !stockRead.readable ? "STOCK UNREADABLE · " : ""}${live.length} ERP item${live.length === 1 ? "" : "s"} · ${updates.length} matched to the shop${match.ambiguous.length ? ` · ${match.ambiguous.length} ambiguous` : ""} · ${match.unmatched.length} not in the shop${cfg.importNew ? ` (${newRows.length} brought in)` : ""}${guard.before !== guard.after ? ` · stock ${guard.before}→${guard.after} units` : ""}.`,
+    note: `${dryRun ? "Dry run: " : ""}${live.length} ERP item${live.length === 1 ? "" : "s"} · ${updates.length} matched to the shop${match.ambiguous.length ? ` · ${match.ambiguous.length} ambiguous` : ""} · ${match.unmatched.length} not in the shop${cfg.importNew ? ` (${newRows.length} brought in)` : ""}${stockNote}.`,
   });
   if (!dryRun) await putSettings(db, { erpLastSync: nowStamp() });
 
