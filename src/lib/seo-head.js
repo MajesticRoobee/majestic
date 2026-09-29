@@ -11,24 +11,26 @@
 
 import { aboutContent } from "./about.js";
 import { consultationContent } from "./consultation.js";
+import { FAQS } from "./faqs.js";
 
 const SITE = "Majestic Roobee";
 
-// The house's own words per category. Anything not named here gets a title and
-// description built from the category's own label and line, so a category added
-// in the admin still arrives with a sensible head.
+// The house's own words per category — perfumes, perfume oils and home
+// fragrance exactly as the website copy brief gives them. Anything not named
+// here gets a title and description built from the category's own label and
+// line, so a category added in the admin still arrives with a sensible head.
 export const CATEGORY_HEADS = {
   perfumes: {
-    title: "Perfumes for Men and Women in Nigeria",
-    desc: "Shop men's and women's perfumes from Majestic Roobee — long-lasting, non-toxic fragrances. Delivery across Nigeria.",
+    title: "Men's and Women's Perfumes in Nigeria | Luxury Fragrances",
+    desc: "Explore men's and women's perfumes from Majestic Roobee. Discover feminine, sensual, floral, warm, bold, commanding and captivating fragrances for every mood and occasion.",
   },
   "perfume-oils": {
-    title: "Perfume Oils in Nigeria",
-    desc: "Shop concentrated perfume oils from Majestic Roobee, including designer-inspired and custom blends. Delivery across Nigeria.",
+    title: "Perfume Oils in Nigeria | Luxury Fragrance Oils",
+    desc: "Shop luxurious perfume oils from Majestic Roobee. Discover concentrated fragrances designed for an intimate and beautiful scent experience.",
   },
   home: {
-    title: "Home Fragrance in Nigeria — Candles, Diffusers & Room Sprays",
-    desc: "Candles, diffusers and room sprays from Majestic Roobee. Delivery across Nigeria.",
+    title: "Home Fragrance in Nigeria | Candles, Diffusers & Room Sprays",
+    desc: "Make your space smell as beautiful as it looks with Majestic Roobee candles, diffusers and room sprays.",
   },
   mist: {
     title: "Body Mists in Nigeria",
@@ -44,10 +46,15 @@ export const CATEGORY_HEADS = {
   },
 };
 
-const DEFAULT_DESC = "Shop perfumes, perfume oils, body mists, feminine care, wellness and home fragrance from Majestic Roobee. Stores in Abuja, Lagos and Ibadan, with delivery across Nigeria.";
+const DEFAULT_DESC = "Discover luxurious perfumes, fragrance oils, body mists, feminine care, wellness products and home fragrances from Majestic Roobee. Find your signature scent and shop online in Nigeria.";
 
-/** Plain text, one line, cut at a word near `max` — what a description meta can hold. */
-export function clip(text, max = 158) {
+/**
+ * Plain text, one line, cut at a word near `max` — what a description meta can
+ * hold. 240 rather than the ~155 a results page shows: the house's written
+ * descriptions run to about 215 characters and are kept whole, and search
+ * trims the display itself.
+ */
+export function clip(text, max = 240) {
   const s = String(text || "").replace(/[#>*_`]+/g, " ").replace(/\s+/g, " ").trim();
   if (s.length <= max) return s;
   const cut = s.slice(0, max - 1);
@@ -285,15 +292,28 @@ export function headFor({
   const consult = consultationContent(settings);
   const pageMeta = {
     home: {
-      title: `${siteName} — Perfumes, Body Mists & Feminine Care in Nigeria`, path: "/", desc: baseDesc,
+      title: `Luxury Perfumes & Fragrance Oils, Feminine Care and Wellness Products in Nigeria | ${siteName}`, path: "/", desc: baseDesc,
       jsonLd: graph(org, website),
     },
     shop: {
-      title: `Shop Perfumes, Perfume Oils & Body Mists | ${siteName}`, path: "/shop",
-      desc: "Shop perfumes, perfume oils, body mists, candles, diffusers, feminine care and wellness products from Majestic Roobee. Delivery across Nigeria.",
+      title: `Shop Perfumes, Fragrance Oils & Body Mists, Home Fragrance and Feminine Care in Nigeria | ${siteName}`, path: "/shop",
+      desc: "Shop perfumes, perfume oils, body mists, candles, diffusers, room sprays, feminine care, and wellness products from Majestic Roobee. Discover your next signature scent.",
     },
     about: { title: about.seoTitle, path: "/about", desc: about.seoDesc },
-    faq: { title: `FAQs | ${siteName}`, path: "/faq", desc: "Choosing a perfume, making it last, perfume oils, delivery across Nigeria and returns." },
+    faq: {
+      title: `Frequently Asked Questions | ${siteName}`, path: "/faq",
+      desc: "How to choose a perfume, make it last longer and layer your fragrances, what perfume oil is, delivery across Nigeria and returns.",
+      // The questions and answers as structured data, so search can show them
+      // under the result.
+      jsonLd: graph({
+        "@type": "FAQPage",
+        mainEntity: FAQS.map((f) => ({
+          "@type": "Question",
+          name: f.q,
+          acceptedAnswer: { "@type": "Answer", text: f.a.join(" ") },
+        })),
+      }, org),
+    },
     track: { title: `Track Your Order | ${siteName}`, path: "/track", desc: `Track your ${siteName} order.` },
     contact: { title: `Contact Us | ${siteName}`, path: "/contact", desc: `Contact ${siteName} on WhatsApp, email or live chat.` },
     wishlist: { title: `Wishlist | ${siteName}`, path: "/wishlist", desc: "", noindex: true },

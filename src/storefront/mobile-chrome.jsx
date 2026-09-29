@@ -14,6 +14,7 @@ import React, { useState } from "react";
 import { catTree, countIn } from "../lib/categories.js";
 import { ImageSlot } from "../ds/components.jsx";
 import { AnnouncementBar, ConsentBanner, LeaveNudge, ChatWidget } from "./chrome.jsx";
+import { footerColumns } from "./footer-links.js";
 import { I, BtnM, Sheet, Radio, Stepper, FreeShipBar, RailEnd, chipTone, eyebrowM, fieldM } from "./mobile-ui.jsx";
 
 const LOGO = { dark: "/logo.png", light: "/logo-light.png" };
@@ -512,38 +513,23 @@ function MobileFooter({ ctx }) {
     <footer style={{ background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", padding: "28px 20px", marginTop: 32, display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ alignSelf: "flex-start" }}><Logo ctx={ctx} height={40} tone="light" /></div>
       {s.footerTagline && <p style={{ fontSize: 13, lineHeight: 1.6, margin: 0, color: "var(--mr-cream)" }}>{s.footerTagline}</p>}
+      <div style={{ ...head, paddingBottom: 0, marginTop: -8 }}>Elevate your smellgame</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "18px 12px" }}>
-        <div style={col}>
-          <div style={head}>Shop</div>
-          <button style={a} onClick={() => goShop(ctx)}>All products</button>
-          {SHELVES.map((sh) => <button key={sh.fSeg} style={a} onClick={() => goShop(ctx, { fSeg: sh.fSeg })}>{sh.label}</button>)}
-        </div>
-        <div style={col}>
-          <div style={head}>Help</div>
-          <button style={a} onClick={() => ctx.nav("track")}>Track order</button>
-          <button style={a} onClick={() => ctx.nav("faq")}>FAQs</button>
-          <button style={a} onClick={() => ctx.nav("locations")}>Our stores</button>
-          <button style={a} onClick={() => ctx.nav("about")}>Our story</button>
-          <button style={a} onClick={() => ctx.nav("contact")}>Contact us</button>
-        </div>
+        {footerColumns(ctx).map((c) => (
+          <div key={c.title} style={col}>
+            <div style={head}>{c.title}</div>
+            {c.links.map((l) => (l.external
+              ? <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" style={{ ...a, textDecoration: "none" }}>{l.label}</a>
+              : <button key={l.label} style={a} onClick={l.go}>{l.label}</button>))}
+          </div>
+        ))}
       </div>
-      {ctx.pages.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
-          {ctx.pages.map((pg) => <button key={pg.slug} style={{ ...a, fontSize: 12.5, color: "var(--text-on-dark-muted)" }} onClick={() => ctx.nav("info", { pageSlug: pg.slug })}>{pg.title}</button>)}
-        </div>
-      )}
       <div style={{ height: 1, background: "var(--gold-line)" }} />
       <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
         {[s.contactPhone && `WhatsApp ${s.contactPhone}`, s.contactEmail].filter(Boolean).join(" · ")}
         {(s.contactPhone || s.contactEmail) && <br />}
         © {new Date().getFullYear()} Majestic Roobee
         <br />
-        {/* The published pages above already name the privacy policy when
-            there is one; only link it here when they don't. */}
-        {!ctx.pages.some((pg) => pg.slug === "privacy") && <>
-          <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--text-on-dark-muted)", textDecoration: "underline" }}>Privacy &amp; cookies</a>
-          {" · "}
-        </>}
         <a href="/admin/" style={{ color: "var(--text-on-dark-muted)", textDecoration: "underline" }}>Staff sign in</a>
       </div>
     </footer>

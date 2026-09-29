@@ -125,6 +125,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Headings take the heading leading rather than the body's, so a heading that
+   wraps to two lines reads as one heading, not two. */
+h1, h2, h3 { line-height: var(--lh-heading); }
+
 a { color: var(--mr-purple-700); text-decoration: none; transition: color var(--dur-fast) var(--ease-standard); }
 a:hover { color: var(--mr-orchid-500); }
 ::selection { background: var(--mr-lavender-300); color: var(--mr-ink); }

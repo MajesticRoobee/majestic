@@ -205,6 +205,28 @@ export function HomePageAdmin({ ctx }) {
             {["shelf", "categories", "rewards", "instagram", "newsletter"].includes(f.kind) && (
               <Textarea label="Line under the heading" value={f.sub} onChange={(e) => setF({ ...f, sub: e.target.value })} rows={2} />
             )}
+            {f.kind === "categories" && (() => {
+              // Stored as ids in order in ref_id; none picked shows them all.
+              const chosen = String(f.refId || "").split(",").map((x) => x.trim()).filter(Boolean);
+              const toggle = (id) => setF({ ...f, refId: (chosen.includes(id) ? chosen.filter((x) => x !== id) : chosen.concat(id)).join(",") });
+              return (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>Categories shown</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {cats.map((c) => {
+                      const i = chosen.indexOf(c.id);
+                      return (
+                        <button key={c.id} type="button" onClick={() => toggle(c.id)}
+                          style={{ fontFamily: "var(--font-sans)", fontSize: 12, padding: "5px 10px", borderRadius: "var(--radius-pill)", cursor: "pointer", border: "1px solid var(--border-hairline)", background: i >= 0 ? "var(--mr-purple-900)" : "var(--surface-card)", color: i >= 0 ? "var(--mr-cream)" : "var(--text-body)" }}>
+                          {i >= 0 ? `${i + 1}. ` : ""}{c.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>{chosen.length ? "In the order picked" : "None picked: all main categories"}</div>
+                </div>
+              );
+            })()}
             {f.kind === "band" && (
               <Textarea label="Text" value={f.lines} onChange={(e) => setF({ ...f, lines: e.target.value })} rows={3} />
             )}

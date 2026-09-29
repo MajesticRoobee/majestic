@@ -84,7 +84,24 @@ check("a picture the house set in the admin wins",
   headFor({ origin: ORIGIN, page: "home", settings: { ...settings, ogImage: "/images/share" } }).image, `${ORIGIN}/images/share`);
 check("a category uses the house's own title",
   headFor({ origin: ORIGIN, page: "shop", category: "perfumes", settings, categories }).title,
-  "Perfumes for Men and Women in Nigeria | Majestic Roobee");
+  "Men's and Women's Perfumes in Nigeria | Luxury Fragrances | Majestic Roobee");
+check("...and the brief's own description, whole",
+  headFor({ origin: ORIGIN, page: "shop", category: "perfume-oils", settings, categories }).description,
+  "Shop luxurious perfume oils from Majestic Roobee. Discover concentrated fragrances designed for an intimate and beautiful scent experience.");
+check("the home page carries the brief's title",
+  home.title, "Luxury Perfumes & Fragrance Oils, Feminine Care and Wellness Products in Nigeria | Majestic Roobee");
+check("...and, with no description set, the brief's description rather than a list of cities",
+  home.description, "Discover luxurious perfumes, fragrance oils, body mists, feminine care, wellness products and home fragrances from Majestic Roobee. Find your signature scent and shop online in Nigeria.");
+check("no page's description names a store city",
+  ["home", "shop", "about", "faq", "contact", "locations", "blog", "categories"]
+    .map((page) => headFor({ origin: ORIGIN, page, settings, categories }).description)
+    .concat(Object.keys({ perfumes: 1, "perfume-oils": 1, mist: 1, care: 1, home: 1, wellness: 1 })
+      .map((category) => headFor({ origin: ORIGIN, page: "shop", category, settings, categories }).description))
+    .filter((d) => /Abuja|Lagos|Ibadan/.test(d)), []);
+const faq = headFor({ origin: ORIGIN, page: "faq", settings, categories });
+check("the FAQ page carries its questions as structured data",
+  [faq.jsonLd["@graph"][0]["@type"], faq.jsonLd["@graph"][0].mainEntity[0].name],
+  ["FAQPage", "What makes Majestic Roobee fragrances different?"]);
 check("a category nobody wrote a title for still gets one",
   headFor({ origin: ORIGIN, page: "shop", category: "designer", settings, categories }).title,
   "Designer Oils in Nigeria | Majestic Roobee");
@@ -114,7 +131,7 @@ check("structured data cannot close its own script tag",
 console.log("\nHelpers");
 
 check("a description is cut at a word, under the limit",
-  clip("word ".repeat(80)).length <= 158 && clip("word ".repeat(80)).endsWith("…"), true);
+  clip("word ".repeat(80)).length <= 240 && clip("word ".repeat(80)).endsWith("…"), true);
 check("markdown marks don't leak into a description", clip("## A heading\n\n**bold** text"), "A heading bold text");
 check("absolute addresses stay as they are", absUrl(ORIGIN, "https://cdn.example.com/a.jpg"), "https://cdn.example.com/a.jpg");
 check("storefront addresses get the shell", ["/", "/product/x", "/shop", "/blog/a-post", "/privacy"].every(isShellPath), true);

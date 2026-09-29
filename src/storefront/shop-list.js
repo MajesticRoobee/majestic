@@ -35,8 +35,9 @@ export const SEGMENT_COPY = {
   "gift-sets": { title: "Gift sets" },
 };
 
-// The shop page with nothing narrowed down.
-export const SHOP_TITLE = "Shop";
+// The shop page with nothing narrowed down, in the client's words.
+export const SHOP_TITLE = "Shop Majestic Roobee products";
+export const SHOP_SUB = "From everyday signature fragrances to fragrances reserved for special moments, plus wellness products made with you in mind, discover our collection of perfumes, perfume oils, body mists, feminine care, and home fragrances. Find something that smells like you.";
 
 // The phone's price bands, in naira: under the first, between, over the second.
 export const PRICE_BANDS = [30000, 50000];
@@ -61,15 +62,15 @@ export function useShopList(ctx, { mobile = false } = {}) {
   // The deals running right now, so the Deals page names them rather than
   // showing a wall of discounted products with no reason attached.
   const runningDeals = seg === "deals" ? ctx.deals.filter((d) => d.productIds.length) : [];
-  // The line under the title: only what the house wrote for a collection or a
-  // category. The shop's own pages need no caption.
+  // The line under the title: what the house wrote for a collection or a
+  // category, or the shop's own introduction when nothing is narrowed down.
   const subLine = segCopy || brand || searching
     ? ""
-    : collection && collection.desc
-      ? collection.desc
-      : activeCat && activeCat.desc
-        ? activeCat.desc
-        : "";
+    : collection
+      ? collection.desc || ""
+      : activeCat
+        ? activeCat.desc || ""
+        : SHOP_SUB;
   // The grid iterates listing entries, not products: one entry per card. A
   // product with a picker is one entry carrying all its variations; a
   // split-listed product contributes one entry per variation.
@@ -112,10 +113,11 @@ export function useShopList(ctx, { mobile = false } = {}) {
   // What people searched for, and — the useful half — what they searched for
   // and the shop had nothing to show. That second list is a buying brief and an
   // SEO brief at once, written by customers.
-  // The phone's filter sheet narrows further — by price, and by who it is for
-  // or its scent family where the catalogue actually has more than one of
-  // those. Only applied where there is a sheet to see and undo it in.
-  if (mobile) {
+  // The filters narrow further — by price, and by who it is for or its
+  // fragrance family where the catalogue actually has more than one of those.
+  // The phone sets them in its filter sheet and the desktop in the row above
+  // the grid; both show what is set and how to undo it.
+  {
     const mf = ctx.mf || {};
     const lo = (e) => Math.min(...e.variants.map((v) => v.ngn));
     if (mf.price === "under") list = list.filter((e) => lo(e) < PRICE_BANDS[0]);
@@ -135,7 +137,9 @@ export function useShopList(ctx, { mobile = false } = {}) {
   // stock, which would shuffle the ranking the page exists to show.
   else if (segRank) list = list.slice().sort((a, b) => segRank.get(a.product.id) - segRank.get(b.product.id));
   else list = list.slice().sort((a, b) => (inStockHere(b) ? 1 : 0) - (inStockHere(a) ? 1 : 0));
-  const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || !!seg || !!brand || ctx.fScope !== "city";
+  const mf = ctx.mf || {};
+  const filtersDirty = ctx.fCat !== "all" || !!ctx.search || !!collection || !!seg || !!brand || ctx.fScope !== "city"
+    || (!mobile && ((mf.price && mf.price !== "all") || (mf.fam && mf.fam !== "all") || (mf.gender && mf.gender !== "all")));
   return {
     listings, categories, collections, cityName, segments, searching, collection, seg, segIds, segRank, segCopy, brand, brandName, activeCat, catIds, trail, runningDeals, subLine, inStockHere, scopedOut, list, filtersDirty,
   };

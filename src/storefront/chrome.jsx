@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Eyebrow, Button, ImageSlot } from "../ds/components.jsx";
 import { routeToPath } from "./router.js";
+import { footerColumns } from "./footer-links.js";
 import { useWindowWidth, useDismiss } from "../lib/hooks.js";
 import { catTree, catFamily, countIn } from "../lib/categories.js";
 
@@ -723,8 +724,8 @@ export function ChatWidget({ ctx, mobile = false }) {
   );
 }
 
-// Instagram, TikTok and Facebook — each shown only once its link is filled in
-// under Admin → Settings → Footer.
+// Instagram, TikTok and Facebook icons for the footer's "Follow us" column —
+// each shown only once its link is filled in under Admin → Settings → Footer.
 const SOCIALS = [
   { id: "instagram", name: "Instagram", setting: "igUrl",
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37Z" /><line x1="17.5" y1="6.5" x2="17.51" y2="6.5" /></svg> },
@@ -736,92 +737,35 @@ const SOCIALS = [
 
 function Footer({ ctx }) {
   const { settings } = ctx;
-  const link = (label, page, extra) => (
-    <a href={routeToPath(page, extra)} onClick={(e) => { e.preventDefault(); ctx.nav(page, extra); }} style={{ color: "var(--text-on-dark-muted)" }}>{label}</a>
-  );
-  // Shipping and returns are answers on the FAQ page rather than pages of their
-  // own, so these open it and then move to the question. The scroll is a
-  // nicety: if the anchor isn't there, the shopper is still on the FAQ.
-  const faqLink = (label, hash) => (
-    <a href={`/faq#${hash}`} style={{ color: "var(--text-on-dark-muted)" }}
-      onClick={(e) => {
-        e.preventDefault();
-        ctx.nav("faq");
-        setTimeout(() => {
-          const el = document.getElementById(hash);
-          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-        }, 80);
-      }}>{label}</a>
-  );
   const colTitle = { fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--mr-gold-400)", marginBottom: 14 };
+  const iconOf = Object.fromEntries(SOCIALS.map((so) => [so.id, so.icon]));
   return (
     <footer style={{ background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", marginTop: "clamp(48px, 8vw, 88px)" }}>
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "clamp(40px, 6vw, 64px) clamp(16px, 4vw, 40px) 28px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 32 }}>
-        <div>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "clamp(40px, 6vw, 64px) clamp(16px, 4vw, 40px) 28px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(140px, 100%), 1fr))", gap: 28 }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ marginBottom: 12 }}><Wordmark ctx={ctx} height={44} tone="light" /></div>
-          <p style={{ fontSize: 13, lineHeight: 1.7, maxWidth: "34ch", margin: 0 }}>{settings.footerTagline}</p>
-          {/* Only the accounts the store actually keeps: a dead icon linking
-              nowhere is worse than no icon. */}
-          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-            {SOCIALS.filter((so) => settings[so.setting]).map((so) => (
-              <a key={so.id} href={settings[so.setting]} target="_blank" rel="noopener noreferrer" aria-label={so.name} title={so.id === "instagram" ? settings.igHandle || so.name : so.name}
-                style={{ width: 38, height: 38, borderRadius: "50%", border: "1px solid var(--border-inverse)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--mr-gold-400)" }}>
-                {so.icon}
-              </a>
-            ))}
-          </div>
+          {settings.footerTagline && <p style={{ fontSize: 13, lineHeight: 1.7, maxWidth: "36ch", margin: 0 }}>{settings.footerTagline}</p>}
+          <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--mr-gold-400)", marginTop: 16 }}>Elevate your smellgame</div>
         </div>
-        <div>
-          <div style={colTitle}>Shop</div>
-          {/* The categories themselves, so this column says the same thing as
-              the header menu rather than keeping its own list to go stale. */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
-            {catTree(ctx.categories).map((c) => (
-              <a key={c.id} href={routeToPath("shop", { fCat: c.id })}
-                onClick={(e) => { e.preventDefault(); ctx.nav("shop", { fCat: c.id, fSeg: null, fBrand: "", fCol: null }); }}
-                style={{ color: "var(--text-on-dark-muted)" }}>{c.label}</a>
-            ))}
-            {link("Best sellers", "shop", { fSeg: "best-sellers" })}
+        {footerColumns(ctx).map((col) => (
+          <div key={col.title}>
+            <div style={colTitle}>{col.title}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
+              {col.links.map((l) => (l.external
+                ? (
+                  <a key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-on-dark-muted)", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ color: "var(--mr-gold-400)", display: "inline-flex" }}>{iconOf[l.id]}</span>{l.label}
+                  </a>
+                )
+                : <a key={l.label} href={l.href} onClick={(e) => { e.preventDefault(); l.go(); }} style={{ color: "var(--text-on-dark-muted)" }}>{l.label}</a>))}
+            </div>
           </div>
-        </div>
-        <div>
-          <div style={colTitle}>About</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
-            {link("Our story", "about")}
-            {link("Our stores", "locations")}
-            {/* Only while the studio is taking bookings — a footer link to a
-                page that says "not at the moment" is a link nobody wanted. */}
-            {ctx.consultation && ctx.consultation.on && link("Book a consultation", "consultation")}
-            {link("Blog", "blog")}
-            {link("Reviews", "reviews")}
-            {link("Contact us", "contact")}
-            {link("FAQs", "faq")}
-          </div>
-        </div>
-        <div>
-          <div style={colTitle}>Help</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 13 }}>
-            {link("Track an order", "track")}
-            {link("Your wishlist", "wishlist")}
-            {faqLink("Shipping & delivery", "shipping")}
-            {faqLink("Returns & exchanges", "returns")}
-            {/* The pages the house has actually published, in the order it put
-                them in — rather than a list kept here that promises a returns
-                policy nobody has written. */}
-            {ctx.pages.map((pg) => (
-              <a key={pg.slug} href={`/${pg.slug}`} onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: pg.slug }); }}
-                style={{ color: "var(--text-on-dark-muted)" }}>{pg.title}</a>
-            ))}
-          </div>
-        </div>
+        ))}
       </div>
       <div style={{ borderTop: "1px solid var(--border-inverse)" }}>
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "18px clamp(16px, 4vw, 40px)", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 12 }}>
           <span>© {new Date().getFullYear()} Majestic Roobee. All rights reserved.</span>
-          <span style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
-            <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff sign in</a>
-          </span>
+          <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff sign in</a>
         </div>
       </div>
     </footer>
