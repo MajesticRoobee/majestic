@@ -82,8 +82,7 @@ jobs:
         run: python3 scripts/migrate-account.py check-target ${{ inputs.replace && '--replace' || '' }} "$WORK"
 
       - name: Import into the new database
-        working-directory: ${{ runner.temp }}/migrate
-        run: '"$WRANGLER" d1 execute majestic-roobee --remote --yes --file import.sql'
+        run: python3 scripts/migrate-account.py import "$WORK"
 
       - name: Verify row counts
         run: python3 scripts/migrate-account.py verify "$WORK"

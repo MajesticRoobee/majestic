@@ -9,8 +9,11 @@ bucket. `.github/workflows/migrate-account.yml` runs the steps in order:
   check-target [--replace]   refuse to import over data unless told to, and
                              when told to, empty the new database first
   prepare <export.sql> <dir> reshape the export (below), writing import.sql,
-                             the images to upload, and the expected row counts
+                             the images to upload, and the expected row counts,
+                             and replay it locally so a problem is named here
+                             rather than as D1's bare {"D1_RESET_DO":true}
   copy-media <dir>           put every image into the new account's bucket
+  import <dir>               import import.sql into the new database
   verify <dir>               compare the new database's row counts with the
                              export's, table by table
 
@@ -21,8 +24,8 @@ are in R2. Rather than carry those BLOBs across, `prepare` lifts them out, and
 them and every image serves from R2 from day one. That is the same end state
 the admin's "move images to R2" action produces, reached without touching the
 old account. It also keeps each import statement small. It uses Python
-because its sqlite3 module can load the export and write it back out
-(`iterdump`) with exact quoting. Node has no equivalent built in.
+because its sqlite3 module can load the export, rewrite it and replay it in
+memory with foreign keys enforced. Node has no equivalent built in.
 
 Every remote wrangler call runs from the work directory, which has no wrangler
 config, so a database is looked up by *name* in whichever account the
@@ -67,7 +70,7 @@ def side_args(side):
     return shlex.split(os.environ.get(f"{side.upper()}_WRANGLER_ARGS", "--remote"))
 
 
-def wrangler(side, args, cwd, attempts=3):
+def wrangler(side, args, cwd, attempts=3, wait=2):
     """Run wrangler against one account; retry transient failures."""
     cmd = [WRANGLER, *args, *side_args(side)]
     for attempt in range(1, attempts + 1):
@@ -77,7 +80,7 @@ def wrangler(side, args, cwd, attempts=3):
         if attempt == attempts:
             # --json failures land on stdout, the rest on stderr.
             raise RuntimeError(f"wrangler {args[0]} {args[1]} failed:\n{(r.stdout + r.stderr)[-2000:]}")
-        time.sleep(2 * attempt)
+        time.sleep(wait * attempt)
 
 
 def query_new_each(statements, cwd, batch=25):
@@ -150,6 +153,109 @@ def check_target(replace, workdir):
     print(f"Emptied the new database ({len(tables)} tables dropped).")
 
 
+# D1 refuses any single statement over 100 KB. The shop writes long values
+# through bound parameters, which don't count towards that, but an import is
+# literal SQL — so a value the shop stored happily can still be too long to
+# import as one INSERT. Rows past the line have their long text built up in a
+# scratch table, a piece at a time, and the INSERT reads it from there.
+MAX_STATEMENT = 90_000
+# Characters per piece: even doubled quotes in 4-byte UTF-8 stay under 100 KB.
+PIECE = 10_000
+PARTS = "_migrate_parts"
+
+
+def sql_text(value):
+    return "'" + value.replace("'", "''") + "'"
+
+
+def dump(conn):
+    """The prepared database as statements D1's import accepts.
+
+    Written out by hand rather than with iterdump: iterdump puts each table's
+    rows straight after its CREATE, alphabetically, so `stock` rows would
+    arrive before the `variants` table they reference exists — which SQLite
+    refuses even with the checks deferred ("no such table: main.variants") —
+    and it wraps everything in BEGIN/COMMIT, which D1 rejects (an import is
+    already one transaction). Here: every table in creation order, then every
+    row, then the sequence counters, then indexes, triggers and views.
+    Foreign keys are checked once, at the end, through defer_foreign_keys —
+    D1's form; it takes no foreign_keys=OFF.
+    """
+    master = conn.execute(
+        "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL "
+        "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY rowid").fetchall()
+    tables = [(n, sql) for t, n, sql in master if t == "table"]
+    rows, parts, key = [], [], 0
+    for name, _ in tables:
+        cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{name}")')]
+        collist = ", ".join(f'"{c}"' for c in cols)
+        quoted = ", ".join(f'quote("{c}")' for c in cols)
+        for lits in conn.execute(f'SELECT {quoted} FROM "{name}"'):
+            lits = list(lits)
+            stmt = f'INSERT INTO "{name}" ({collist}) VALUES({", ".join(lits)});'
+            if len(stmt.encode()) > MAX_STATEMENT:
+                for i, lit in enumerate(lits):
+                    if len(lit) <= PIECE:
+                        continue
+                    if not lit.startswith("'"):
+                        sys.exit(f"A {cols[i]} value in {name} is too large to import and is not text.")
+                    raw = lit[1:-1].replace("''", "'")
+                    key += 1
+                    pieces = [raw[j:j + PIECE] for j in range(0, len(raw), PIECE)]
+                    parts.append(f"INSERT INTO {PARTS} (k, v) VALUES ({key}, {sql_text(pieces[0])});")
+                    parts += [f"UPDATE {PARTS} SET v = v || {sql_text(p)} WHERE k = {key};" for p in pieces[1:]]
+                    lits[i] = f"(SELECT v FROM {PARTS} WHERE k = {key})"
+                stmt = f'INSERT INTO "{name}" ({collist}) VALUES({", ".join(lits)});'
+                if len(stmt.encode()) > MAX_STATEMENT:
+                    sys.exit(f"A row in {name} is too large to import even with its long values split.")
+            rows.append(stmt)
+    seq = []
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence'").fetchone():
+        seq = ["DELETE FROM sqlite_sequence;"] + [
+            f"INSERT INTO sqlite_sequence (name, seq) VALUES({sql_text(n)}, {v});"
+            for n, v in conn.execute("SELECT name, seq FROM sqlite_sequence")]
+    scratch = ([f"CREATE TABLE {PARTS} (k INTEGER PRIMARY KEY, v TEXT NOT NULL);"], [f"DROP TABLE {PARTS};"]) if parts else ([], [])
+    if parts:
+        print(f"{key} long values split into {len(parts)} pieces to fit D1's statement limit.")
+    return [
+        "PRAGMA defer_foreign_keys = TRUE;",
+        *[sql + ";" for _, sql in tables],
+        *scratch[0], *parts, *rows, *seq,
+        *[sql + ";" for t, _, sql in master if t != "table"],
+        *scratch[1],
+    ]
+
+
+def preflight(statements):
+    """Replay the import into a scratch SQLite, enforcing foreign keys as D1 does.
+
+    D1 reports a failed import as nothing more than a reset
+    (`{"D1_RESET_DO":true}`), so every failure it could have is looked for
+    here first, where the cause can be named. Names tables and columns only —
+    never values — because the Actions log of a public repo is public.
+    """
+    check = sqlite3.connect(":memory:", isolation_level=None)
+    check.execute("PRAGMA foreign_keys = ON")
+    check.execute("BEGIN")
+    for n, stmt in enumerate(statements):
+        if len(stmt.encode()) > 100_000:
+            sys.exit(f"Statement {n} is over D1's 100 KB limit.")
+        try:
+            check.execute(stmt)
+        except sqlite3.Error as e:
+            what = " ".join(stmt.split()[:3])
+            sys.exit(f"Statement {n} ({what} …) fails: {e}")
+    try:
+        check.execute("COMMIT")
+    except sqlite3.IntegrityError:
+        broken = {}
+        for child, _, parent, _ in check.execute("PRAGMA foreign_key_check"):
+            broken[(child, parent)] = broken.get((child, parent), 0) + 1
+        sys.exit("The old data has rows pointing at rows that no longer exist, which D1 refuses to import:\n"
+                 + "\n".join(f"  {c} → {p}: {k} rows" for (c, p), k in sorted(broken.items())))
+    print(f"Import checked locally: {len(statements)} statements, foreign keys intact.")
+
+
 def prepare(export_sql, workdir):
     workdir.mkdir(parents=True, exist_ok=True)
     blobs = workdir / "blobs"
@@ -177,28 +283,9 @@ def prepare(export_sql, workdir):
     conn.execute("UPDATE media SET storage='r2', bytes=X'' WHERE storage='d1' AND length(bytes) > 0")
     conn.commit()
 
-    # iterdump opens and closes its own transaction; D1 runs an import as one
-    # transaction itself and rejects BEGIN/COMMIT, and it takes foreign keys
-    # through defer_foreign_keys rather than foreign_keys=OFF.
-    #
-    # iterdump also writes each table's rows straight after its CREATE, in
-    # alphabetical order — so `stock` rows would arrive before the `variants`
-    # table they reference exists, which SQLite refuses even with the checks
-    # deferred ("no such table: main.variants"). So: every table first, then
-    # every row, then indexes, triggers and views.
-    tables, rows, rest = [], [], []
-    for stmt in conn.iterdump():
-        head = stmt.lstrip().upper()
-        if head.startswith(("BEGIN", "COMMIT", "PRAGMA")):
-            continue
-        if head.startswith("CREATE TABLE"):
-            tables.append(stmt)
-        elif head.startswith(("INSERT", "DELETE")):
-            rows.append(stmt)
-        else:
-            rest.append(stmt)
-    lines = ["PRAGMA defer_foreign_keys = TRUE;", *tables, *rows, *rest]
-    (workdir / "import.sql").write_text("\n".join(lines) + "\n")
+    statements = dump(conn)
+    preflight(statements)
+    (workdir / "import.sql").write_text("\n".join(statements) + "\n")
 
     counts = {t: conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
               for t in user_tables(conn.execute(TABLES_SQL).fetchall())}
@@ -247,6 +334,13 @@ def copy_media(workdir):
         print(f"  ! {m}")
 
 
+def import_new(workdir):
+    # A failed import rolls back entirely, so trying again is safe, and D1's
+    # own advice for a reset mid-import is to retry.
+    wrangler("new", ["d1", "execute", DB_NAME, "--yes", "--file", "import.sql"], workdir, attempts=4, wait=20)
+    print("Imported.")
+
+
 def verify(workdir):
     want = json.loads((workdir / "counts.json").read_text())
     got_tables = set(user_tables(query_new(TABLES_SQL, workdir)))
@@ -276,6 +370,8 @@ def main(argv):
         check_target(replace, Path(dirs[0] if dirs else "."))
     elif cmd == "prepare":
         prepare(rest[0], Path(rest[1]))
+    elif cmd == "import":
+        import_new(Path(rest[0]))
     elif cmd == "copy-media":
         copy_media(Path(rest[0]))
     elif cmd == "verify":
