@@ -8,8 +8,8 @@ import { DailyDealCard } from "./daily-deal.jsx";
 import { countIn } from "../lib/categories.js";
 import { aboutContent } from "../lib/about.js";
 import { variantGallery } from "../lib/gallery.js";
-import { fill, cardsFor, shelfCards, blockNav } from "./blocks.js";
-import { useShopList, SHOP_TITLE } from "./shop-list.js";
+import { fill, cardsFor, shelfCards, blockNav, blockCategories, HERO_PANEL, HERO_TEXT_SHADOW } from "./blocks.js";
+import { useShopList, SHOP_TITLE, PRICE_BANDS } from "./shop-list.js";
 
 export { ProductCard };
 export { WishlistPage, LocationsPage, ReviewsPage, BlogPage, BlogPostPage, PostBody, FaqPage, ConsultationPage } from "./pages-content.jsx";
@@ -69,10 +69,11 @@ function CtaBand({ title, lines, cta, onClick, dark = false }) {
 }
 
 // How the rewards work, in the four steps the client wrote.
-const REWARD_STEPS = [
-  { step: "Shop", copy: "Place an order." },
-  { step: "Earn", copy: "Get a reward code." },
-  { step: "Redeem", copy: "Use it at checkout." },
+export const REWARD_STEPS = [
+  { step: "Shop", copy: "Purchase your favourite Majestic Roobee products." },
+  { step: "Earn", copy: "Collect points with every qualifying purchase." },
+  { step: "Redeem", copy: "Turn your points into rewards." },
+  { step: "Enjoy", copy: "Come back for more of the scents you love." },
 ];
 
 // The newsletter block. It feeds the same list as the first-order pop-up, so
@@ -84,16 +85,19 @@ function NewsletterSignup({ ctx, title, sub }) {
   return (
     <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
       <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "clamp(28px, 4vw, 48px)", textAlign: "center" }}>
-        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: sub ? 0 : "0 0 20px" }}>{title || "Newsletter"}</h2>
-        {sub && <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 20px", maxWidth: "54ch" }}>{sub}</p>}
+        {title && <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: 0 }}>{title}</h2>}
+        {/* With no heading the copy leads, set large enough to read as one. */}
+        {sub && <p style={title
+          ? { fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 20px", maxWidth: "54ch" }
+          : { fontFamily: "var(--font-serif)", fontSize: "clamp(18px, 2vw, 22px)", color: "var(--text-strong)", lineHeight: 1.5, margin: "0 auto 22px", maxWidth: "46ch" }}>{sub}</p>}
         {done ? (
-          <p style={{ fontSize: 14, color: "var(--mr-purple-900)", fontWeight: 500, margin: 0 }}>You&apos;re subscribed.</p>
+          <p style={{ fontSize: 14, color: "var(--mr-purple-900)", fontWeight: 500, margin: 0 }}>You&apos;re on the list.</p>
         ) : (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", maxWidth: 460, margin: "0 auto" }}>
             <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && join()}
-              type="email" autoComplete="email" aria-label="Your email address" placeholder="Email address"
+              type="email" autoComplete="email" aria-label="Your email address" placeholder="Enter your email address"
               style={{ flex: "1 1 220px", minWidth: 0, fontFamily: "var(--font-sans)", fontSize: 14, padding: "12px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
-            <Button variant="primary" onClick={join}>Subscribe</Button>
+            <Button variant="primary" onClick={join}>Join the list</Button>
           </div>
         )}
       </div>
@@ -125,7 +129,9 @@ function ProductBand({ eyebrow, title, lines, cta, picks, onOpen }) {
           )}
         </div>
         {picks.length > 0 && (
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(picks.length, 3)}, minmax(0, 1fr))`, gap: "clamp(10px, 1.4vw, 16px)" }}>
+          // One product is a spotlight: a single card at a card's width, not a
+          // bottle blown up to fill half the band.
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(picks.length, 3)}, minmax(0, 1fr))`, gap: "clamp(10px, 1.4vw, 16px)", ...(picks.length === 1 ? { width: "100%", maxWidth: 230, justifySelf: "center" } : null) }}>
             {picks.map((p) => (
               <a key={p.key} href={p.href} onClick={(e) => { e.preventDefault(); p.open(); }} className="mr-lift"
                 style={{ background: "var(--surface-card)", borderRadius: "var(--radius-md)", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "var(--shadow-sm)" }}>
@@ -201,24 +207,22 @@ export function HomePage({ ctx }) {
             {!ctx.isMobile && <div />}
             <div style={{ minWidth: 0 }}>
               <div style={{ position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-                {/* No placeholder caption on this one: the wash and the
-                    headline already sit on top of it, and a second line of
-                    grey type showing through them reads as a fault. */}
-                {/* Until a hero photograph is set the banner is the royal wash
-                    alone — a placeholder monogram behind the headline reads as
-                    a fault. */}
+                {/* The photograph shows whole. The words sit on a see-through
+                    panel — tinted enough to read cleanly over any photograph,
+                    never blurred, and never washing the whole picture out.
+                    Until a photograph is set the banner is the royal wash. */}
                 {settings.heroImage
                   ? <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="(max-width: 860px) 92vw, 720px"
                     style={{ width: "100%", height: "clamp(320px, 34vw, 420px)" }} />
                   : <div style={{ width: "100%", height: "clamp(320px, 34vw, 420px)", background: "var(--royal-wash)" }} />}
-                {/* The wash is heaviest where the words are and clears to the
-                    right, so the photograph still reads as a photograph. */}
-                <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(61,35,80,0.86) 0%, rgba(61,35,80,0.52) 48%, rgba(61,35,80,0.06) 100%)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, padding: "clamp(24px, 4vw, 48px)", pointerEvents: "none" }}>
-                  {settings.heroEyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{settings.heroEyebrow}</span>}
-                  <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
-                  {settings.heroSub && <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--text-on-dark-muted)", maxWidth: "34ch", margin: 0 }}>{settings.heroSub}</p>}
-                  <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
-                    <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", padding: "clamp(20px, 3vw, 36px)", pointerEvents: "none" }}>
+                  <div style={{ maxWidth: 500, display: "flex", flexDirection: "column", gap: 16, padding: settings.heroImage ? "clamp(22px, 2.6vw, 32px)" : "clamp(4px, 1.2vw, 12px)", borderRadius: "var(--radius-lg)", ...(settings.heroImage ? HERO_PANEL : null) }}>
+                    {settings.heroEyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{settings.heroEyebrow}</span>}
+                    <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line", textShadow: HERO_TEXT_SHADOW }}>{settings.heroHeadline}</h1>
+                    {settings.heroSub && <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--mr-cream)", maxWidth: "36ch", margin: 0, textShadow: HERO_TEXT_SHADOW }}>{settings.heroSub}</p>}
+                    <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
+                      <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -255,7 +259,7 @@ export function HomePage({ ctx }) {
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(38px, 5.4vw, 64px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "18px 0 0", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
             <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(19px, 2vw, 23px)", lineHeight: 1.5, color: "var(--text-body)", maxWidth: "46ch", margin: "22px 0 30px" }}>{settings.heroSub}</p>
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-              <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
+              <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
             </div>
           </div>
           <div style={{ position: "relative", minHeight: 380 }}>
@@ -271,7 +275,7 @@ export function HomePage({ ctx }) {
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(40px, 6.4vw, 84px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: "22px auto 0", maxWidth: "18ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
           <GildedRule width="220px" style={{ margin: "18px auto" }} />
           <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(18px, 2vw, 22px)", color: "var(--text-on-dark-muted)", maxWidth: "52ch", margin: "0 auto 34px" }}>{settings.heroSub}</p>
-          <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
+          <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
         </section>
       )}
       {dir === "product-led" && (
@@ -343,7 +347,7 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <SectionHead centred eyebrow={eyebrow} title={title} sub={sub} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(160px, 100%), 1fr))", gap: 14 }}>
-            {categories.filter((c) => !c.parentId).map((c) => {
+            {blockCategories(block, categories).map((c) => {
               const n = countIn(categories, products, c.id);
               return (
                 <button key={c.id} className="mr-lift" onClick={() => ctx.nav("shop", { fCat: c.id, fSeg: null, fBrand: "", fCol: null })} style={{ cursor: "pointer", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "22px 14px", textAlign: "center", fontFamily: "var(--font-sans)" }}>
@@ -393,42 +397,16 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
       );
     }
 
-    // The founder's story. Her portrait, the opening paragraph, and the way
-    // through to the rest — the whole thing here would run two thousand words
-    // before the shopper reached the reviews. It is the same story the About
-    // page runs, read from the same settings, so the two never disagree.
-    case "story": {
-      const about = aboutContent(settings);
-      return (
-        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
-          <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 320px) minmax(0, 1fr)", gap: "clamp(22px, 3vw, 44px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
-            <div style={{ position: "relative" }}>
-              {/* A gold frame offset behind the photograph, the same gesture the
-                  editorial hero uses, so the two read as one house style. */}
-              <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
-              <ImageSlot src={about.founderPhoto} shape="rounded" radius={14} name={about.founderName}
-                sizes="(max-width: 860px) 92vw, 420px" label={`${about.founderName} — ${about.founderRole}`}
-                style={{ width: "100%", aspectRatio: "3 / 4", position: "relative" }} />
-            </div>
-            <div>
-              <Eyebrow>{eyebrow}</Eyebrow>
-              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 16px", maxWidth: "22ch" }}>{title || about.storyTitle}</h2>
-              <p style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 8px" }}>{about.story[0]}</p>
-              <div style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "0 0 20px" }}>
-                <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{about.founderName}</strong> — {about.founderRole}
-              </div>
-              <Button variant="secondary" onClick={blockNav(ctx, block.ctaTarget) || (() => ctx.nav("about"))}>{block.ctaLabel || "Read our story"}</Button>
-            </div>
-          </div>
-        </section>
-      );
-    }
+    // The founder's story — the same words the About page runs, read from the
+    // same settings, so the two never disagree.
+    case "story":
+      return <StoryBlock ctx={ctx} block={block} eyebrow={eyebrow} title={title} settings={settings} />;
 
     // Rewards. A qualifying purchase earns a single-use code, issued the moment
     // the order is paid for — see `worker/rewards.js`.
     case "rewards":
       return (
-        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+        <section id="rewards" style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0`, scrollMarginTop: 110 }}>
           <SectionHead centred eyebrow={eyebrow} title={title} sub={sub} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(200px, 100%), 1fr))", gap: 14 }}>
             {REWARD_STEPS.map((r, i) => (
@@ -458,7 +436,7 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
             <div>
               {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
               <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: eyebrow ? "10px 0 0" : 0 }}>
-                {title || settings.reviewsHeadline || "Reviews"}
+                {title || settings.reviewsHeadline || "Don't just take our word for it"}
               </h2>
             </div>
             <BlockLink ctx={ctx} block={block} />
@@ -502,8 +480,8 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
       return (
         <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
           <div style={{ textAlign: "center" }}>
-            <Eyebrow>{eyebrow}</Eyebrow>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
+            {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: eyebrow ? "10px 0 0" : 0 }}>{title}</h2>
             <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 6px", maxWidth: "54ch" }}>{sub}</p>
             <div style={{ fontFamily: "var(--font-condensed)", fontSize: 12, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)", marginBottom: 18 }}>
               {settings.igHandle || "@majesticroobee"}
@@ -519,6 +497,44 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
     default:
       return null;
   }
+}
+
+// The founder's story on the home page: her portrait, the heading and the
+// opening paragraph, with the rest of the story a tap away rather than two
+// thousand words standing between the shopper and the reviews.
+function StoryBlock({ ctx, block, eyebrow, title, settings }) {
+  const [open, setOpen] = useState(false);
+  const about = aboutContent(settings);
+  const shown = open ? about.story : about.story.slice(0, 1);
+  return (
+    <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
+      <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "minmax(0, 320px) minmax(0, 1fr)", gap: "clamp(22px, 3vw, 44px)", alignItems: "start", padding: "clamp(26px, 4vw, 44px)" }}>
+        <div style={{ position: "relative", ...(ctx.isMobile ? null : { position: "sticky", top: 120 }) }}>
+          {/* A gold frame offset behind the photograph, the same gesture the
+              editorial hero uses, so the two read as one house style. */}
+          <div style={{ position: "absolute", inset: "18px -10px -10px 18px", border: "1px solid var(--mr-gold-400)", borderRadius: "var(--radius-lg)", pointerEvents: "none" }} />
+          <ImageSlot src={about.founderPhoto} shape="rounded" radius={14} name={about.founderName}
+            sizes="(max-width: 860px) 92vw, 420px" label={`${about.founderName} — ${about.founderRole}`}
+            style={{ width: "100%", aspectRatio: "3 / 4", position: "relative" }} />
+        </div>
+        <div>
+          {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: eyebrow ? "10px 0 16px" : "0 0 16px", maxWidth: "22ch" }}>{title || about.storyTitle}</h2>
+          {shown.map((par, i) => (
+            <p key={i} style={{ fontFamily: "var(--font-editorial)", fontSize: 16, lineHeight: "var(--lh-relaxed)", color: "var(--text-body)", margin: "0 0 14px", maxWidth: "68ch" }}>{par}</p>
+          ))}
+          <div style={{ fontSize: 12.5, color: "var(--text-muted)", margin: "4px 0 20px" }}>
+            <strong style={{ color: "var(--mr-purple-800)", fontWeight: 600 }}>{about.founderName}</strong> — {about.founderRole}
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {about.story.length > 1 && (
+              <Button variant="secondary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>{open ? "Show less" : block.ctaLabel || "Read the full story"}</Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 // What this shopper was looking at last time, or five minutes ago.
@@ -558,6 +574,12 @@ export function ShopPage({ ctx }) {
       {label}
     </button>
   );
+  // The filter row: the top of the category the shopper is in, the fragrance
+  // families the catalogue actually uses, and the shared price bands.
+  const mf = ctx.mf || {};
+  const setMf = (patch) => ctx.setMf((m) => ({ ...m, ...patch }));
+  const topCat = trail.length ? trail[0] : null;
+  const families = [...new Set(listings.map((e) => e.product.family).filter(Boolean))].sort();
   // Curated sets lead the page — but only when the shopper is browsing, not
   // when they have already narrowed to a category, a set or a search.
   const showStrips = !searching && !collection && !seg && !brand && ctx.fCat === "all" && collections.length > 0;
@@ -637,7 +659,25 @@ export function ShopPage({ ctx }) {
         </div>
       )}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 28 }}>
-        <select value={ctx.fSort} onChange={(e) => ctx.setFSort(e.target.value)} style={selStyle}>
+        {!collection && !brand && (
+          <select aria-label="Category" value={topCat ? topCat.id : "all"} onChange={(e) => ctx.nav("shop", { fCat: e.target.value, fCol: null, fSeg: seg, fBrand: "" }, { replace: true })} style={selStyle}>
+            <option value="all">Category: All</option>
+            {ctx.categories.filter((c) => !c.parentId).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        )}
+        {families.length > 1 && (
+          <select aria-label="Fragrance family" value={mf.fam || "all"} onChange={(e) => setMf({ fam: e.target.value })} style={selStyle}>
+            <option value="all">Fragrance family: All</option>
+            {families.map((f) => <option key={f} value={f}>{f}</option>)}
+          </select>
+        )}
+        <select aria-label="Price" value={mf.price || "all"} onChange={(e) => setMf({ price: e.target.value })} style={selStyle}>
+          <option value="all">Price: Any</option>
+          <option value="under">Under {ctx.fmt(PRICE_BANDS[0])}</option>
+          <option value="mid">{ctx.fmt(PRICE_BANDS[0])}–{ctx.fmt(PRICE_BANDS[1])}</option>
+          <option value="over">Over {ctx.fmt(PRICE_BANDS[1])}</option>
+        </select>
+        <select aria-label="Sort" value={ctx.fSort} onChange={(e) => ctx.setFSort(e.target.value)} style={selStyle}>
           <option value="featured">Featured</option>
           <option value="best">Best sellers</option>
           <option value="new">Newest</option>
@@ -647,7 +687,7 @@ export function ShopPage({ ctx }) {
         </select>
         <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{list.length} {list.length === 1 ? "product" : "products"}</span>
         {filtersDirty && (
-          <button onClick={() => { ctx.setFScope("city"); ctx.setSearch(""); ctx.nav("shop", { fCat: "all" }); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
+          <button onClick={() => { ctx.setFScope("city"); ctx.setSearch(""); setMf({ price: "all", fam: "all", gender: "all" }); ctx.nav("shop", { fCat: "all" }); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
         )}
       </div>
       {list.length === 0 ? (
@@ -1374,7 +1414,8 @@ export function ContactPage({ ctx }) {
   const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 22 };
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "0 0 28px" }}>Contact us</h1>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "0 0 6px", maxWidth: "24ch" }}>Have a question about an order, product or fragrance?</h1>
+      <p style={{ fontSize: 15, color: "var(--text-muted)", margin: "0 0 28px" }}>We&apos;re happy to help.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))", gap: 24, alignItems: "start" }}>
         <div style={{ ...card, padding: 26 }}>
           {ctx.contactSent ? (
@@ -1387,7 +1428,7 @@ export function ContactPage({ ctx }) {
               <Input label="Name" autoComplete="name" value={cf.name} onChange={(e) => setCf({ ...cf, name: e.target.value })} />
               <Input label="Email" type="email" autoComplete="email" value={cf.email} onChange={(e) => setCf({ ...cf, email: e.target.value })} />
               <Textarea label="Message" value={cf.msg} onChange={(e) => setCf({ ...cf, msg: e.target.value })} rows={4} />
-              <Button variant="primary" onClick={ctx.sendContact}>Send</Button>
+              <Button variant="primary" onClick={ctx.sendContact}>Send us a message</Button>
             </div>
           )}
         </div>
@@ -1404,8 +1445,8 @@ export function ContactPage({ ctx }) {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92Z" /></svg>
             <div>
               <div style={{ fontWeight: 600, fontSize: 14, color: "var(--text-strong)" }}>Customer service</div>
-              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>WhatsApp: <a href={`https://wa.me/${String(settings.contactPhone || "").replace(/[^\d]/g, "").replace(/^0/, "234")}`} target="_blank" rel="noopener noreferrer">{settings.contactPhone}</a></div>
-              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>Email: <a href={`mailto:${settings.contactEmail}`}>{settings.contactEmail}</a></div>
+              {settings.contactEmail && <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Email: <a href={`mailto:${settings.contactEmail}`}>{settings.contactEmail}</a></div>}
+              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>WhatsApp: <a href={`https://wa.me/${String(settings.contactPhone || "").replace(/[^\d]/g, "").replace(/^0/, "234")}`} target="_blank" rel="noopener noreferrer">{settings.contactPhone}</a></div>
               {settings.igUrl && (
                 <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
                   Instagram: <a href={settings.igUrl} target="_blank" rel="noopener noreferrer">{settings.igHandle || "@majesticroobee"}</a>

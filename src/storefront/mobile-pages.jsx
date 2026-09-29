@@ -13,11 +13,11 @@ import { ImageSlot, DealCard } from "../ds/components.jsx";
 import { catTree, catFamily, countIn } from "../lib/categories.js";
 import { aboutContent } from "../lib/about.js";
 import { variantGallery } from "../lib/gallery.js";
-import { fill, cardsFor, shelfCards, blockNav } from "./blocks.js";
-import { useShopList, SHOP_TITLE, PRICE_BANDS } from "./shop-list.js";
+import { fill, cardsFor, shelfCards, blockNav, blockCategories, HERO_PANEL, HERO_TEXT_SHADOW } from "./blocks.js";
+import { useShopList, SHOP_TITLE, SHOP_SUB, PRICE_BANDS } from "./shop-list.js";
 import { useDealClock } from "./daily-deal.jsx";
 import { EmbedCard, PostCard, FAQS } from "./pages-content.jsx";
-import { arrivalLine } from "./pages.jsx";
+import { arrivalLine, REWARD_STEPS } from "./pages.jsx";
 import { goShop, SizeButton } from "./mobile-chrome.jsx";
 import {
   I, BtnM, HeadM, Rail, RailEnd, CardGrid, MobileProductCard, Sheet, ActionBar, Radio, Stepper, FreeShipBar,
@@ -42,19 +42,44 @@ export function MobileHome({ ctx }) {
   const { settings, homeBlocks, cityName } = ctx;
   const vars = { city: cityName };
   const tiles = homeBlocks.filter((b) => b.kind === "tile");
-  // The categories block is drawn as the circles at the top of the page — the
-  // first thing a phone shows — so it isn't drawn a second time in the flow.
+  // The categories block is drawn as the circles under the hero, so it isn't
+  // drawn a second time in the flow.
   const flow = homeBlocks.filter((b) => b.kind !== "tile" && b.kind !== "categories");
   const runningDeal = ctx.deals.length === 1 ? ctx.deals[0] : null;
-  const cats = catTree(ctx.categories);
+  // When the house runs a categories section, its heading, its line and its
+  // choice of categories label the circles; otherwise they are every top-level
+  // category under a plain label.
+  const catBlock = homeBlocks.find((b) => b.kind === "categories");
+  const cats = catBlock ? blockCategories(catBlock, ctx.categories) : catTree(ctx.categories);
   return (
     <main style={{ paddingBottom: 8 }}>
+      {/* The hero leads the page. The photograph shows whole; the words sit on
+          a see-through panel at its foot — tinted enough that they read
+          cleanly over any photograph, never blurred, never washing the whole
+          picture out. Until a photograph is set the card is the royal wash. */}
+      <section style={sec(14)}>
+        <div style={{ position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden", height: "clamp(520px, 142vw, 660px)", background: "var(--royal-wash)" }}>
+          {settings.heroImage && <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="100vw" style={{ width: "100%", height: "100%" }} />}
+          <div style={{ position: "absolute", left: 12, right: 12, bottom: 12, padding: "20px 18px", display: "flex", flexDirection: "column", gap: 10, borderRadius: "var(--radius-md)", ...(settings.heroImage ? HERO_PANEL : null) }}>
+            <h1 style={{ fontFamily: "var(--font-display)", fontSize: 32, lineHeight: 1.08, letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, whiteSpace: "pre-line", textShadow: HERO_TEXT_SHADOW }}>{settings.heroHeadline}</h1>
+            {settings.heroSub && <p style={{ fontSize: 14, lineHeight: 1.55, color: "var(--mr-cream)", margin: 0, textWrap: "pretty", textShadow: HERO_TEXT_SHADOW }}>{settings.heroSub}</p>}
+            <div style={{ display: "flex", alignItems: "center", gap: 16, paddingTop: 4 }}>
+              <BtnM variant="gold" onClick={() => goShop(ctx)}>Shop fragrances</BtnM>
+              <button onClick={() => goShop(ctx, { fSeg: "new-arrivals" })} style={{ background: "none", border: "none", padding: "10px 0", color: "var(--mr-cream)", fontFamily: "var(--font-sans)", fontSize: 14, fontWeight: 500, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 4, textShadow: HERO_TEXT_SHADOW }}>New arrivals</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {cats.length > 0 && (
         <section style={{ padding: "18px 0 0" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px 10px" }}>
-            <span style={eyebrowM}>Categories</span>
-            <button onClick={() => ctx.nav("categories")} style={{ ...linkBtn, padding: "6px 0" }}>See all</button>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 16px 10px" }}>
+            {catBlock && catBlock.title
+              ? <h2 style={{ ...h2M, fontSize: 20, margin: 0 }}>{fill(catBlock.title, vars)}</h2>
+              : <span style={eyebrowM}>Categories</span>}
+            <button onClick={() => ctx.nav("categories")} style={{ ...linkBtn, padding: "6px 0", flex: "none" }}>See all</button>
           </div>
+          {catBlock && catBlock.sub && <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text-body)", margin: "-4px 16px 12px" }}>{fill(catBlock.sub, vars)}</p>}
           <div className="mr-rail" style={{ display: "flex", gap: 12, overflowX: "auto", padding: "0 16px 2px" }}>
             {cats.map((c) => (
               <button key={c.id} onClick={() => goShop(ctx, { fCat: c.id })} style={{ flex: "none", width: 70, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, background: "none", border: "none", padding: 0, cursor: "pointer" }}>
@@ -68,23 +93,6 @@ export function MobileHome({ ctx }) {
           </div>
         </section>
       )}
-
-      <section style={sec(18)}>
-        {/* Until the house sets a hero photograph the card is the royal wash
-            alone — a placeholder monogram behind the headline reads as a fault. */}
-        <div style={{ position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden", height: "clamp(330px, 88vw, 420px)", background: "var(--royal-wash)" }}>
-          {settings.heroImage && <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="100vw" style={{ width: "100%", height: "100%" }} />}
-          <div style={{ position: "absolute", inset: 0, pointerEvents: "none", background: "linear-gradient(0deg, rgba(36,20,48,0.94) 0%, rgba(36,20,48,0.62) 50%, rgba(36,20,48,0.08) 100%)" }} />
-          <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "22px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-            <h1 style={{ fontFamily: "var(--font-display)", fontSize: 30, lineHeight: 1.08, letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
-            {settings.heroSub && <p style={{ fontSize: 13, lineHeight: 1.55, color: "var(--mr-cream)", margin: 0, textWrap: "pretty" }}>{settings.heroSub}</p>}
-            <div style={{ display: "flex", alignItems: "center", gap: 16, paddingTop: 4 }}>
-              <BtnM variant="gold" onClick={() => goShop(ctx)}>Shop now</BtnM>
-              <button onClick={() => goShop(ctx, { fSeg: "new-arrivals" })} style={{ background: "none", border: "none", padding: "10px 0", color: "var(--mr-cream)", fontFamily: "var(--font-sans)", fontSize: 14, fontWeight: 500, cursor: "pointer", textDecoration: "underline", textUnderlineOffset: 4 }}>New arrivals</button>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {tiles.length > 0 && (
         <section style={{ padding: "12px 16px 0", display: "grid", gridTemplateColumns: `repeat(${Math.min(tiles.length, 3)}, minmax(0, 1fr))`, gap: 8 }}>
@@ -249,32 +257,26 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
       );
     }
 
-    case "story": {
-      const about = aboutContent(settings);
-      return (
-        <section style={sec()}>
-          <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-            <ImageSlot src={about.founderPhoto} name={about.founderName} sizes="112px" monoSize={32} shape="rounded" radius={10} style={{ width: 112, height: 144, flex: "none" }} />
-            <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-              {eyebrow && <div style={eyebrowM}>{eyebrow}</div>}
-              <h2 style={{ ...h2M, fontSize: 18, lineHeight: 1.25 }}>{title || about.storyTitle}</h2>
-              <p className="mr-clamp4" style={{ fontFamily: "var(--font-serif)", fontSize: 15.5, lineHeight: 1.45, margin: 0, color: "var(--text-body)" }}>{about.story[0]}</p>
-              <button onClick={go || (() => ctx.nav("about"))} style={{ ...linkBtn, alignSelf: "flex-start", padding: "6px 0" }}>{block.ctaLabel || "Read our story"}</button>
-            </div>
-          </div>
-        </section>
-      );
-    }
+    case "story":
+      return <MobileStory ctx={ctx} block={block} eyebrow={eyebrow} title={title} />;
 
     case "rewards":
       return (
-        <section style={sec()}>
+        <section id="rewards" style={{ ...sec(), scrollMarginTop: 80 }}>
           <div style={{ background: "var(--mr-purple-900)", borderRadius: "var(--radius-lg)", padding: "22px 18px", color: "var(--mr-cream)" }}>
             <div style={{ height: 1, background: "var(--gold-line)", marginBottom: 16 }} />
             {eyebrow && <div style={{ ...eyebrowM, color: "var(--accent-gold)" }}>{eyebrow}</div>}
             <h2 style={{ ...h2M, fontSize: 22, margin: "6px 0 8px", color: "var(--mr-cream)" }}>{title}</h2>
             {sub && <p style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 16px", color: "var(--mr-cream)" }}>{sub}</p>}
-            <BtnM variant="gold" block onClick={go || (() => goShop(ctx))}>{block.ctaLabel || "Shop to earn your reward"}</BtnM>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 16 }}>
+              {REWARD_STEPS.map((r) => (
+                <div key={r.step} style={{ border: "1px solid rgba(218,183,119,0.35)", borderRadius: "var(--radius-md)", padding: "10px 12px" }}>
+                  <div style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--accent-gold)" }}>{r.step}</div>
+                  <div style={{ fontSize: 12, lineHeight: 1.45, marginTop: 4, color: "var(--mr-cream)" }}>{r.copy}</div>
+                </div>
+              ))}
+            </div>
+            <BtnM variant="gold" block onClick={go || (() => goShop(ctx))}>{block.ctaLabel || "Shop to earn your points now"}</BtnM>
           </div>
         </section>
       );
@@ -283,7 +285,7 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
       if (!ctx.testimonials.length) return null;
       return (
         <section style={{ paddingTop: 30 }}>
-          <HeadM eyebrow={eyebrow} title={title || settings.reviewsHeadline || "Reviews"} action={block.ctaLabel} onAction={go} />
+          <HeadM eyebrow={eyebrow} title={title || settings.reviewsHeadline || "Don't just take our word for it"} action={block.ctaLabel} onAction={go} />
           <Rail width={260}>{ctx.testimonials.slice(0, 9).map((t) => <EmbedCard key={t.id} t={t} />)}</Rail>
         </section>
       );
@@ -318,20 +320,49 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
   }
 }
 
+// The founder's story: portrait, heading and opening paragraph, and the rest
+// of it opened in place.
+function MobileStory({ ctx, block, eyebrow, title }) {
+  const [open, setOpen] = useState(false);
+  const about = aboutContent(ctx.settings);
+  return (
+    <section style={sec()}>
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <ImageSlot src={about.founderPhoto} name={about.founderName} sizes="112px" monoSize={32} shape="rounded" radius={10} style={{ width: 112, height: 144, flex: "none" }} />
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+          {eyebrow && <div style={eyebrowM}>{eyebrow}</div>}
+          <h2 style={{ ...h2M, fontSize: 18, lineHeight: 1.25 }}>{title || about.storyTitle}</h2>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{about.founderName} — {about.founderRole}</div>
+        </div>
+      </div>
+      {(open ? about.story : about.story.slice(0, 1)).map((par, i) => (
+        <p key={i} style={{ fontFamily: "var(--font-serif)", fontSize: 15.5, lineHeight: 1.55, margin: "12px 0 0", color: "var(--text-body)" }}>{par}</p>
+      ))}
+      {about.story.length > 1 && (
+        <button onClick={() => setOpen((o) => !o)} aria-expanded={open} style={{ ...linkBtn, padding: "10px 0 0" }}>
+          {open ? "Show less" : block.ctaLabel || "Read the full story"}
+        </button>
+      )}
+    </section>
+  );
+}
+
 function MobileNewsletter({ ctx, title, sub }) {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
   return (
     <section style={sec()}>
       <div style={{ background: "var(--mr-lavender-200)", borderRadius: "var(--radius-lg)", padding: "22px 18px" }}>
-        <h2 style={{ ...h2M, fontSize: 22, margin: "0 0 8px" }}>{title || "Newsletter"}</h2>
-        {sub && <p style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px", color: "var(--text-body)" }}>{sub}</p>}
+        {title && <h2 style={{ ...h2M, fontSize: 22, margin: "0 0 8px" }}>{title}</h2>}
+        {sub && <p style={title
+          ? { fontSize: 13, lineHeight: 1.55, margin: "0 0 14px", color: "var(--text-body)" }
+          : { fontFamily: "var(--font-serif)", fontSize: 17, lineHeight: 1.45, margin: "0 0 14px", color: "var(--text-strong)" }}>{sub}</p>}
         {done
-          ? <div style={{ fontSize: 14, fontWeight: 500, color: "var(--mr-purple-900)" }}>You&apos;re subscribed.</div>
+          ? <div style={{ fontSize: 14, fontWeight: 500, color: "var(--mr-purple-900)" }}>You&apos;re on the list.</div>
           : (
             <form onSubmit={(e) => { e.preventDefault(); if (ctx.joinList(email, "newsletter")) setDone(true); }} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" aria-label="Your email address" style={fieldM} />
-              <BtnM type="submit" block>Subscribe</BtnM>
+              <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your email address" aria-label="Your email address" style={fieldM} />
+              <BtnM type="submit" block>Join the list</BtnM>
             </form>
           )}
       </div>
@@ -431,7 +462,7 @@ export function MobileShop({ ctx }) {
   // Under a sub-category the parent's name sits above the heading; otherwise
   // the heading stands alone.
   const eyebrow = trail.length > 1 ? trail[0].label : "";
-  const desc = !searching && !segCopy && (collection ? collection.desc : activeCat ? activeCat.desc : "");
+  const desc = !searching && !segCopy && !brand && (collection ? collection.desc : activeCat ? activeCat.desc : SHOP_SUB);
 
   // Sub-categories of wherever the shopper is, as a second row of chips.
   const parent = activeCat ? (activeCat.parentId ? ctx.categories.find((c) => c.id === activeCat.parentId) : activeCat) : null;
@@ -557,7 +588,7 @@ export function MobileShop({ ctx }) {
             <FilterGroup title="Category" opts={[["all", "Everything"], ...catTree(ctx.categories).map((c) => [c.id, c.label])]} value={parent ? parent.id : "all"} onPick={(id) => refine({ fCat: id })} />
             <FilterGroup title="Price" opts={priceOpts} value={mf.price} onPick={(id) => setMf({ price: id })} />
             {genders.length > 1 && <FilterGroup title="For" opts={[["all", "Everyone"], ...genders.map((g) => [g, GENDER_LABEL[g] || g])]} value={mf.gender} onPick={(id) => setMf({ gender: id })} />}
-            {families.length > 1 && <FilterGroup title="Scent family" opts={[["all", "All"], ...families.map((f) => [f, f])]} value={mf.fam} onPick={(id) => setMf({ fam: id })} />}
+            {families.length > 1 && <FilterGroup title="Fragrance family" opts={[["all", "All"], ...families.map((f) => [f, f])]} value={mf.fam} onPick={(id) => setMf({ fam: id })} />}
           </div>
         </Sheet>
       )}

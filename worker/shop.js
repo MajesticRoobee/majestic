@@ -1,6 +1,5 @@
 // Public storefront API.
 import { Hono } from "hono";
-import { handleErpWebhook } from "./erp-webhook.js";
 import { getSettings, loadProducts, normalizeContact, fmtNaira, displayTime, displayDate, activeLocations, promoIsLive, promoRefusal, todayInWAT, scopeCats } from "./util.js";
 import { computeSegments, dealIsLive, daysBefore, embedUrlFor, firstName, NEW_ARRIVAL_DAYS, pickDailyDeal, resolveDailyDeal, applyDailyDealPricing } from "./merch.js";
 import { lowStockLines } from "./inventory.js";
@@ -840,16 +839,6 @@ shop.post("/paystack/webhook", async (c) => {
   const raw = await c.req.text();
   const r = await handleWebhook(c.env, raw, c.req.header("x-paystack-signature"));
   return c.text(r.text, r.status);
-});
-
-// ERPRev → the shop, pushed. Every stock move and price change in the ERP,
-// applied within seconds. Verified against ERP_WEBHOOK_SECRET — see
-// worker/erp-webhook.js for the two ways a delivery can prove itself.
-shop.post("/erp/webhook", async (c) => {
-  const raw = await c.req.text();
-  const headers = Object.fromEntries([...c.req.raw.headers.entries()]);
-  const r = await handleErpWebhook(c.env, { raw, headers, query: c.req.query(), ctx: c.executionCtx });
-  return c.json(r.json, r.status);
 });
 
 // Guest order tracking: order number + the phone or email used.

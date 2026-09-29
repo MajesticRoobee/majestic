@@ -219,51 +219,6 @@ function EmailPanel({ mail, ctx, reload }) {
   );
 }
 
-// ERPRev → the shop, pushed. The quickest way to connect: it needs no request
-// signing, only the webhook secret ERPRev shows when the webhook is created.
-function ErpWebhookBox({ erp, ctx }) {
-  const w = erp.webhook;
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(w.url); setCopied(true); setTimeout(() => setCopied(false), 1800); }
-    catch { window.prompt("Copy this address", w.url); }
-  };
-  const last = w.recent[0];
-  const code = { fontFamily: "monospace", fontSize: 11.5, background: "var(--surface-sunken)", padding: "1px 5px", borderRadius: 4 };
-  return (
-    <div style={{ margin: "12px 0 4px", padding: 16, borderRadius: "var(--radius-md)", background: "var(--surface-sunken)", border: "1px solid var(--border-hairline)" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>Live updates from ERPRev</div>
-        <span style={{ fontSize: 11.5, fontWeight: 500, color: last && last.ok ? "#3f6b45" : w.hasSecret ? "var(--mr-gold-600)" : "var(--text-muted)" }}>
-          {last && last.ok ? `Last update ${String(last.at).slice(0, 16)} UTC` : w.hasSecret ? "Waiting for first update" : "Needs secret"}
-        </span>
-      </div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7, marginTop: 6 }}>
-        In ERPRev, add a webhook for product and stock events pointing at:
-      </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-        <code style={{ ...code, fontSize: 12, padding: "6px 10px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", wordBreak: "break-all" }}>{w.url}</code>
-        <Button variant="secondary" size="sm" onClick={copy}>{copied ? "Copied" : "Copy"}</Button>
-      </div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7, marginTop: 8 }}>
-        {w.hasSecret
-          ? <>Secret set.</>
-          : <>Add ERPRev&rsquo;s signing secret as the GitHub secret <code style={code}>ERP_WEBHOOK_SECRET</code>.</>}
-      </div>
-      {w.recent.length > 0 && (
-        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4, maxHeight: 170, overflowY: "auto" }}>
-          {w.recent.map((r) => (
-            <div key={r.id} style={{ display: "flex", gap: 10, justifyContent: "space-between", fontSize: 11.5, color: r.ok ? "var(--text-muted)" : "#c0587a" }}>
-              <span style={{ minWidth: 0 }}>{r.event ? <strong style={{ fontWeight: 600 }}>{r.event}: </strong> : null}{r.note}</span>
-              <span style={{ flexShrink: 0 }}>{String(r.at).slice(5, 16)}{r.auth ? ` · ${r.auth}` : ""}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // The ERP link — inventory and catalogue.
 //
 // A checklist rather than a form, because the order matters and the failures
@@ -396,11 +351,8 @@ function ErpPanel({ erp, ctx, reload }) {
   ].filter(Boolean).join("\n")));
   const discoverNote = (d) => noteBox(d, d && (d.error || `Found ${d.warehouses} location(s) and ${d.itemGroups} categor${d.itemGroups === 1 ? "y" : "ies"}.`));
 
-  // The webhook counts as connected in its own right: it needs no request
-  // signing, so it is often live before the scheduled pull is.
-  const receiving = !!(erp.webhook && erp.webhook.recent.some((r) => r.ok));
-  const tone = cfg.on && cfg.configured ? "good" : receiving ? "good" : cfg.configured ? "warn" : "mute";
-  const label = cfg.on && cfg.configured ? "Syncing" : receiving ? "Connected" : cfg.configured ? "Paused" : "Not connected";
+  const tone = cfg.on && cfg.configured ? "good" : cfg.configured ? "warn" : "mute";
+  const label = cfg.on && cfg.configured ? "Syncing" : cfg.configured ? "Paused" : "Not connected";
   const selStyle = { fontFamily: "var(--font-sans)", fontSize: 12.5, padding: "6px 10px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-sm)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer", maxWidth: "100%" };
   const PATHS = [
     ["products", "Products", "Required"],
@@ -431,7 +383,6 @@ function ErpPanel({ erp, ctx, reload }) {
       )}
 
       <Fold title="Setup">
-      {erp.webhook && <ErpWebhookBox erp={erp} ctx={ctx} />}
 
       {step(1, "Which ERP", true, (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

@@ -374,15 +374,21 @@ const genericNormalise = {
     price: num(pick(row, fieldsFor(f, "price"))),
     validFrom: str(pick(row, fieldsFor(f, "validFrom"))),
   }),
-  stock: (row, f = {}) => ({
-    // `stockCode` / `stockWarehouse` rather than `code` / `warehouse`: on a
-    // stock row the product and the location are foreign keys, and the row's
-    // own `id` belongs to the stock record. See the note on ALIASES.
-    code: str(pick(row, f.stockCode ? [f.stockCode, ...ALIASES.stockCode] : ALIASES.stockCode)),
-    warehouse: str(pick(row, f.stockWarehouse ? [f.stockWarehouse, ...ALIASES.stockWarehouse] : ALIASES.stockWarehouse)),
-    onHand: num(pick(row, fieldsFor(f, "onHand"))),
-    reserved: num(pick(row, fieldsFor(f, "reserved"))),
-  }),
+  stock: (row, f = {}) => {
+    // A row with no quantity the reader recognises has `onHand: null`, not 0.
+    // Read as 0 it would set the shelf to empty — a count nobody gave — and
+    // look like a clean pull. `erp.js` leaves such a row's shelf as it is.
+    const qty = pick(row, fieldsFor(f, "onHand"));
+    return {
+      // `stockCode` / `stockWarehouse` rather than `code` / `warehouse`: on a
+      // stock row the product and the location are foreign keys, and the row's
+      // own `id` belongs to the stock record. See the note on ALIASES.
+      code: str(pick(row, f.stockCode ? [f.stockCode, ...ALIASES.stockCode] : ALIASES.stockCode)),
+      warehouse: str(pick(row, f.stockWarehouse ? [f.stockWarehouse, ...ALIASES.stockWarehouse] : ALIASES.stockWarehouse)),
+      onHand: qty === undefined ? null : num(qty),
+      reserved: num(pick(row, fieldsFor(f, "reserved"))),
+    };
+  },
   warehouse: (row) => {
     // A location list is often just strings.
     if (typeof row === "string") return { key: row.trim(), label: row.trim(), isGroup: false, disabled: false };

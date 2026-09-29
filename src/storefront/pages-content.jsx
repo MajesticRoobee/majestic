@@ -6,6 +6,7 @@ import { useWindowWidth } from "../lib/hooks.js";
 import { ProductCard } from "./product-card.jsx";
 import { routeToPath } from "./router.js";
 import { paragraphs } from "../lib/blog.js";
+import { FAQS } from "../lib/faqs.js";
 
 const PAD = "clamp(16px, 4vw, 40px)";
 const shellStyle = { maxWidth: 1280, margin: "0 auto", padding: `clamp(28px, 4vw, 48px) ${PAD}` };
@@ -112,56 +113,16 @@ export function LocationsPage({ ctx }) {
 
 // ---- FAQ ------------------------------------------------------------------
 
-// The questions the store is actually asked, and the answers the client wrote.
-// Shipping and returns carry ids so the footer can link straight to them.
-export const FAQS = [
-  {
-    q: "What makes Majestic Roobee fragrances different?",
-    a: ["Majestic Roobee creates its own perfumes and fragrance products with a focus on safe products, quality and an elevated everyday fragrance experience."],
-  },
-  {
-    q: "How do I choose a perfume?",
-    a: ["Think about the fragrances you naturally enjoy. Do you prefer something floral, sweet, fresh, woody, warm or sensual? You can also consider when and where you plan to wear the fragrance.", "If you need recommendations on what to get, you can contact us on WhatsApp."],
-    whatsapp: true,
-  },
-  {
-    q: "How can I make my perfume last longer?",
-    a: ["Apply perfume to moisturised skin. You can also layer complementary fragrance products."],
-  },
-  {
-    q: "What is perfume oil?",
-    a: ["Perfume oil is a concentrated fragrance designed to be applied directly to the skin and clothes. It usually sits closer to the skin than a traditional spray perfume."],
-  },
-  {
-    q: "Can I layer my fragrances?",
-    a: ["Yes. Layering allows you to combine complementary products and create a more personalised scent."],
-  },
-  {
-    q: "How should I store my perfume?",
-    a: ["Keep your perfume away from direct sunlight, excessive heat and humidity. A cool, dry place is ideal."],
-  },
-  {
-    id: "shipping",
-    q: "Do you deliver across Nigeria?",
-    a: ["Yes, we deliver everywhere across Nigeria and outside Nigeria."],
-  },
-  {
-    q: "How long does delivery take?",
-    a: ["Priority delivery takes 1–2 days and standard shipping takes 3–5 business days.", "International shipping takes 3–12 working days."],
-  },
-  {
-    id: "returns",
-    q: "Do you accept returns or exchanges?",
-    a: ["If you receive the wrong item or your products arrive faulty or damaged, please contact us as soon as possible so we can help resolve the issue. Terms and conditions apply."],
-  },
-];
+// The questions and answers live in src/lib/faqs.js, which the page's
+// structured data reads too.
+export { FAQS };
 
 export function FaqPage({ ctx }) {
   const { settings } = ctx;
   const wa = `https://wa.me/${String(settings.contactPhone || "").replace(/[^\d]/g, "").replace(/^0/, "234")}`;
   return (
     <main style={{ ...shellStyle, maxWidth: 820 }}>
-      <PageHead eyebrow="Help" title="FAQs" />
+      <PageHead title="Frequently asked questions" />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {FAQS.map((f) => (
           <div key={f.q} id={f.id} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "20px 22px", scrollMarginTop: 100 }}>
@@ -240,7 +201,8 @@ export function EmbedCard({ t, frameHeight }) {
   const byline = (
     (t.author || t.handle || t.city) && (
       <div style={{ padding: "12px 16px 14px", borderTop: t.kind === "quote" && !t.thumbUrl ? "none" : "1px solid var(--border-hairline)" }}>
-        {t.author && <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>{t.author}</div>}
+        {/* A written review signs off the way the brief writes it: "— Name". */}
+        {t.author && <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>{t.kind === "quote" && !t.embedUrl ? `— ${t.author}` : t.author}</div>}
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
           {[t.handle, t.city].filter(Boolean).join(" · ")}
           {t.url && (

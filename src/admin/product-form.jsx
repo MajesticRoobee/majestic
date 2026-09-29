@@ -8,6 +8,15 @@ import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { uploadImage } from "../lib/images.js";
 
 const GENDERS = ["Unisex", "Female", "Male"];
+// The shop's "Fragrance family" filter reads this. The families are the ones
+// the FAQ names when it asks what a shopper enjoys.
+const FAMILIES = ["Floral", "Sweet", "Fresh", "Woody", "Warm", "Sensual"];
+const familySelect = (f, setF) => (
+  <Select label="Fragrance family" value={f.family || ""} onChange={(e) => setF({ ...f, family: e.target.value })}>
+    <option value="">None</option>
+    {FAMILIES.concat(f.family && !FAMILIES.includes(f.family) ? [f.family] : []).map((x) => <option key={x} value={x}>{x}</option>)}
+  </Select>
+);
 // Opening stock is one field per store the house has open — no fixed three.
 const blankVariant = () => ({ size: "", price: "", sku: "", imageUrl: "", stock: {} });
 
@@ -177,7 +186,7 @@ function GalleryPanel({ ctx, product }) {
 }
 
 export function NewProduct({ ctx }) {
-  const [f, setF] = useState({ name: "", cat: "perfumes", brand: "", gender: "Unisex", notes: "", desc: "", imageUrl: "", live: true, optionName: "Size", splitListing: false, pinNew: false, pinBest: false });
+  const [f, setF] = useState({ name: "", cat: "perfumes", brand: "", gender: "Unisex", family: "", notes: "", desc: "", imageUrl: "", live: true, optionName: "Size", splitListing: false, pinNew: false, pinBest: false });
   const [variants, setVariants] = useState([blankVariant()]);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(null);
@@ -188,7 +197,7 @@ export function NewProduct({ ctx }) {
     try {
       const r = await api.post("/api/admin/products", { ...f, optionNames: [f.optionName], variants }, ctx.token);
       setDone({ name: r.name, live: r.live });
-      setF({ name: "", cat: f.cat, brand: f.brand, gender: f.gender, notes: "", desc: "", imageUrl: "", live: true, optionName: f.optionName, splitListing: f.splitListing, pinNew: false, pinBest: false });
+      setF({ name: "", cat: f.cat, brand: f.brand, gender: f.gender, family: f.family, notes: "", desc: "", imageUrl: "", live: true, optionName: f.optionName, splitListing: f.splitListing, pinNew: false, pinBest: false });
       setVariants([blankVariant()]);
       ctx.loadProducts();
       ctx.flash(r.live ? `${r.name} is live` : `${r.name} saved as draft`);
@@ -211,6 +220,7 @@ export function NewProduct({ ctx }) {
       <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
         {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </Select>
+      {familySelect(f, setF)}
       <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee" />
       <Input label="Option name" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
         placeholder="Size" hint="e.g. Size, Scent, Shade" />
@@ -229,7 +239,7 @@ export function NewProduct({ ctx }) {
 
 export function EditProductPanel({ ctx, product, onClose }) {
   const [f, setF] = useState({
-    name: product.name, cat: product.cat, brand: product.brand || "", gender: product.gender,
+    name: product.name, cat: product.cat, brand: product.brand || "", gender: product.gender, family: product.family || "",
     notes: product.notes, desc: product.desc, imageUrl: product.imageUrl || "",
     splitListing: !!product.splitListing,
     pinNew: !!product.pinNew, pinBest: !!product.pinBest,
@@ -306,6 +316,7 @@ export function EditProductPanel({ ctx, product, onClose }) {
           {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
         </Select>
       </div>
+      {familySelect(f, setF)}
 
       <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee" />
 

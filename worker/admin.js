@@ -17,7 +17,6 @@ import { putMedia, migrateToR2 } from "./media.js";
 import { issueReward, getReward, rewardOut, expiryFromNow, cleanCode } from "./rewards.js";
 import { clamp as clampText, PREVIEW_MAX, TITLE_MAX } from "../src/lib/blog.js";
 import { erpStatus, erpPing, erpProbe, erpReadSpec, erpPull, erpSyncWarehouses, erpSyncItemGroups } from "./erp.js";
-import { webhookStatus } from "./erp-webhook.js";
 import { emailConfig, sendEmail } from "./email.js";
 
 const randHex = (n = 24) => [...crypto.getRandomValues(new Uint8Array(n))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -2359,10 +2358,7 @@ admin.post("/email/test", requireSuper, async (c) => {
 // admin screen that can read a credential back is a credential one compromised
 // admin session hands over.
 
-admin.get("/erp", requireSuper, async (c) => c.json({
-  ...(await erpStatus(c.env)),
-  webhook: await webhookStatus(c.env, new URL(c.req.url).origin),
-}));
+admin.get("/erp", requireSuper, async (c) => c.json(await erpStatus(c.env)));
 
 // "Everything in the ERP is Abuja's": every location it has shown us, mapped
 // to one shop in one go. For a house with one warehouse in the ERP — or one

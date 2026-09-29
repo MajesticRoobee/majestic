@@ -2,9 +2,27 @@
 // and the phone's, so a block means the same thing at every width.
 import { pathToRoute } from "./router.js";
 
+// The hero's see-through panel, on the phone and the desktop alike: the house
+// purple at a strength that keeps cream type legible over a bright photograph,
+// with no blur, so the picture behind it stays sharp and shows through.
+export const HERO_PANEL = { background: "rgba(36, 20, 48, 0.72)", border: "1px solid rgba(250, 246, 241, 0.16)" };
+export const HERO_TEXT_SHADOW = "0 1px 2px rgba(20, 10, 28, 0.55)";
+
 // A heading may say {city}, so "In Abuja now" follows the shopper when they
 // switch store instead of naming the house's default forever.
 export const fill = (text, vars) => String(text || "").replace(/\{city\}/g, vars.city || "");
+
+// The categories a "categories" block shows. Its ref_id may name them, comma
+// separated, in the order the house wants them; empty means every top-level
+// category, in the tree's own order. A name that no longer exists is skipped.
+export function blockCategories(block, categories = []) {
+  const top = categories.filter((c) => !c.parentId);
+  const ids = String((block && block.refId) || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) return top;
+  const byId = new Map(categories.map((c) => [c.id, c]));
+  const picked = ids.map((id) => byId.get(id)).filter(Boolean);
+  return picked.length ? picked : top;
+}
 
 // A block's products, as cards, in the order the server resolved them.
 export function cardsFor(block, ctx) {

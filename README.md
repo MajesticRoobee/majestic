@@ -40,7 +40,6 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `CLOUDFLARE_ACCOUNT_ID` | Only needed if the token can see multiple accounts |
 | `PAYSTACK_SECRET_KEY` | Enables card payment — see below |
 | `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERP pull — see below |
-| `ERP_WEBHOOK_SECRET` | Lets ERPRev push stock and price changes to `/api/erp/webhook` — see below |
 | `RESEND_API_KEY` | Sends email (order updates, password resets, alerts) through Resend — see below |
 | `RESEND_FROM` | The From address, e.g. `Majestic Roobee <hello@majesticroobee.shop>` — must be on a domain verified in Resend |
 | `RESEND_REPLY_TO` | Optional — where customers' replies land |
@@ -75,7 +74,7 @@ this repository is public.
    look the new site over.
 4. **Switch over.** Run the migration once more, with *replace* ticked, so
    orders placed in the meantime come across. Then straight away: re-point the
-   Paystack and ERPRev webhooks at the new address, and in the **old** account
+   Paystack webhook at the new address, and in the **old** account
    remove the `majestic-roobee` Worker's cron trigger (Settings → Triggers) or
    delete the Worker. Left running, its 15-minute job keeps pulling from ERPRev
    and sending automation emails from the old database alongside the new site.
@@ -95,9 +94,8 @@ it). Once the domain is on the Cloudflare account:
 2. **Tell the shop its address.** Admin → Settings → *The shop's web address* →
    `https://majesticroobee.shop`. Abandoned-cart links, the email letterhead's
    logo and links, and the sitemap read it.
-3. **Re-point the webhooks** at the new address: Paystack
-   (`/api/paystack/webhook`) and ERPRev (`/api/erp/webhook`). Admin →
-   Integrations shows both URLs to copy.
+3. **Re-point the Paystack webhook** at the new address
+   (`/api/paystack/webhook`). Admin → Integrations shows the URL to copy.
 4. **Email.** Verify `majesticroobee.shop` in resend.com → Domains (add the DNS
    records it lists, in Cloudflare) and set `RESEND_FROM` to an address on it,
    e.g. `Majestic Roobee <hello@majesticroobee.shop>`.
@@ -353,32 +351,24 @@ Nothing is welded to it: which ERP it talks to is a setting, everything
 vendor-shaped is one file (`worker/erp-adapters.js`) behind four neutral row
 shapes, and the sync engine (`worker/erp.js`) knows about none of it.
 
-Two directions exist, and only one needs anything built on the ERP's side.
+**The link is a pull, and only a pull.** The Worker calls ERPRev's API on a
+schedule (hourly by default; the 15-minute cron decides whose turn it is),
+reads products, stock, warehouses and categories, and writes per-shop stock
+into the shop. Nothing has to be built inside the ERP, and it works even if
+ERPRev can only be reached *outward*. The API key is all it needs.
 
-**Pull (the default, and what the house asked for).** The Worker calls ERPRev
-on a schedule, reads products, stock and warehouses, and writes prices and
-per-shop stock into the shop. Nothing has to be built inside the ERP, and it
-works even if ERPRev can only be reached *outward*.
+ERPRev only sends outgoing webhooks on its Ultimate plan, which the house is
+not on, so there is no inbound ERP address: an earlier `/api/erp/webhook`
+receiver never got a delivery and was removed (migration `0029`). A stock
+change in ERPRev reaches the shop on the next pull, within the hour.
 
-**Push — the webhook (the quickest way to connect).** ERPRev ships outgoing
-webhooks with a delivery log. Point one at `POST /api/erp/webhook` and every
-stock move and price change lands on the shop within seconds. It needs **no
-request signing** — only the secret ERPRev shows for the webhook — so it works
-today, whatever the pull's signing turns out to be.
-
-### The webhook, in four steps
-
-1. In ERPRev, create a webhook for **product** and **stock** events. Copy the
-   address from **Admin → Integrations → Instant updates from ERPRev**
-   (`https://<your-domain>/api/erp/webhook`).
-2. Copy the **signing secret** ERPRev shows for it into the GitHub secret
-   `ERP_WEBHOOK_SECRET` (or `wrangler secret put ERP_WEBHOOK_SECRET`) and
-   redeploy. Until it is set, every delivery is refused with 401/503 — an open
-   address that sets stock would let anyone empty the shop.
-3. If ERPRev's webhook screen can't sign deliveries, add the same secret to
-   the address instead: `…/api/erp/webhook?token=<secret>`.
-4. Change something in ERPRev and watch the delivery appear in the log on the
-   same admin panel, with what it changed.
+**What the pull reads, and what it leaves alone.** ERPRev's product rows carry
+no price, so the shop keeps the prices set in the admin. Stock is set
+absolutely per mapped shop, on hand less reserved. A stock row with no
+quantity the reader recognises changes nothing — it is counted as unread, and
+the sync log says `STOCK UNREADABLE` with the keys ERPRev sent, rather than
+reading the missing figure as 0. Every run's log line gives how many stock
+rows were read and the units on the matched sizes.
 
 **Where the stock goes.** Into **Abuja** by default (Admin → Integrations →
 step 5 changes it). The default applies only where it cannot be wrong: a stock
@@ -386,14 +376,6 @@ row naming no location, or an ERP that has only ever shown one location — and
 that location is then written into the map, so it stays Abuja's when a second
 one appears. With two or more ERP locations, each has to be mapped (or use
 **Map every location to Abuja** if all of it really is Abuja's stock).
-
-**What it does with an event.** Stock is set absolutely, on hand less reserved.
-A price comes from a product event; a product the shop has never seen is
-created as a **draft** (publishing is a switch). A deleted or archived product
-is taken off sale. A retried delivery is a no-op, and an event older than one
-already applied for the same SKU and shop is ignored, so a late retry can't put
-back a count the ERP has moved past. A stock event for a product the shop
-doesn't have yet is logged and triggers a pull, if the pull is set up.
 
 The older **`POST /api/v1/catalog/sync`** (below) is still there for anything
 that would rather send the whole feed.
