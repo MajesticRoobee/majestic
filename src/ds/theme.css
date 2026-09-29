@@ -149,14 +149,25 @@ a:hover { color: var(--mr-orchid-500); }
   width: max-content;
   animation: mr-marquee 38s linear infinite;
 }
-.mr-marquee:hover .mr-marquee-track { animation-play-state: paused; }
+/* Hover pauses it only where there is a real pointer: on a phone a tap leaves
+   the bar "hovered", which used to stop it for good after the first touch. */
+@media (hover: hover) {
+  .mr-marquee:hover .mr-marquee-track { animation-play-state: paused; }
+}
 @keyframes mr-marquee {
   from { transform: translateX(0); }
   to   { transform: translateX(-50%); }
 }
+/* Asked for less motion, the line still has to be readable end to end — a
+   stopped bar shows only its first few words — so it keeps moving, slowly. */
 @media (prefers-reduced-motion: reduce) {
-  .mr-marquee-track { animation: none; width: 100%; justify-content: center; }
-  .mr-marquee-track > :nth-child(n+2) { display: none; }
+  .mr-marquee-track { animation-duration: 90s; }
+}
+/* The bar on a phone: smaller type, a slimmer strip, the same loop. */
+.mr-announce { font-size: 12px; letter-spacing: 0.06em; padding: 9px 44px; }
+@media (max-width: 899px) {
+  .mr-announce { font-size: 10.5px; letter-spacing: 0.04em; padding: 7px 34px 7px 0; }
+  .mr-announce .mr-marquee-track { animation-duration: 26s; }
 }
 
 /* ---- The phone ------------------------------------------------------------

@@ -14,6 +14,7 @@ import { consultationContent } from "../lib/consultation.js";
 import { headFor, setHead, setGscVerification } from "./seo.js";
 import { getConsent, setConsent, startAnalytics, track as trackEvent } from "./analytics.js";
 import { startTracking, record as mrRecord, setCity as mrSetCity, optedOut, setOptOut, visitorId, noteViewed, recentlyViewed, clearRecent } from "./track.js";
+import { captureAttribution, attributionForOrder } from "./attribution.js";
 
 const SCOPE_CATS = {
   Storewide: null,
@@ -221,9 +222,13 @@ export default function App() {
     try { localStorage.setItem("mr-wishlist", JSON.stringify(guestWish)); } catch {}
   }, [guestWish]);
 
-  // Purchase proof, once per visit.
+  // Purchase proof: fetched on arrival, then again every two minutes while the
+  // tab is open and in view, so a purchase made during the visit shows up.
   useEffect(() => {
-    api.get("/api/social-proof").then(setProof).catch(() => {});
+    const load = () => api.get("/api/social-proof").then(setProof).catch(() => {});
+    load();
+    const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 120000);
+    return () => clearInterval(t);
   }, []);
 
   // `opts.replace` refines the page the shopper is already on — a filter chip,
@@ -737,6 +742,8 @@ export default function App() {
   // shop counting its own shop, sets no third-party cookie and shares nothing —
   // but switched off entirely by the setting, or by anyone who says no.
   useEffect(() => { if (D) startTracking({ on: D.settings.insightsOn !== false }); }, [D]);
+  // How this visit arrived — an ad, a tagged link, another site — noted once.
+  useEffect(() => { captureAttribution({ optedOut: optedOut() }); }, []);
   useEffect(() => { mrSetCity(city); }, [city]);
   useEffect(() => {
     if (!D) return;
@@ -869,6 +876,11 @@ export default function App() {
         // it agrees to the arrangement on screen. If the server has planned a
         // different one it says so, and `reconfirm` makes the next press explicit.
         acceptSplit: reconfirm || !!(plan && plan.mode === "split"),
+        // Where this shopper came from, so the order can be credited to the ad
+        // or link that brought them; and whether they accepted marketing
+        // cookies, which alone lets the sale be reported to Meta.
+        attribution: attributionForOrder(),
+        adConsent: consent === "granted",
       });
       if (r.paystackUrl) {
         try { sessionStorage.setItem("mr-pending-order", JSON.stringify(r.order)); } catch {}
@@ -898,7 +910,7 @@ export default function App() {
     } finally {
       setPlacing(false);
     }
-  }, [co, city, cart, promoInfo, plan, reconfirm, settings.contactPhone, nav]);
+  }, [co, city, cart, promoInfo, plan, reconfirm, settings.contactPhone, nav, consent]);
 
   // Finish paying for an order that was placed but never settled — from the
   // confirmation screen or from order tracking.

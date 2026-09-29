@@ -40,6 +40,7 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `CLOUDFLARE_ACCOUNT_ID` | Only needed if the token can see multiple accounts |
 | `PAYSTACK_SECRET_KEY` | Enables card payment — see below |
 | `ERP_API_KEY` / `ERP_API_SECRET` | Enables the ERP pull — see below |
+| `META_CAPI_TOKEN` | Lets the server report purchases to Meta (Conversions API), alongside the pixel — Events Manager → your pixel → Settings → Generate access token. The Pixel ID itself goes in Admin → Settings → Analytics |
 | `RESEND_API_KEY` | Sends email (order updates, password resets, alerts) through Resend — see below |
 | `RESEND_FROM` | The From address, e.g. `Majestic Roobee <hello@majesticroobee.shop>` — must be on a domain verified in Resend |
 | `RESEND_REPLY_TO` | Optional — where customers' replies land |

@@ -561,7 +561,7 @@ export async function segmentRows(env, id, { days = 30, limit = 60, settings = n
   const rows = (await db.prepare(
     `SELECT s.id, s.visitor_id, s.customer_id, s.started_at, s.last_seen, s.device, s.country,
             s.city_pref, s.referrer, s.utm_source, s.views, s.carts, s.cart_value, s.recovered,
-            c.email AS email, c.name AS name
+            c.email AS email, c.name AS name, c.phone AS phone
        FROM sessions s LEFT JOIN customers c ON c.id = s.customer_id
       WHERE s.is_bot = 0 AND s.started_at >= datetime('now', ?) AND (${where})
       ORDER BY s.last_seen DESC LIMIT ?`
@@ -581,11 +581,69 @@ export async function segmentRows(env, id, { days = 30, limit = 60, settings = n
   return {
     segment: { id: seg.id, name: seg.name, why: seg.why, action: seg.action },
     rows: rows.map((r) => ({
-      id: r.id, customerId: r.customer_id, name: r.name || "", email: r.email || "",
+      id: r.id, customerId: r.customer_id, name: r.name || "", email: r.email || "", phone: r.phone || "",
       started: r.started_at, lastSeen: r.last_seen, device: r.device, country: r.country,
       city: r.city_pref, source: r.utm_source || r.referrer || "direct",
       views: r.views, carts: r.carts, cartValue: r.cart_value, recovered: !!r.recovered,
       looked: looked.filter((l) => l.session_id === r.id).slice(0, 4).map((l) => l.name),
     })),
+  };
+}
+
+/**
+ * The people behind the numbers, with a way to reach each of them.
+ *
+ * Four lists the house can act on today: checkouts left unfinished (they typed
+ * a phone number or an email and stopped), people waiting on a restock,
+ * newsletter and pop-up sign-ups, and recent buyers for a thank-you or a
+ * review. Contact details are the shop's own records, read only by a signed-in
+ * admin; a manager tied to one store sees that store's city only.
+ */
+export async function followUps(env, { days = 30, scope = null, limit = 100 } = {}) {
+  const db = env.DB;
+  const since = `-${rangeDays(days)} days`;
+  const cap = Math.max(1, Math.min(500, limit));
+  const city = scope && scope !== "all" ? scope : null;
+  const byCity = (col) => (city ? ` AND ${col} = ?` : "");
+  const bind = (...xs) => (city ? [...xs, city] : xs);
+
+  const checkouts = (await db.prepare(
+    `SELECT name, phone, email, city, value_ngn AS value, stage, reminded, updated_at AS at
+       FROM abandoned_checkouts
+      WHERE converted = 0 AND updated_at >= datetime('now', ?)${byCity("city")}
+      ORDER BY updated_at DESC LIMIT ?`
+  ).bind(...bind(since), cap).all()).results;
+
+  const waiting = (await db.prepare(
+    `SELECT w.contact, w.size, w.city, w.created_at AS at, p.name AS product
+       FROM stock_waitlist w LEFT JOIN products p ON p.id = w.product_id
+      WHERE w.notified = 0 AND w.created_at >= datetime('now', ?)${byCity("w.city")}
+      ORDER BY w.created_at DESC LIMIT ?`
+  ).bind(...bind(since), cap).all()).results;
+
+  // Sign-ups carry no city, so a store-bound manager doesn't see them.
+  const signups = city ? [] : (await db.prepare(
+    `SELECT l.email, l.source, l.created_at AS at, c.name AS name, c.phone AS phone
+       FROM leads l LEFT JOIN customers c ON lower(c.email) = lower(l.email)
+      WHERE l.created_at >= datetime('now', ?)
+      ORDER BY l.created_at DESC LIMIT ?`
+  ).bind(since, cap).all()).results;
+
+  const buyers = (await db.prepare(
+    `SELECT o.no, o.customer AS name, o.phone, o.email, o.city, o.total AS value, o.pay_status, o.placed_at AS at
+       FROM orders o
+      WHERE o.status <> 'Cancelled' AND o.placed_at >= datetime('now', ?)${byCity("o.city")}
+      ORDER BY o.placed_at DESC LIMIT ?`
+  ).bind(...bind(since), cap).all()).results;
+
+  const isEmail = (s) => String(s || "").includes("@");
+  return {
+    checkouts: checkouts.map((r) => ({ name: r.name, phone: r.phone, email: r.email, city: r.city, value: r.value, note: r.stage + (r.reminded ? " · reminder sent" : ""), at: r.at })),
+    waiting: waiting.map((r) => ({
+      name: "", phone: isEmail(r.contact) ? "" : r.contact, email: isEmail(r.contact) ? r.contact : "",
+      city: r.city || "", value: 0, note: `${r.product || "A product"}${r.size ? ` ${r.size}` : ""}`, at: r.at,
+    })),
+    signups: signups.map((r) => ({ name: r.name || "", phone: r.phone || "", email: r.email, city: "", value: 0, note: r.source, at: r.at })),
+    buyers: buyers.map((r) => ({ name: r.name, phone: r.phone, email: r.email, city: r.city, value: r.value, note: `Order ${r.no}${r.pay_status === "paid" ? " · paid" : ""}`, at: r.at })),
   };
 }

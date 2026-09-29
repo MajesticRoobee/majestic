@@ -162,7 +162,9 @@ export function FaqPage({ ctx }) {
 // actually needs — the alternative is the black bars and cropping you get from
 // guessing one fixed height for every platform.
 const FRAME_HEIGHT = {
-  instagram: (w) => Math.round(w * 1.25) + 104,
+  // The captioned embed: the 4:5 post, Instagram's header and bar, and room
+  // under them for the caption — the customer's own words.
+  instagram: (w) => Math.round(w * 1.25) + 290,
   tiktok: (w) => Math.round(w * 1.78) + 118,
   youtube: (w) => Math.round(w * 0.5625),
   video: (w) => Math.round(w * 1.25),
@@ -232,6 +234,14 @@ export function EmbedCard({ t, frameHeight }) {
           scrolling="no"
           style={frameStyle}
         />
+        {/* What the house wrote down for this post — the review in words —
+            under the post itself, with its stars. */}
+        {t.quote && (
+          <div style={{ padding: "14px 16px 0" }}>
+            <div aria-label={`${t.rating} out of 5`} style={{ color: "var(--accent-gold-ink)", fontSize: 13, letterSpacing: 2 }}>{"★".repeat(Math.max(1, Math.min(5, t.rating || 5)))}</div>
+            <p style={{ fontFamily: "var(--font-serif)", fontSize: 16, lineHeight: 1.55, color: "var(--text-body)", margin: "8px 0 0" }}>“{t.quote}”</p>
+          </div>
+        )}
         {byline}
       </div>
     );

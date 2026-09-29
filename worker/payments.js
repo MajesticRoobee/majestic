@@ -8,6 +8,7 @@
 // Money is handled in kobo (Paystack's smallest unit) from the moment it leaves
 // `orders.total` until it comes back, so there is no rounding step in the middle
 // where a naira figure and a kobo figure can drift apart.
+import { sendMetaPurchase } from "./meta.js";
 import { emitEvent } from "./events.js";
 import { issueEarnedReward } from "./rewards.js";
 import { getSettings } from "./util.js";
@@ -166,6 +167,10 @@ export async function markPaid(env, order, data, source) {
   // A reward that cannot be minted must never cost the shop a settlement: the
   // money is already taken and the order is already paid, so this is logged and
   // stepped over rather than thrown.
+  // Meta hears about the purchase once the money is real (and only with the
+  // buyer's consent — sendMetaPurchase checks). Never throws.
+  await sendMetaPurchase(env, order.no);
+
   let earned = null;
   try {
     earned = await issueEarnedReward(db, await getSettings(db), order);

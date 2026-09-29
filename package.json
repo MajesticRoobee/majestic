@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "vite",
     "lint": "eslint .",
-    "test": "node scripts/fulfilment.test.mjs && node scripts/payments.test.mjs && node scripts/hardening.test.mjs && node scripts/merch.test.mjs && node scripts/rewards.test.mjs && node scripts/inventory.test.mjs && node scripts/homeblocks.test.mjs && node scripts/insights.test.mjs && node scripts/affinity.test.mjs && node scripts/about.test.mjs && node scripts/catalogue.test.mjs && node scripts/blog.test.mjs && node scripts/consultation.test.mjs && node scripts/erp.test.mjs && node scripts/email.test.mjs && node scripts/seo.test.mjs",
+    "test": "node scripts/fulfilment.test.mjs && node scripts/payments.test.mjs && node scripts/hardening.test.mjs && node scripts/merch.test.mjs && node scripts/rewards.test.mjs && node scripts/inventory.test.mjs && node scripts/homeblocks.test.mjs && node scripts/insights.test.mjs && node scripts/affinity.test.mjs && node scripts/about.test.mjs && node scripts/catalogue.test.mjs && node scripts/blog.test.mjs && node scripts/consultation.test.mjs && node scripts/erp.test.mjs && node scripts/email.test.mjs && node scripts/seo.test.mjs && node scripts/attribution.test.mjs",
     "build": "vite build",
     "dev:worker": "npm run build && wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply majestic-roobee --local",

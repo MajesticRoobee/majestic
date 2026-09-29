@@ -36,3 +36,9 @@ ADMIN_TOKEN_SECRET=dev-only-change-me
 # RESEND_API_KEY=re_xxx
 # RESEND_FROM=Majestic Roobee <hello@majesticroobee.shop>
 # RESEND_REPLY_TO=care@majesticroobee.shop
+
+# Meta Conversions API. With the Pixel ID set in Admin → Settings → Analytics,
+# this token lets the server report each purchase to Meta under the order
+# number, alongside the browser pixel (worker/meta.js). Events Manager → your
+# pixel → Settings → Conversions API → Generate access token.
+# META_CAPI_TOKEN=EAAB...

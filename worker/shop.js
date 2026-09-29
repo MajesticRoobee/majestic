@@ -9,6 +9,8 @@ import { loadAffinity } from "./affinity.js";
 import { planFulfilment } from "./fulfilment.js";
 import { previewOf, plain, readingMinutes } from "../src/lib/blog.js";
 import { emitEvent } from "./events.js";
+import { cleanAttribution } from "./attribution.js";
+import { sendMetaPurchase } from "./meta.js";
 import { paystackEnabled, initializePayment, verifyPayment, handleWebhook, resumePayment } from "./payments.js";
 import { getReward, rewardRefusal, computeRewardDiscount, claimReward, releaseReward, freeItemName } from "./rewards.js";
 
@@ -290,16 +292,18 @@ shop.get("/social-proof", async (c) => {
   const db = c.env.DB;
   const settings = await getSettings(db);
   if (settings.purchasePopups === false) return c.json({ enabled: false, purchases: [] });
-  const days = Math.max(1, Math.min(90, parseInt(settings.purchasePopupDays, 10) || 30));
+  // Recent buys only: a note that someone bought something three weeks ago
+  // reads as a quiet shop, not a busy one. Two days by default.
+  const hours = Math.max(1, Math.min(720, parseInt(settings.purchasePopupHours, 10) || 48));
   const rows = (await db.prepare(
     `SELECT o.customer, o.city, o.placed_at, i.name AS item, i.size
        FROM orders o JOIN order_items i ON i.order_no = o.no
       WHERE o.status <> 'Cancelled'
         AND (o.pay_status = 'paid' OR o.pay <> 'Paystack')
-        AND date(o.placed_at) >= ?
+        AND o.placed_at >= datetime('now', ?)
       ORDER BY o.placed_at DESC
       LIMIT 40`
-  ).bind(daysBefore(days)).all()).results;
+  ).bind(`-${hours} hours`).all()).results;
   const seen = new Set();
   const purchases = [];
   for (const r of rows) {
@@ -310,11 +314,14 @@ shop.get("/social-proof", async (c) => {
     const key = `${name}|${r.item}|${r.size}|${String(r.placed_at).slice(0, 10)}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    const at = new Date(String(r.placed_at).replace(" ", "T") + "Z");
     purchases.push({
       name,
       city: (r.city || "").charAt(0).toUpperCase() + (r.city || "").slice(1),
       item: r.size ? `${r.item} ${r.size}` : r.item,
-      when: displayDate(new Date(String(r.placed_at).replace(" ", "T") + "Z")),
+      // The browser says "2 hours ago" from this; `when` is the fallback.
+      at: at.toISOString(),
+      when: displayDate(at),
     });
     if (purchases.length >= 12) break;
   }
@@ -599,6 +606,11 @@ shop.post("/orders", async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
   const { customer = {}, city, fulfill, pay, promo: promoCode, items, acceptSplit } = body;
+  // Where the shopper came from (an ad, a tagged link, a referring site), and
+  // whether they accepted marketing cookies — which alone lets the sale be
+  // reported to Meta. See worker/attribution.js and worker/meta.js.
+  const src = cleanAttribution(body.attribution);
+  const adConsent = body.adConsent === true;
 
   const locations = await activeLocations(db);
   const invalid = validateOrder({ customer, city, fulfill, pay, items, locations });
@@ -688,6 +700,7 @@ shop.post("/orders", async (c) => {
     return c.json({ error: "That reward has already been used." }, 400);
   }
 
+  const holdForMeta = adConsent && !!(settings.metaPixelId && c.env.META_CAPI_TOKEN);
   const payLabels = PAY_METHODS;
   const method = fulfill === "collect" ? "Click & collect" : "Delivery";
   const now = new Date();
@@ -695,13 +708,22 @@ shop.post("/orders", async (c) => {
   const statements = [
     db.prepare(
       `INSERT INTO orders (no, customer, phone, email, city, address, fulfilled_from, method, pay, pay_status, status,
-        promo_code, reward_code, subtotal, discount, shipping, total, all_in_city, placed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'Processing', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        promo_code, reward_code, subtotal, discount, shipping, total, all_in_city, placed_at,
+        src_source, src_medium, src_campaign, src_click, src_click_id, src_referrer, src_landing, src_fbc, src_fbp,
+        ad_consent, capi_ip, capi_ua)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'Processing', ?, ?, ?, ?, ?, ?, ?, datetime('now'),
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       no, customer.name.trim(), customer.phone.trim(), (customer.email || "").trim(), city,
       (customer.address || "").trim(), loc, method, payLabels[pay] || "Paystack",
       promo ? promo.code : null, reward ? reward.code : null,
-      subtotal, discount, shipping, total, allInCity ? 1 : 0
+      subtotal, discount, shipping, total, allInCity ? 1 : 0,
+      src.source, src.medium, src.campaign, src.click, src.clickId, src.referrer, src.landing, src.fbc, src.fbp,
+      adConsent ? 1 : 0,
+      // Held only for the Conversions API — only with consent, only when it is
+      // set up, and cleared once the event has gone.
+      holdForMeta ? (c.req.header("cf-connecting-ip") || null) : null,
+      holdForMeta ? String(c.req.header("user-agent") || "").slice(0, 400) || null : null
     ),
   ];
   for (const s of plan.shipments) {
@@ -787,7 +809,12 @@ shop.post("/orders", async (c) => {
     parcels: plan.shipments.length,
   };
 
-  if (pay !== "paystack") return c.json({ order });
+  // A transfer or WhatsApp order is the purchase, so Meta hears about it now; a
+  // card order waits until Paystack confirms the money (worker/payments.js).
+  if (pay !== "paystack") {
+    if (holdForMeta) c.executionCtx.waitUntil(sendMetaPurchase(c.env, no));
+    return c.json({ order });
+  }
 
   // Card orders hand off to Paystack. If that hand-off fails there is nothing
   // for the shopper to pay against, so the order is stood down and its stock

@@ -656,7 +656,7 @@ const SECTION_KEYS = {
     "founderName", "founderRole", "founderImage", "aboutStoresOn",
     "aboutCtaTitle", "aboutCtaSub", "aboutCtaLabel", "aboutSeoTitle", "aboutSeoDesc"],
   storefront: ["announcement", "heroHeadline", "heroSub", "heroEyebrow", "heroImage", "heroDirection", "defaultCity", "promoPopup"],
-  shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs"],
+  shelves: ["newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupHours", "purchasePopupIntervalMs"],
   inventory: ["lowStockThreshold", "lowStockMode", "lowStockCoverDays", "lowStockVelocityDays", "lowStockAlerts", "lowStockOnStorefront"],
   insights: ["insightsOn", "insightsRetainDays", "abandonAfterMins"],
   convert: ["nudgeOn", "nudgeTitle", "nudgeBody", "nudgeCta", "nudgeCode", "nudgeEveryDays",
@@ -802,7 +802,7 @@ export function SettingsPage({ ctx }) {
         </div>
         <Switch label="Show recent purchase notes" checked={form.purchasePopups ?? true} onChange={(e) => touch({ purchasePopups: e.target.checked })} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Look back over (days)" value={form.purchasePopupDays ?? ""} onChange={set("purchasePopupDays")} placeholder="30" />
+          <Input label="Purchases from the last (hours)" value={form.purchasePopupHours ?? ""} onChange={set("purchasePopupHours")} placeholder="48" />
           <Input label="Seconds between notes" value={form.purchasePopupIntervalMs ? Math.round(form.purchasePopupIntervalMs / 1000) : ""}
             onChange={(e) => touch({ purchasePopupIntervalMs: (parseInt(e.target.value, 10) || 0) * 1000 })} placeholder="14" />
         </div>

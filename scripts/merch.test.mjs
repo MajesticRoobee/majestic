@@ -101,7 +101,7 @@ check("the look-back window counts backwards in whole days",
 console.log("\nEmbeds & purchase proof");
 
 check("an Instagram post link reduces to its shortcode",
-  parseEmbed("https://www.instagram.com/p/C1a-b2C3d/"), { kind: "instagram", ref: "C1a-b2C3d", embedUrl: "https://www.instagram.com/p/C1a-b2C3d/embed" });
+  parseEmbed("https://www.instagram.com/p/C1a-b2C3d/"), { kind: "instagram", ref: "C1a-b2C3d", embedUrl: "https://www.instagram.com/p/C1a-b2C3d/embed/captioned" });
 check("a reel copied with tracking parameters still resolves",
   parseEmbed("https://www.instagram.com/reel/C1a-b2C3d/?igsh=MzRlODBiNWFlZA==").ref, "C1a-b2C3d");
 check("a TikTok video link resolves to its id",
@@ -187,6 +187,11 @@ check("the price on the card is the price on the catalogue",
 check("...and no other piece is touched",
   applyDailyDealPricing(shop, scheduled).find((p) => p.id === "pulze").variants[0].ngn, 24000);
 
+check("the was-price is the house's to set, above the shelf price too",
+  resolveDailyDeal({ products: shop, row: dd({ price_ngn: 21000, compare_at_ngn: 45000 }), now: NOW }).off, 53);
+check("left blank, the was-price is the regular price, so the saving still shows",
+  [resolveDailyDeal({ products: shop, row: dd({ price_ngn: 21000 }), now: NOW }).compareAtNgn,
+    resolveDailyDeal({ products: shop, row: dd({ price_ngn: 21000 }), now: NOW }).off], [30000, 30]);
 check("a was-price that isn't above the asking price shows no saving",
   resolveDailyDeal({ products: shop, row: dd({ price_ngn: 30000, compare_at_ngn: 30000 }), now: NOW }).compareAtNgn, null);
 check("a deal on a piece that has left the catalogue doesn't take the card down with it",

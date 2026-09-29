@@ -105,7 +105,14 @@ export function track(event, params = {}) {
   }
   if (window.fbq) {
     const map = { page_view: ["PageView"], view_item: ["ViewContent"], add_to_cart: ["AddToCart"], begin_checkout: ["InitiateCheckout"], purchase: ["Purchase"] };
-    for (const e of map[event] || []) window.fbq("track", e, { value, currency, content_name: name, content_ids: id ? [id] : gItems.map((i) => i.item_id) });
+    for (const e of map[event] || []) {
+      const data = { value, currency, content_name: name, content_ids: id && event !== "purchase" ? [id] : gItems.map((i) => i.item_id) };
+      // A purchase carries the order number as its event id: the server sends
+      // the same Purchase to the Conversions API under the same id
+      // (worker/meta.js), and Meta counts the two as one sale.
+      if (event === "purchase" && id) window.fbq("track", e, { ...data, order_id: id }, { eventID: id });
+      else window.fbq("track", e, data);
+    }
   }
   if (window.ttq) {
     const map = { view_item: "ViewContent", add_to_cart: "AddToCart", begin_checkout: "InitiateCheckout", purchase: "CompletePayment" };

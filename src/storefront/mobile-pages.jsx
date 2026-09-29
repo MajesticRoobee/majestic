@@ -145,7 +145,7 @@ function MobileDealCard({ ctx }) {
             {deal.off > 0 && <span style={{ position: "absolute", top: 6, left: 6, background: "var(--mr-purple-900)", color: "var(--mr-cream)", fontSize: 10.5, fontWeight: 600, padding: "3px 7px", borderRadius: "var(--radius-xs)" }}>{deal.off}% OFF</span>}
           </button>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 6 }}>
-            <a href={"/product/" + deal.productId} onClick={(e) => { e.preventDefault(); open(); }} style={{ fontFamily: "var(--font-sans)", fontSize: 14, fontWeight: 500, lineHeight: 1.4, color: "var(--text-strong)" }}>
+            <a href={"/product/" + deal.productId} onClick={(e) => { e.preventDefault(); open(); }} style={{ fontFamily: "var(--font-sans)", fontSize: 14.5, fontWeight: 700, lineHeight: 1.4, color: "var(--text-strong)" }}>
               {deal.productName}{deal.size ? ` · ${deal.size}` : ""}
             </a>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
@@ -197,7 +197,9 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
           : { icon: I.pin(18), t: "Worldwide", s: "Pay in ₦ or $" },
       ];
       return (
-        <section style={{ padding: "16px 16px 0", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+        <section style={{ padding: "24px 16px 0" }}>
+          <h2 style={{ ...h2M, fontSize: 20, margin: "0 0 10px" }}>{title || "What we offer"}</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
           {perks.map((x) => (
             <div key={x.t} style={{ display: "flex", flexDirection: "column", gap: 4, padding: 10, borderRadius: "var(--radius-md)", background: "var(--mr-lavender-200)" }}>
               <span style={PERK_ICON}>{x.icon}</span>
@@ -205,6 +207,7 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
               <span style={{ fontSize: 11, lineHeight: 1.4, color: "var(--text-body)" }}>{x.s}</span>
             </div>
           ))}
+          </div>
         </section>
       );
     }

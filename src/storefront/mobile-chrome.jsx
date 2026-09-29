@@ -13,7 +13,7 @@
 import React, { useState } from "react";
 import { catTree, countIn } from "../lib/categories.js";
 import { ImageSlot } from "../ds/components.jsx";
-import { AnnouncementBar, ConsentBanner, LeaveNudge, ChatWidget } from "./chrome.jsx";
+import { AnnouncementBar, ConsentBanner, LeaveNudge, ChatWidget, PurchaseProof } from "./chrome.jsx";
 import { footerColumns } from "./footer-links.js";
 import { I, BtnM, Sheet, Radio, Stepper, FreeShipBar, RailEnd, chipTone, eyebrowM, fieldM } from "./mobile-ui.jsx";
 
@@ -559,6 +559,9 @@ export function MobileChrome({ ctx, children }) {
       {tabs && <BottomTabs ctx={ctx} />}
       {["home", "categories", "shop"].includes(ctx.page) && !ctx.chat.open && <ChatFab ctx={ctx} />}
       <NoteToast ctx={ctx} />
+      {/* Recent purchases, kept off the pages where the shopper is choosing a
+          size or paying — they are already doing what the note is for. */}
+      {!["product", "cart", "checkout", "confirm"].includes(ctx.page) && !kind && <PurchaseProof ctx={ctx} mobile />}
       <LeaveNudge ctx={ctx} />
       <ConsentBanner ctx={ctx} />
       <ChatWidget ctx={ctx} mobile />

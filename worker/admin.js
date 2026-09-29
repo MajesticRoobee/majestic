@@ -8,7 +8,9 @@ import {
 import { emitEvent } from "./events.js";
 import { stockHealth, sweepStock } from "./inventory.js";
 import { loadHomeBlocks, SOURCES } from "./home.js";
-import { overview as insightOverview, segmentCounts, segmentRows, soldOutDemand, rollup, insightsConfig } from "./insights.js";
+import { overview as insightOverview, segmentCounts, segmentRows, soldOutDemand, rollup, insightsConfig, followUps } from "./insights.js";
+import { channelOf } from "./attribution.js";
+import { purchaseEvent, postEvents } from "./meta.js";
 import { rebuildAffinity } from "./affinity.js";
 import { markPaidManually, releaseExpiredOrders } from "./payments.js";
 import { clientIp, loginBuckets, checkThrottle, recordFailure, clearFailures, lockedMessage } from "./ratelimit.js";
@@ -305,6 +307,8 @@ admin.get("/overview", async (c) => {
     orders: orders.map((o) => ({
       no: o.no, customer: o.customer, phone: o.phone, email: o.email, city: o.city,
       fulfilledFrom: o.fulfilled_from, method: o.method, pay: o.pay, payStatus: o.pay_status,
+      // Where the buyer came from: "Meta ads", "Instagram", "Direct"…
+      source: channelOf(o), campaign: o.src_campaign || "",
       status: o.status, total: o.total, placed: displayDate(new Date(o.placed_at.replace(" ", "T") + "Z")),
       parcels: parcelRows.filter((p) => p.order_no === o.no).map((p) => p.city || p.location_id),
     })),
@@ -1071,7 +1075,7 @@ admin.put("/settings", async (c) => {
     "bankDetails",
     // Merchandising: how long a product reads as new, how far back the best
     // seller count looks, and whether the storefront shows live purchases.
-    "newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupIntervalMs",
+    "newArrivalDays", "bestSellerDays", "purchasePopups", "purchasePopupDays", "purchasePopupHours", "purchasePopupIntervalMs",
     // The daily-deal card: whether it shows at all, whether it falls back to the
     // deepest markdown when nothing is scheduled, and what it is called.
     "dailyDealOn", "dailyDealAuto", "dailyDealHeadline",
@@ -1506,7 +1510,7 @@ function dailyDealView(row, products, now) {
   const from = watToMs(row.starts_at);
   const to = watToMs(row.ends_at);
   const price = row.price_ngn || (variant ? variant.ngn : 0);
-  const compareAt = row.compare_at_ngn || (variant ? variant.compareAtNgn : 0) || 0;
+  const compareAt = row.compare_at_ngn || (variant ? variant.compareAtNgn || variant.ngn : 0) || 0;
   return {
     id: row.id,
     productId: row.product_id,
@@ -1655,11 +1659,76 @@ admin.get("/insights", async (c) => {
   // single day, should say so rather than drawing a chart of zeroes and letting
   // the reader conclude nobody came.
   const folded = await db.prepare("SELECT COUNT(*) AS n FROM insight_daily").first();
+  // Sales by where the buyer came from — the question an ad budget asks.
+  const sold = (await db.prepare(
+    `SELECT src_source, src_medium, src_click, src_referrer, src_campaign, total FROM orders
+      WHERE status <> 'Cancelled' AND placed_at >= datetime('now', ?)`
+  ).bind(`-${Math.max(1, Math.min(365, days || 30))} days`).all()).results;
+  const bySource = {};
+  for (const o of sold) {
+    const ch = channelOf(o);
+    const b = (bySource[ch] ||= { source: ch, orders: 0, revenue: 0, campaigns: {} });
+    b.orders += 1;
+    b.revenue += o.total || 0;
+    if (o.src_campaign) b.campaigns[o.src_campaign] = (b.campaigns[o.src_campaign] || 0) + 1;
+  }
+  const salesBySource = Object.values(bySource)
+    .map((b) => ({ ...b, campaigns: Object.entries(b.campaigns).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([k]) => k) }))
+    .sort((a, b) => b.revenue - a.revenue);
   return c.json({
-    ...data, segments, soldOut,
+    ...data, segments, soldOut, salesBySource,
     cfg: insightsConfig(settings),
     warming: folded.n === 0,
   });
+});
+
+// ---- Ads & tracking ----
+//
+// Which tags are set up, whether the server can report sales to Meta, and what
+// happened to the last few orders on the way there — so "is Meta tracking
+// working?" has an answer on a screen rather than in an ads manager.
+admin.get("/tracking", requireSuper, async (c) => {
+  const s = await getSettings(c.env.DB);
+  const recent = (await c.env.DB.prepare(
+    `SELECT no, placed_at, pay_status, ad_consent, meta_sent_at, meta_result, src_source, src_medium, src_click, src_referrer
+       FROM orders ORDER BY placed_at DESC LIMIT 10`
+  ).all()).results;
+  return c.json({
+    metaPixelId: s.metaPixelId || "",
+    capiToken: !!c.env.META_CAPI_TOKEN,
+    ga4Id: s.ga4Id || "", googleAdsId: s.googleAdsId || "", googleAdsPurchaseLabel: s.googleAdsPurchaseLabel || "",
+    tiktokPixelId: s.tiktokPixelId || "", clarityId: s.clarityId || "", gscVerification: !!s.gscVerification,
+    recent: recent.map((o) => ({
+      no: o.no, placedAt: o.placed_at, paid: o.pay_status === "paid", consent: !!o.ad_consent,
+      source: channelOf(o), meta: o.meta_sent_at ? "Sent" : o.meta_result || (o.ad_consent ? "Waiting for payment" : "No consent"),
+    })),
+  });
+});
+
+// A test purchase to Meta, visible under Events Manager → Test events with the
+// code Meta shows there. Proves the pixel id and the token together.
+admin.post("/tracking/meta-test", requireSuper, async (c) => {
+  const { testCode } = await c.req.json().catch(() => ({}));
+  const s = await getSettings(c.env.DB);
+  if (!s.metaPixelId) return c.json({ error: "Add the Meta Pixel ID in Settings → Analytics first." }, 400);
+  if (!c.env.META_CAPI_TOKEN) return c.json({ error: "The Conversions API token (META_CAPI_TOKEN) isn't set on the server yet." }, 400);
+  const event = await purchaseEvent(
+    { no: `TEST-${Date.now()}`, total: 1000, email: "test@example.com", phone: "", city: "abuja", placed_at: "" },
+    [], { siteUrl: s.siteUrl || c.env.SITE_URL || "" },
+  );
+  try {
+    const r = await postEvents(s.metaPixelId, c.env.META_CAPI_TOKEN, [event], { testCode: String(testCode || "").trim() });
+    return c.json(r.ok ? { ok: true, body: r.body } : { error: `Meta refused it (${r.status}): ${r.body}` }, r.ok ? 200 : 400);
+  } catch (e) {
+    return c.json({ error: `Couldn't reach Meta: ${String(e.message || e)}` }, 502);
+  }
+});
+
+// The people to contact, per list. A manager sees their own store's city.
+admin.get("/insights/contacts", async (c) => {
+  const a = c.get("admin");
+  const scope = a.role === "super" ? null : a.scope || null;
+  return c.json(await followUps(c.env, { days: parseInt(c.req.query("days") || "30", 10), scope }));
 });
 
 admin.get("/insights/segments/:id", async (c) => {
