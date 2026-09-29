@@ -808,15 +808,15 @@ export function AnnouncementBar({ ctx }) {
   };
   // Two copies of the line make the loop: the track is translated by exactly
   // half its width, so the second copy arrives where the first began. A reader
-  // who wants it to stop can hover it, and one who has asked for less motion
-  // never sees it move (see .mr-marquee in theme.css).
+  // with a mouse can hover it to stop it; see .mr-marquee and .mr-announce in
+  // theme.css for the phone's size and speed.
   const run = (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 28, padding: "0 14px", whiteSpace: "nowrap" }}>
       {message}
     </span>
   );
   return (
-    <div style={{ position: "relative", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", fontSize: 12, letterSpacing: "0.06em", padding: "9px 44px" }}>
+    <div className="mr-announce" style={{ position: "relative", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)" }}>
       <div className="mr-marquee">
         <div className="mr-marquee-track">
           {run}
@@ -831,29 +831,59 @@ export function AnnouncementBar({ ctx }) {
   );
 }
 
-// "Dorothy from Abuja bought Osk 30ml" — a real, paid order, shown to the next
-// shopper. It rotates through the last dozen; closing it puts it away for the
-// rest of the visit rather than for one card, because a shopper who dismisses
-// this is telling us they don't want it, not that they want the next one.
-export function PurchaseProof({ ctx }) {
+// "Dorothy from Abuja bought Osk 30ml · 2 hours ago" — a real order, shown to
+// the next shopper. Only recent ones (the server keeps to the last two days by
+// default), newest first, and a purchase made while a shopper is on the site
+// comes up next rather than waiting its turn. Closing it puts it away for the
+// rest of the visit, because a shopper who dismisses this is telling us they
+// don't want it, not that they want the next one.
+export function ago(iso, now = Date.now()) {
+  const t = Date.parse(iso || "");
+  if (!Number.isFinite(t)) return "";
+  const mins = Math.max(0, Math.round((now - t) / 60000));
+  if (mins < 2) return "Just now";
+  if (mins < 60) return `${mins} minutes ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs === 1 ? "1 hour ago" : `${hrs} hours ago`;
+  const days = Math.round(hrs / 24);
+  return days === 1 ? "Yesterday" : `${days} days ago`;
+}
+
+export function PurchaseProof({ ctx, mobile = false }) {
   const list = ctx.proof.purchases;
   const [i, setI] = useState(0);
   const [shown, setShown] = useState(false);
   const [closed, setClosed] = useState(() => {
     try { return sessionStorage.getItem("mr-proof-closed") === "1"; } catch { return false; }
   });
+  const newest = list.length ? list[0].at || list[0].when : "";
+  // null until the first list arrives: that one is the page opening, not a
+  // purchase made while the shopper was here.
+  const seenNewest = useRef(null);
 
   useEffect(() => {
     if (closed || !list.length) return undefined;
     // A quiet beat before the first one, so it doesn't land on top of the page
     // the shopper has only just opened.
-    const first = setTimeout(() => setShown(true), 20000);
+    const first = setTimeout(() => setShown(true), 12000);
     const every = setInterval(() => {
       setShown(false);
       setTimeout(() => { setI((n) => (n + 1) % list.length); setShown(true); }, 600);
-    }, Math.max(30000, ctx.proof.intervalMs || 30000));
+    }, Math.max(25000, ctx.proof.intervalMs || 25000));
     return () => { clearTimeout(first); clearInterval(every); };
   }, [closed, list.length, ctx.proof.intervalMs]);
+
+  // Someone bought while this shopper was browsing: that one goes up now.
+  useEffect(() => {
+    if (!newest || newest === seenNewest.current) return;
+    const firstLoad = seenNewest.current === null;
+    seenNewest.current = newest;
+    if (firstLoad) return;
+    if (closed) return;
+    setShown(false);
+    const t = setTimeout(() => { setI(0); setShown(true); }, 600);
+    return () => clearTimeout(t);
+  }, [newest, closed]);
 
   if (closed || !list.length) return null;
   const p = list[i % list.length];
@@ -862,12 +892,12 @@ export function PurchaseProof({ ctx }) {
     setClosed(true);
   };
   return (
-    <div aria-live="polite" style={{ position: "fixed", left: 16, bottom: "calc(16px + var(--mr-tabs-h, 0px) + var(--mr-bar-h, 0px))", zIndex: 155, maxWidth: "min(330px, calc(100vw - 32px))", background: "var(--mr-purple-900)", color: "var(--mr-cream)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 40px 14px 16px", opacity: shown ? 1 : 0, transform: shown ? "translateY(0)" : "translateY(10px)", transition: "opacity var(--dur-base) var(--ease-glide), transform var(--dur-base) var(--ease-glide)", pointerEvents: shown ? "auto" : "none" }}>
-      <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+    <div aria-live="polite" style={{ position: "fixed", left: mobile ? 12 : 16, bottom: `calc(${mobile ? 12 : 16}px + var(--mr-tabs-h, 0px) + var(--mr-bar-h, 0px))`, zIndex: 155, maxWidth: mobile ? "calc(100vw - 96px)" : "min(330px, calc(100vw - 32px))", background: "var(--mr-purple-900)", color: "var(--mr-cream)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: mobile ? "11px 34px 11px 13px" : "14px 40px 14px 16px", opacity: shown ? 1 : 0, transform: shown ? "translateY(0)" : "translateY(10px)", transition: "opacity var(--dur-base) var(--ease-glide), transform var(--dur-base) var(--ease-glide)", pointerEvents: shown ? "auto" : "none" }}>
+      <div style={{ fontSize: mobile ? 12.5 : 13, lineHeight: 1.45 }}>
         <strong style={{ fontWeight: 600 }}>{p.name}</strong>{p.city ? ` from ${p.city}` : ""} purchased <strong style={{ fontWeight: 600 }}>{p.item}</strong>
       </div>
-      <div style={{ fontSize: 11, color: "var(--text-on-dark-muted)", marginTop: 4 }}>{p.when}</div>
-      <button onClick={close} aria-label="Hide purchase notifications" title="Hide these" style={{ position: "absolute", top: 8, right: 10, background: "none", border: "none", cursor: "pointer", color: "var(--text-on-dark-muted)", fontSize: 14, lineHeight: 1, padding: 6 }}>✕</button>
+      <div style={{ fontSize: 11, color: "var(--text-on-dark-muted)", marginTop: 4 }}>{ago(p.at) || p.when}</div>
+      <button onClick={close} aria-label="Hide purchase notifications" title="Hide these" style={{ position: "absolute", top: mobile ? 4 : 8, right: mobile ? 6 : 10, background: "none", border: "none", cursor: "pointer", color: "var(--text-on-dark-muted)", fontSize: 14, lineHeight: 1, padding: 6 }}>✕</button>
     </div>
   );
 }

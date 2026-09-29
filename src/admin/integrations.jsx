@@ -219,6 +219,79 @@ function EmailPanel({ mail, ctx, reload }) {
   );
 }
 
+// Ads & tracking: which tags are set, whether the server can report sales to
+// Meta, and what happened to the last few orders on the way there.
+function TrackingPanel({ tr, ctx, reload }) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  if (!tr) return null;
+  const capiReady = !!(tr.metaPixelId && tr.capiToken);
+  const tone = tr.metaPixelId && tr.capiToken ? "good" : tr.metaPixelId ? "warn" : "mute";
+  const label = tr.metaPixelId && tr.capiToken ? "Pixel + server events" : tr.metaPixelId ? "Pixel only" : "Not connected";
+  const codeStyle = { fontFamily: "monospace", fontSize: 11.5, background: "var(--surface-sunken)", padding: "1px 5px", borderRadius: 4 };
+  const row = (name, on, value) => (
+    <div key={name} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12.5, padding: "7px 0", borderTop: "1px solid var(--border-hairline)" }}>
+      <span style={{ color: "var(--text-strong)" }}>{name}</span>
+      <span style={{ color: on ? "#3f6b45" : "var(--text-muted)" }}>{on ? value || "On" : "Not set"}</span>
+    </div>
+  );
+  const test = async () => {
+    setBusy(true); setRes(null);
+    try { await api.post("/api/admin/tracking/meta-test", { testCode: code }, ctx.token); setRes({ ok: true }); }
+    catch (e) { ctx.authFail(e); setRes({ ok: false, msg: e.message }); }
+    finally { setBusy(false); reload(); }
+  };
+  return (
+    <div style={{ ...card, padding: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Ads &amp; tracking</div>
+        {pillOf(tone, label)}
+      </div>
+      <div style={{ marginTop: 12 }}>
+        {row("Meta Pixel", !!tr.metaPixelId, tr.metaPixelId)}
+        {row("Meta Conversions API", tr.capiToken, "Token set")}
+        {row("Google Analytics 4", !!tr.ga4Id, tr.ga4Id)}
+        {row("Google Ads purchase", !!(tr.googleAdsId && tr.googleAdsPurchaseLabel), tr.googleAdsId)}
+        {row("TikTok Pixel", !!tr.tiktokPixelId, tr.tiktokPixelId)}
+        {row("Microsoft Clarity", !!tr.clarityId, tr.clarityId)}
+        {row("Search Console", tr.gscVerification, "Verified tag set")}
+      </div>
+      <Fold title="Setup">
+        <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.7 }}>
+          IDs go in Settings → Analytics. For Meta&rsquo;s server events, create a Conversions API token in Events Manager → your pixel → Settings, and add it as the GitHub secret <code style={codeStyle}>META_CAPI_TOKEN</code>, then redeploy.
+          Every order records where the buyer came from either way; see Orders and Insights → Sales by source.
+        </div>
+      </Fold>
+      {capiReady && (
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 14 }}>
+          <div style={{ flex: "1 1 220px" }}>
+            <Input label="Test event code (from Events Manager → Test events)" value={code} onChange={(e) => setCode(e.target.value)} placeholder="TEST12345" />
+          </div>
+          <Button variant="secondary" size="sm" disabled={busy} onClick={test}>{busy ? "Sending…" : "Send test purchase"}</Button>
+        </div>
+      )}
+      {res && (
+        <div style={{ marginTop: 10, fontSize: 12, lineHeight: 1.6, borderRadius: "var(--radius-md)", padding: "10px 12px", background: res.ok ? "#e4efe4" : "#f7e3ea", color: res.ok ? "#3f6b45" : "#c0587a" }}>
+          {res.ok ? "Meta accepted it. It shows under Test events within a minute." : res.msg}
+        </div>
+      )}
+      {tr.recent.length > 0 && (
+        <Fold title="Recent orders">
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {tr.recent.map((o) => (
+              <div key={o.no} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: "var(--text-muted)" }}>
+                <span>{o.no} · from {o.source}</span>
+                <span style={{ color: o.meta === "Sent" ? "#3f6b45" : /^error/.test(o.meta) ? "#c0587a" : "var(--text-muted)" }}>Meta: {o.meta}</span>
+              </div>
+            ))}
+          </div>
+        </Fold>
+      )}
+    </div>
+  );
+}
+
 // The ERP link — inventory and catalogue.
 //
 // A checklist rather than a form, because the order matters and the failures
@@ -602,6 +675,7 @@ export function IntegrationsPage({ ctx }) {
   const [media, setMedia] = useState(null);
   const [erp, setErp] = useState(null);
   const [mail, setMail] = useState(null);
+  const [tracking, setTracking] = useState(null);
   const origin = window.location.origin;
 
   const load = () => {
@@ -610,6 +684,7 @@ export function IntegrationsPage({ ctx }) {
     // Super-only, so a manager's admin simply doesn't draw the panel.
     api.get("/api/admin/erp", ctx.token).then(setErp).catch(() => {});
     api.get("/api/admin/email", ctx.token).then(setMail).catch(() => {});
+    api.get("/api/admin/tracking", ctx.token).then(setTracking).catch(() => {});
     api.get("/api/admin/automations", ctx.token).then((r) => { setAutos(r.automations); setRunStats(r.runStats); }).catch(ctx.authFail);
     api.get("/api/admin/automation-runs", ctx.token).then((r) => setRuns(r.runs)).catch(ctx.authFail);
     api.get("/api/admin/events", ctx.token).then((r) => setEvents(r.events)).catch(() => {});
@@ -638,6 +713,7 @@ export function IntegrationsPage({ ctx }) {
       <EmailPanel mail={mail} ctx={ctx} reload={load} />
       <MediaPanel media={media} ctx={ctx} reload={load} />
       <ErpPanel erp={erp} ctx={ctx} reload={load} />
+      <TrackingPanel tr={tracking} ctx={ctx} reload={load} />
 
       {/* Automations */}
       <div style={{ ...card, overflow: "hidden" }}>

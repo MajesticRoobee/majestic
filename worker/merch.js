@@ -195,7 +195,10 @@ export function resolveDailyDeal({
       product = p;
       variant = v;
       price = row.price_ngn || v.ngn;
-      compareAt = row.compare_at_ngn || v.compareAtNgn || 0;
+      // The "was" price is the house's to set on the deal itself — any figure.
+      // Left blank, it is the size's own was-price, or failing that its
+      // regular price, so a deal priced under the shelf shows its saving.
+      compareAt = row.compare_at_ngn || v.compareAtNgn || v.ngn || 0;
       endsAt = watToMs(row.ends_at);
       scheduled = true;
       head = String(row.headline || "").trim() || headline;
@@ -289,7 +292,9 @@ export function parseEmbed(rawUrl) {
 
 export function embedUrlFor(kind, ref) {
   if (!ref) return "";
-  if (kind === "instagram") return `https://www.instagram.com/p/${encodeURIComponent(ref)}/embed`;
+  // The captioned embed: the plain one drops the post's caption, and on a
+  // customer's post the caption is usually the review itself.
+  if (kind === "instagram") return `https://www.instagram.com/p/${encodeURIComponent(ref)}/embed/captioned`;
   if (kind === "tiktok") return `https://www.tiktok.com/embed/v2/${encodeURIComponent(ref)}`;
   if (kind === "youtube") return `https://www.youtube.com/embed/${encodeURIComponent(ref)}`;
   if (kind === "video") return ref;

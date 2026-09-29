@@ -249,6 +249,9 @@ export function EditProductPanel({ ctx, product, onClose }) {
   const [vf, setVf] = useState(() => Object.fromEntries(product.variants.map((v) => [
     v.id, {
       price: String(v.ngn), size: v.size, sku: v.sku || "", imageUrl: v.imageUrl || "",
+      // The struck-through "was" price. Any figure the house likes; empty
+      // means the size isn't marked down.
+      compareAt: v.compareAtNgn ? String(v.compareAtNgn) : "",
       // Empty means "use the store's line" — which is not the same as zero.
       lowStockAt: v.lowStockAt === null || v.lowStockAt === undefined ? "" : String(v.lowStockAt),
     },
@@ -272,6 +275,7 @@ export function EditProductPanel({ ctx, product, onClose }) {
         if (e.size.trim() && e.size.trim() !== v.size) patch.size = e.size.trim();
         if (e.sku.trim() !== (v.sku || "")) patch.sku = e.sku.trim();
         if (e.imageUrl !== (v.imageUrl || "")) patch.imageUrl = e.imageUrl;
+        if ((e.compareAt || "") !== (v.compareAtNgn ? String(v.compareAtNgn) : "")) patch.compareAtNgn = e.compareAt ? parseInt(e.compareAt, 10) : null;
         const cur = v.lowStockAt === null || v.lowStockAt === undefined ? "" : String(v.lowStockAt);
         if ((e.lowStockAt ?? "") !== cur) patch.lowStockAt = e.lowStockAt.trim() === "" ? null : e.lowStockAt.trim();
         if (Object.keys(patch).length) await api.patch(`/api/admin/variants/${v.id}`, patch, ctx.token);
@@ -327,12 +331,15 @@ export function EditProductPanel({ ctx, product, onClose }) {
         <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 10 }}>{f.optionName || "Size"}s</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {product.variants.map((v) => {
-            const e = vf[v.id] || { price: "", size: "", sku: "", imageUrl: "", lowStockAt: "" };
+            const e = vf[v.id] || { price: "", size: "", sku: "", imageUrl: "", lowStockAt: "", compareAt: "" };
+            const was = parseInt(e.compareAt, 10) || 0;
+            const now = parseInt(e.price, 10) || 0;
             return (
               <div key={v.id} style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
                   <Input label={f.optionName || "Size"} value={e.size} onChange={(ev) => setV(v.id, { size: ev.target.value })} style={{ flex: 1 }} />
                   <Input label="Price (₦)" value={e.price} onChange={(ev) => setV(v.id, { price: ev.target.value.replace(/\D/g, "") })} style={{ flex: 1 }} />
+                  <Input label="Was (₦)" value={e.compareAt} onChange={(ev) => setV(v.id, { compareAt: ev.target.value.replace(/\D/g, "") })} placeholder="—" style={{ flex: 1 }} />
                   <span style={{ fontSize: 11.5, color: "var(--text-muted)", width: 74, paddingBottom: 12 }}>
                     {Object.values(v.stock).reduce((n, q) => n + (q || 0), 0)} in stock
                   </span>
@@ -340,6 +347,11 @@ export function EditProductPanel({ ctx, product, onClose }) {
                     <button onClick={() => delSize(v)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)", paddingBottom: 12 }}>Remove</button>
                   )}
                 </div>
+                {was > 0 && now > 0 && (
+                  <div style={{ fontSize: 11.5, color: was > now ? "var(--text-muted)" : "var(--mr-gold-600)" }}>
+                    {was > now ? `Shows ${Math.round((1 - now / was) * 100)}% off and joins Deals.` : "Not above the price, so no saving is shown."}
+                  </div>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <Input label="SKU" value={e.sku} onChange={(ev) => setV(v.id, { sku: ev.target.value })} placeholder="Auto" />
                   <Input label="Low stock at" value={e.lowStockAt} onChange={(ev) => setV(v.id, { lowStockAt: ev.target.value.replace(/\D/g, "") })}

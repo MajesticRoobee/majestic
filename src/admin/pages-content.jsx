@@ -96,11 +96,11 @@ export function CategoriesPage({ ctx }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const blank = { label: "", desc: "", grp: "", live: true, parentId: "" };
+  const blank = { label: "", desc: "", grp: "", live: true, parentId: "", imageUrl: "" };
   const open = (c) => {
     setErr("");
     setEditing(c ? c.id : "new");
-    setF(c ? { label: c.label, desc: c.desc, grp: c.grp, live: c.live, parentId: c.parentId || "" } : { ...blank });
+    setF(c ? { label: c.label, desc: c.desc, grp: c.grp, live: c.live, parentId: c.parentId || "", imageUrl: c.imageUrl || "" } : { ...blank });
   };
   const close = () => { setEditing(null); setF(null); setErr(""); };
 
@@ -153,6 +153,11 @@ export function CategoriesPage({ ctx }) {
   const row = (c, i, n) => (
     <>
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        {/* The picture the phone shows in this category's circle. */}
+        <button onClick={() => open(c)} title={c.imageUrl ? "Change picture" : "Add a picture"}
+          style={{ width: 44, height: 44, flex: "none", borderRadius: "50%", overflow: "hidden", padding: 0, cursor: "pointer", border: "1px solid var(--border-strong)", background: "var(--mr-lavender-200)", fontSize: 18, color: "var(--mr-purple-700)" }}>
+          {c.imageUrl ? <img src={c.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : "+"}
+        </button>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: c.parentId ? 15 : 17, color: "var(--text-strong)" }}>{c.label}</div>
           {c.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{c.desc}</div>}
@@ -206,6 +211,8 @@ export function CategoriesPage({ ctx }) {
           <>
             <Input label="Name" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="e.g. Attar Oils" />
             <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="Optional" />
+            <ImagePicker ctx={ctx} label="Picture" value={f.imageUrl || ""} onChange={(url) => setF({ ...f, imageUrl: url })}
+              hint="Shown in the category circles on phones. Square works best." />
             <Select label="Group" value={f.grp} onChange={(e) => setF({ ...f, grp: e.target.value })}>
               {GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
             </Select>

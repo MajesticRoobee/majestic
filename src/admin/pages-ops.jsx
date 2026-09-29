@@ -143,6 +143,7 @@ export function Dashboard({ ctx }) {
                   <div style={{ ...cell, color: "var(--text-muted)" }}>
                     {or.method} · {or.pay}
                     {or.payStatus !== "paid" && <span style={{ color: "var(--mr-gold-600)" }}> (unpaid)</span>}
+                    {or.source && <div style={{ fontSize: 11, marginTop: 2, color: /ads$/.test(or.source) ? "var(--mr-orchid-600)" : "var(--text-muted)" }}>From {or.source}{or.campaign ? ` · ${or.campaign}` : ""}</div>}
                   </div>
                   <div style={{ ...cell, fontWeight: 500, color: "var(--text-strong)" }}>{fmtN(or.total)}</div>
                   <div style={{ ...cell, padding: "11px 22px 11px 14px" }}>

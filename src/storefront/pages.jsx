@@ -201,54 +201,55 @@ export function HomePage({ ctx }) {
         <>
           {/* Three columns, and the first is deliberately empty: it is the
               width of the header's category rail, which stands open over it on
-              this page. The banner takes the middle, the daily deal the right.
-              A phone gets one column and the deal card below the tiles. */}
-          <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(18px, 2.6vw, 30px) ${PAD} 0`, display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : dealOn ? "250px minmax(0, 1fr) 300px" : "250px minmax(0, 1fr)", gap: "clamp(16px, 1.8vw, 24px)", alignItems: "start" }}>
-            {!ctx.isMobile && <div />}
-            <div style={{ minWidth: 0 }}>
-              <div style={{ position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-                {/* The photograph shows whole. The words sit on a see-through
-                    panel — tinted enough to read cleanly over any photograph,
-                    never blurred, and never washing the whole picture out.
-                    Until a photograph is set the banner is the royal wash. */}
-                {settings.heroImage
-                  ? <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="(max-width: 860px) 92vw, 720px"
-                    style={{ width: "100%", height: "clamp(320px, 34vw, 420px)" }} />
-                  : <div style={{ width: "100%", height: "clamp(320px, 34vw, 420px)", background: "var(--royal-wash)" }} />}
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", padding: "clamp(20px, 3vw, 36px)", pointerEvents: "none" }}>
-                  <div style={{ maxWidth: 500, display: "flex", flexDirection: "column", gap: 16, padding: settings.heroImage ? "clamp(22px, 2.6vw, 32px)" : "clamp(4px, 1.2vw, 12px)", borderRadius: "var(--radius-lg)", ...(settings.heroImage ? HERO_PANEL : null) }}>
-                    {settings.heroEyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{settings.heroEyebrow}</span>}
-                    <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line", textShadow: HERO_TEXT_SHADOW }}>{settings.heroHeadline}</h1>
-                    {settings.heroSub && <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--mr-cream)", maxWidth: "36ch", margin: 0, textShadow: HERO_TEXT_SHADOW }}>{settings.heroSub}</p>}
-                    <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
-                      <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
-                    </div>
+              this page. The banner takes the middle, the daily deal the right,
+              and the tiles run under the banner. The banner stretches to the
+              deal card's height, so the two stand level as one row. A phone
+              gets one column and the deal card below the tiles. */}
+          <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(18px, 2.6vw, 30px) ${PAD} 0`, display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : dealOn ? "250px minmax(0, 1fr) 300px" : "250px minmax(0, 1fr)", columnGap: "clamp(16px, 1.8vw, 24px)", rowGap: "clamp(12px, 1.4vw, 18px)", alignItems: "start" }}>
+            {!ctx.isMobile && <div style={{ gridColumn: 1, gridRow: "1 / span 2" }} />}
+            <div style={{ position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden", minWidth: 0, alignSelf: "stretch", minHeight: "clamp(320px, 34vw, 420px)", ...(ctx.isMobile ? null : { gridColumn: 2, gridRow: 1 }) }}>
+              {/* The photograph fills the banner. The words sit on a
+                  see-through panel low in it — tinted enough to read cleanly
+                  over any photograph, never blurred, and never covering the
+                  picture's middle. Until a photograph is set the banner is the
+                  royal wash. */}
+              {settings.heroImage
+                ? <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="(max-width: 860px) 92vw, 720px"
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
+                : <div style={{ position: "absolute", inset: 0, background: "var(--royal-wash)" }} />}
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", padding: "clamp(18px, 2.4vw, 28px)", pointerEvents: "none" }}>
+                <div style={{ maxWidth: 500, display: "flex", flexDirection: "column", gap: 14, padding: settings.heroImage ? "clamp(20px, 2.4vw, 28px)" : "clamp(4px, 1.2vw, 12px)", borderRadius: "var(--radius-lg)", ...(settings.heroImage ? HERO_PANEL : null) }}>
+                  {settings.heroEyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{settings.heroEyebrow}</span>}
+                  <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line", textShadow: HERO_TEXT_SHADOW }}>{settings.heroHeadline}</h1>
+                  {settings.heroSub && <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--mr-cream)", maxWidth: "36ch", margin: 0, textShadow: HERO_TEXT_SHADOW }}>{settings.heroSub}</p>}
+                  <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
+                    <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
                   </div>
                 </div>
               </div>
-              {/* The tiles under the hero. Three of them were written into this
-                  file with one settings key each for the photograph; they are
-                  rows now, so the house can rename one, reorder them, point one
-                  somewhere else, switch one off or add a fourth. */}
-              {tiles.length > 0 && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: "clamp(12px, 1.4vw, 18px)", marginTop: "clamp(12px, 1.4vw, 18px)" }}>
-                  {tiles.map((t, i) => (
-                    <a key={t.id} href={t.ctaTarget || "/shop"} onClick={blockNav(ctx, t.ctaTarget || "/shop")}
-                      style={{ position: "relative", display: "block", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
-                      <ImageSlot src={t.imageUrl} name={t.title} sizes="(max-width: 860px) 92vw, 240px" style={{ width: "100%", height: 150 }} />
-                      <span style={{ position: "absolute", inset: 0, background: TILE_VEILS[i % TILE_VEILS.length], display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 4, padding: 16 }}>
-                        {t.eyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{fill(t.eyebrow, vars)}</span>}
-                        <span style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)", lineHeight: 1.15 }}>{fill(t.title, vars)}</span>
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              )}
-              {/* On a phone the deal follows the tiles at full width rather
-                  than disappearing — most of this shop is read on a phone. */}
-              {ctx.isMobile && <DailyDealCard ctx={ctx} style={{ marginTop: "clamp(12px, 1.4vw, 18px)" }} />}
             </div>
-            {!ctx.isMobile && <DailyDealCard ctx={ctx} />}
+            {!ctx.isMobile && dealOn && <DailyDealCard ctx={ctx} style={{ gridColumn: 3, gridRow: 1 }} />}
+            {/* The tiles under the hero. Three of them were written into this
+                file with one settings key each for the photograph; they are
+                rows now, so the house can rename one, reorder them, point one
+                somewhere else, switch one off or add a fourth. */}
+            {tiles.length > 0 && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: "clamp(12px, 1.4vw, 18px)", minWidth: 0, ...(ctx.isMobile ? null : { gridColumn: 2, gridRow: 2 }) }}>
+                {tiles.map((t, i) => (
+                  <a key={t.id} href={t.ctaTarget || "/shop"} onClick={blockNav(ctx, t.ctaTarget || "/shop")}
+                    style={{ position: "relative", display: "block", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                    <ImageSlot src={t.imageUrl} name={t.title} sizes="(max-width: 860px) 92vw, 240px" style={{ width: "100%", height: 150 }} />
+                    <span style={{ position: "absolute", inset: 0, background: TILE_VEILS[i % TILE_VEILS.length], display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 4, padding: 16 }}>
+                      {t.eyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{fill(t.eyebrow, vars)}</span>}
+                      <span style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)", lineHeight: 1.15 }}>{fill(t.title, vars)}</span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
+            {/* On a phone the deal follows the tiles at full width rather
+                than disappearing — most of this shop is read on a phone. */}
+            {ctx.isMobile && <DailyDealCard ctx={ctx} />}
           </section>
         </>
       )}
@@ -322,7 +323,8 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
   switch (block.kind) {
     case "perks":
       return (
-        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `12px ${PAD} 8px` }}>
+        <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(28px, 4vw, 44px) ${PAD} 8px` }}>
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.4vw, 28px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "0 0 14px" }}>{title || "What we offer"}</h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(230px, 100%), 1fr))", gap: 14 }}>
             {perk(
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>,

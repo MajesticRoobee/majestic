@@ -123,6 +123,124 @@ function Table({ title, head, rows, empty }) {
   );
 }
 
+// ---- People to follow up ----------------------------------------------------
+
+// A Nigerian number as WhatsApp wants it: digits only, 0 swapped for 234.
+const waNumber = (phone) => {
+  const d = String(phone || "").replace(/\D/g, "");
+  if (!d) return "";
+  return d.startsWith("0") ? `234${d.slice(1)}` : d;
+};
+const first = (name) => String(name || "").trim().split(/\s+/)[0] || "";
+
+// One opening line per list, so a tap on WhatsApp starts the conversation.
+const OPENERS = {
+  checkouts: (r) => `Hi${first(r.name) ? ` ${first(r.name)}` : ""}, this is Majestic Roobee. We saw you didn't finish your order${r.value ? ` (${fmtN(r.value)})` : ""}. Can we help you complete it?`,
+  waiting: (r) => `Hi, this is Majestic Roobee about ${r.note}, which you asked us to let you know about.`,
+  signups: (r) => `Hi${first(r.name) ? ` ${first(r.name)}` : ""}, thank you for joining the Majestic Roobee list!`,
+  buyers: (r) => `Hi${first(r.name) ? ` ${first(r.name)}` : ""}, thank you for shopping with Majestic Roobee! How are you enjoying your order?`,
+};
+
+const LISTS = [
+  { id: "checkouts", label: "Left at checkout" },
+  { id: "waiting", label: "Waiting for restock" },
+  { id: "signups", label: "Newsletter sign-ups" },
+  { id: "buyers", label: "Recent buyers" },
+];
+
+function csvOf(rows) {
+  const cells = [["Name", "Phone", "Email", "City", "Value (NGN)", "Detail", "When"]]
+    .concat(rows.map((r) => [r.name, r.phone, r.email, r.city, r.value || "", r.note, r.at]));
+  return cells.map((row) => row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+}
+
+function ContactActions({ r, opener }) {
+  const wa = waNumber(r.phone);
+  const pill = { fontSize: 11.5, fontWeight: 500, padding: "4px 10px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border-hairline)", color: "var(--mr-purple-800)", textDecoration: "none", whiteSpace: "nowrap" };
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+      {wa && <a href={`https://wa.me/${wa}?text=${encodeURIComponent(opener)}`} target="_blank" rel="noopener noreferrer" style={pill}>WhatsApp</a>}
+      {r.phone && <a href={`tel:${String(r.phone).replace(/[^\d+]/g, "")}`} style={pill}>Call</a>}
+      {r.email && <a href={`mailto:${r.email}`} style={pill}>Email</a>}
+    </div>
+  );
+}
+
+function FollowUps({ ctx, days }) {
+  const [data, setData] = useState(null);
+  const [tab, setTab] = useState("checkouts");
+  useEffect(() => {
+    setData(null);
+    api.get(`/api/admin/insights/contacts?days=${days}`, ctx.token).then((r) => {
+      setData(r);
+      // Open on the first list with anyone in it.
+      setTab((t) => (r[t] && r[t].length ? t : (LISTS.find((l) => r[l.id] && r[l.id].length) || LISTS[0]).id));
+    }).catch(ctx.authFail);
+  }, [days, ctx.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rows = (data && data[tab]) || [];
+  const download = () => {
+    const blob = new Blob([csvOf(rows)], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `majestic-${tab}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  const td = { padding: "8px", borderTop: "1px solid var(--border-hairline)", verticalAlign: "top" };
+  return (
+    <div style={{ ...card, padding: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>People to follow up</div>
+        {rows.length > 0 && <Button variant="ghost" size="sm" onClick={download}>Download CSV</Button>}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        {LISTS.map((l) => {
+          const n = data && data[l.id] ? data[l.id].length : null;
+          const on = tab === l.id;
+          return (
+            <button key={l.id} onClick={() => setTab(l.id)}
+              style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "7px 14px", borderRadius: "var(--radius-pill)", border: `1px solid ${on ? "var(--mr-purple-900)" : "var(--border-hairline)"}`, background: on ? "var(--mr-purple-900)" : "var(--surface-card)", color: on ? "var(--mr-cream)" : "var(--mr-purple-800)" }}>
+              {l.label}{n != null ? ` (${n})` : ""}
+            </button>
+          );
+        })}
+      </div>
+      {!data ? <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Loading…</span>
+        : !rows.length ? <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>No one here in this period.</div>
+        : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr>{["Who", "Phone", "Email", "Detail", "When", ""].map((h, i) => (
+                  <th key={i} style={{ ...eyebrow, textAlign: i > 3 ? "right" : "left", padding: "0 8px 8px", fontWeight: 500 }}>{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ ...td, color: "var(--text-strong)" }}>
+                      {r.name || <span style={{ color: "var(--text-muted)" }}>—</span>}
+                      {r.city && <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "capitalize" }}>{r.city}</div>}
+                    </td>
+                    <td style={{ ...td, whiteSpace: "nowrap" }}>{r.phone || <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                    <td style={{ ...td, wordBreak: "break-all" }}>{r.email || <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
+                    <td style={{ ...td, color: "var(--text-body)" }}>
+                      {r.note}
+                      {r.value > 0 && <div style={{ fontSize: 11.5, color: "var(--accent-gold-ink)" }}>{fmtN(r.value)}</div>}
+                    </td>
+                    <td style={{ ...td, textAlign: "right", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{ago(r.at)}</td>
+                    <td style={{ ...td, textAlign: "right" }}><ContactActions r={r} opener={OPENERS[tab](r)} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+    </div>
+  );
+}
+
 export function InsightsPage({ ctx }) {
   const [days, setDays] = useState(30);
   const [d, setD] = useState(null);
@@ -191,6 +309,8 @@ export function InsightsPage({ ctx }) {
         <Sparkline series={d.series} />
       </div>
 
+      <FollowUps ctx={ctx} days={days} />
+
       {/* The segments. Each is a question the client asked, with the people it
           found and something to do about them. */}
       <div style={{ ...card, padding: 22 }}>
@@ -222,7 +342,7 @@ export function InsightsPage({ ctx }) {
                   <div style={{ marginTop: 12, overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
                       <thead>
-                        <tr>{["Who", "Looking at", "Left in cart", "From", "Last seen"].map((h, i) => (
+                        <tr>{["Who", "Looking at", "Left in cart", "From", "Last seen", ""].map((h, i) => (
                           <th key={h} style={{ ...eyebrow, textAlign: i > 1 ? "right" : "left", padding: "0 8px 8px", fontWeight: 500 }}>{h}</th>
                         ))}</tr>
                       </thead>
@@ -230,7 +350,8 @@ export function InsightsPage({ ctx }) {
                         {rows.rows.map((r) => (
                           <tr key={r.id}>
                             <td style={{ padding: "8px", borderTop: "1px solid var(--border-hairline)", color: "var(--text-strong)" }}>
-                              {r.email || <span style={{ color: "var(--text-muted)" }}>Not signed in</span>}
+                              {r.name || r.email || <span style={{ color: "var(--text-muted)" }}>Not signed in</span>}
+                              {(r.phone || (r.name && r.email)) && <div style={{ fontSize: 11.5, color: "var(--text-body)" }}>{[r.phone, r.name ? r.email : ""].filter(Boolean).join(" · ")}</div>}
                               <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{r.device}{r.city ? ` · ${r.city}` : ""}</div>
                             </td>
                             <td style={{ padding: "8px", borderTop: "1px solid var(--border-hairline)", color: "var(--text-body)" }}>
@@ -241,6 +362,9 @@ export function InsightsPage({ ctx }) {
                             </td>
                             <td style={{ padding: "8px", borderTop: "1px solid var(--border-hairline)", textAlign: "right", color: "var(--text-muted)" }}>{r.source}</td>
                             <td style={{ padding: "8px", borderTop: "1px solid var(--border-hairline)", textAlign: "right", color: "var(--text-muted)" }}>{ago(r.lastSeen)}</td>
+                            <td style={{ padding: "8px", borderTop: "1px solid var(--border-hairline)", textAlign: "right" }}>
+                              {(r.phone || r.email) && <ContactActions r={r} opener={`Hi${first(r.name) ? ` ${first(r.name)}` : ""}, this is Majestic Roobee. Can we help you find anything?`} />}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -265,6 +389,12 @@ export function InsightsPage({ ctx }) {
           head={["Product", "Views", "Added to cart", "Rate"]}
           rows={d.hottest.map((p) => [p.name, p.views, p.carts, `${p.rate}%`])}
           empty="No product views yet."
+        />
+        <Table
+          title="Sales by source"
+          head={["Source", "Orders", "Revenue"]}
+          rows={(d.salesBySource || []).map((s) => [s.campaigns.length ? `${s.source} · ${s.campaigns.join(", ")}` : s.source, s.orders, fmtN(s.revenue)])}
+          empty="No orders in this period."
         />
         <Table
           title="Traffic sources"

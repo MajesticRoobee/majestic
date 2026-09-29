@@ -278,7 +278,7 @@ export function DailyDealsPage({ ctx }) {
                 <Input label="Deal price (₦)" value={f.priceNgn} onChange={(e) => setF({ ...f, priceNgn: e.target.value.replace(/[^0-9]/g, "") })}
                   placeholder={variant ? String(variant.ngn) : "—"} hint="Optional" />
                 <Input label="Was (₦)" value={f.compareAtNgn} onChange={(e) => setF({ ...f, compareAtNgn: e.target.value.replace(/[^0-9]/g, "") })}
-                  placeholder={variant && variant.compareAtNgn ? String(variant.compareAtNgn) : "—"} hint="Optional" />
+                  placeholder={variant ? String(variant.compareAtNgn || variant.ngn) : "—"} hint="Any figure; blank uses the regular price" />
               </div>
               {variant && f.priceNgn !== "" && Number(f.priceNgn) >= (Number(f.compareAtNgn) || variant.compareAtNgn || variant.ngn) && (
                 <div style={{ fontSize: 12, color: "var(--mr-gold-600)", lineHeight: 1.55 }}>

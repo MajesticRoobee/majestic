@@ -68,7 +68,7 @@ export function DailyDealCard({ ctx, style = {} }) {
         )}
       </div>
       <a href={"/product/" + deal.productId} onClick={(e) => { e.preventDefault(); openProduct(); }}
-        style={{ fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, color: "var(--text-strong)", lineHeight: 1.45 }}>
+        style={{ fontFamily: "var(--font-sans)", fontSize: 14.5, fontWeight: 700, color: "var(--text-strong)", lineHeight: 1.45 }}>
         {deal.productName}{deal.size ? ` · ${deal.size}` : ""}
       </a>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
