@@ -12,6 +12,7 @@ import { isConsultOn } from "../src/lib/consultation.js";
 import { resolveMedia, readMedia } from "./media.js";
 import { getSettings } from "./util.js";
 import { runErpPull } from "./erp.js";
+import { isShellPath, serveShell } from "./seo.js";
 
 const app = new Hono();
 
@@ -60,9 +61,14 @@ app.get("/robots.txt", (c) => {
     "User-agent: *",
     "Allow: /",
     "Disallow: /admin",
+    "Disallow: /api/",
+    "Disallow: /cart",
     "Disallow: /checkout",
     "Disallow: /confirm",
-    "Disallow: /api/",
+    "Disallow: /account",
+    "Disallow: /wishlist",
+    "Disallow: /track",
+    "Disallow: /*?q=",
     `Sitemap: ${origin}/sitemap.xml`,
     "",
   ].join("\n");
@@ -75,7 +81,7 @@ app.get("/sitemap.xml", async (c) => {
   // own. Category pages are listed from the live tree below.
   const staticUrls = [
     "/", "/shop", "/new-arrivals", "/best-sellers", "/deals", "/gift-sets",
-    "/locations", "/reviews", "/blog", "/about", "/faq", "/track", "/contact",
+    "/locations", "/reviews", "/blog", "/about", "/faq", "/contact",
   ];
   // The Perfume Studio's booking page is only a page while the studio is
   // taking bookings — listing it otherwise would send search traffic to a
@@ -91,16 +97,30 @@ app.get("/sitemap.xml", async (c) => {
   } catch {}
   let productUrls = [];
   try {
-    // One entry per variation on products that have a choice, since each
-    // variation has its own canonical URL, price and availability.
+    // The product's own address, then one per variation on products that have
+    // a choice, since each variation has its own canonical URL, price and
+    // availability. Each carries its photograph, so the product also turns up
+    // in image search.
     const rows = (await c.env.DB.prepare(
-      `SELECT p.id AS pid, v.sku AS sku, COUNT(*) OVER (PARTITION BY p.id) AS n
+      `SELECT p.id AS pid, p.name AS name, p.image_url AS pimg, p.created_at AS created,
+              v.sku AS sku, v.size AS size, v.image_url AS vimg,
+              COUNT(*) OVER (PARTITION BY p.id) AS n
          FROM products p JOIN variants v ON v.product_id = p.id
         WHERE p.live = 1 AND v.active = 1
         ORDER BY p.rowid, v.sort, v.id`
     ).all()).results;
-    productUrls = rows.map((r) => (r.n > 1 && r.sku ? `/product/${r.pid}?variant=${encodeURIComponent(r.sku)}` : `/product/${r.pid}`));
-    productUrls = [...new Set(productUrls)];
+    const seen = new Set();
+    for (const r of rows) {
+      const pid = encodeURIComponent(r.pid);
+      const lastmod = r.created ? String(r.created).slice(0, 10) : "";
+      if (!seen.has(r.pid)) {
+        seen.add(r.pid);
+        productUrls.push({ loc: `/product/${pid}`, image: r.pimg || r.vimg, title: r.name, lastmod });
+      }
+      if (r.n > 1 && r.sku) {
+        productUrls.push({ loc: `/product/${pid}?variant=${encodeURIComponent(r.sku)}`, image: r.vimg || r.pimg, title: `${r.name} ${r.size || ""}`.trim(), lastmod });
+      }
+    }
   } catch {}
   let pageUrls = [];
   try {
@@ -109,14 +129,24 @@ app.get("/sitemap.xml", async (c) => {
   } catch {}
   let postUrls = [];
   try {
-    const rows = (await c.env.DB.prepare("SELECT slug FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC").all()).results;
-    postUrls = rows.map((r) => `/blog/${r.slug}`);
+    const rows = (await c.env.DB.prepare("SELECT slug, cover_url, title, COALESCE(published_at, created_at) AS at FROM blog_posts WHERE status='published' ORDER BY COALESCE(published_at, created_at) DESC").all()).results;
+    postUrls = rows.map((r) => ({ loc: `/blog/${encodeURIComponent(r.slug)}`, image: r.cover_url, title: r.title, lastmod: r.at ? String(r.at).slice(0, 10) : "" }));
   } catch {}
+  const x = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const abs = (u) => (/^https?:\/\//i.test(u) ? u : `${origin}${u.startsWith("/") ? "" : "/"}${u}`);
+  const entry = (u) => {
+    const e = typeof u === "string" ? { loc: u } : u;
+    return `  <url><loc>${x(origin + e.loc)}</loc>`
+      + (e.lastmod ? `<lastmod>${x(e.lastmod)}</lastmod>` : "")
+      + `<changefreq>${e.loc === "/" ? "daily" : "weekly"}</changefreq>`
+      + (e.image ? `<image:image><image:loc>${x(abs(e.image))}</image:loc>${e.title ? `<image:title>${x(e.title)}</image:title>` : ""}</image:image>` : "")
+      + `</url>`;
+  };
   const urls = staticUrls.concat(catUrls, pageUrls, productUrls, postUrls);
   const xml =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-    urls.map((u) => `  <url><loc>${origin}${u}</loc><changefreq>${u === "/" ? "daily" : "weekly"}</changefreq></url>`).join("\n") +
+    `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n` +
+    urls.map(entry).join("\n") +
     `\n</urlset>\n`;
   return c.text(xml, 200, { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" });
 });
@@ -127,8 +157,10 @@ app.onError((err, c) => {
   return c.text("Internal error", 500);
 });
 
-// Unknown API paths → JSON 404; everything else → the static SPA shell.
+// Unknown API paths → JSON 404. A storefront address → the SPA shell with that
+// page's own head written in (worker/seo.js). Anything else → the asset store.
 app.all("/api/*", (c) => c.json({ error: "Not found" }, 404));
+app.on(["GET", "HEAD"], "*", (c) => (isShellPath(new URL(c.req.url).pathname) ? serveShell(c) : c.env.ASSETS.fetch(c.req.raw)));
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
 // Cron. Lapsed card payments are released first — every minute an unpaid order

@@ -54,8 +54,12 @@ export function pathToRoute(pathname = window.location.pathname, search = window
     const fCol = params.get("collection");
     const fSeg = params.get("segment");
     const fBrand = params.get("brand");
+    // A search is an address too — what a search engine's site-search box
+    // links to.
+    const q = (params.get("q") || "").trim();
     return {
       page: "shop",
+      ...(q ? { q } : {}),
       ...(fCat ? { fCat } : {}),
       ...(fCol ? { fCol } : {}),
       ...(fSeg && SEGMENT_PATHS[fSeg] ? { fSeg } : {}),
