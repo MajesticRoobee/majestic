@@ -550,6 +550,24 @@ check("a stock row in the same style reads",
   { code: "1", warehouse: "3", onHand: 12, reserved: 2 });
 check("...and a stock row's own ID is still never the product", adapterFor("erprev").normalise.stock({ ID: "77", Quantity: "1" }, {}).code, "");
 
+// The live /stocks row, keys verbatim from the production sync log (29 Sep).
+// Its quantity is `UnitsInStock`; before the reader knew that name every
+// ERP-linked size in Abuja read as 0.
+const liveStock = {
+  SN: "1", ID: "901", Status: "1", ReOrderLevel: "0", LastSID: "12", SupplierID: "4", Supplier: "Oud House",
+  Barcode: "P000001", ProductID: "1", Product: "OUD ISPAHAN 30ML", Measure: "Pcs", CategoryID: "2", ClassID: "1",
+  Category: "DESIGNER FRAGRANCE OIL", Class: "N/A", ExpireDate: "", DaysToExpire: "", UnitsInStock: "7",
+  WareHouse: "Main Store", OfficeLocation: "Abuja", LastStockDate: "2026-09-20", LastSoldDate: "2026-09-28",
+  LastSoldDays: "1", UnitCostPrice: "9000", SellingPrice: "15000", StockValue: "63000", SalesValue: "0",
+  Currency: " &#x20A6; ", WSellRates: "",
+};
+check("the live ERPRev stock row reads: its product, its store and its units",
+  adapterFor("erprev").normalise.stock(liveStock, ADAPTERS.erprev.defaults.fields),
+  { code: "1", warehouse: "Main Store", onHand: 7, reserved: 0 });
+check("...and lands on the shelf the store is mapped to",
+  Object.fromEntries(stockByCode(readStock([liveStock], adapterFor("erprev").normalise.stock, ADAPTERS.erprev.defaults.fields).stock, { "Main Store": "abuja" })),
+  { 1: { abuja: 7 } });
+
 // **A missing quantity is not a zero.** Read as 0, a stock row whose quantity
 // sits under a name the reader doesn't know would empty the shelf, and the
 // pull would look clean. It has to read as "no figure" and change nothing.

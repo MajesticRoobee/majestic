@@ -142,7 +142,9 @@ export const ALIASES = {
   // keys first.
   stockCode: ["product_id", "productId", "sku", "item_code", "itemCode", "product_code", "productCode", "code", "item_id", "barcode"],
   stockWarehouse: ["warehouse_id", "warehouseId", "warehouse", "warehouse_name", "location_id", "locationId", "location", "location_name", "store_id", "store", "branch_id", "branch", "branch_name", "site", "outlet"],
-  onHand: ["actual_qty", "actualQty", "qty", "quantity", "qty_on_hand", "quantity_on_hand", "stock", "stock_qty", "stock_level", "current_stock", "on_hand", "onHand", "available", "available_qty", "qty_available", "available_quantity", "balance", "closing_qty", "closing_balance", "in_stock"],
+  // `UnitsInStock` is ERPRev's live /stocks field (29 Sep): before it was on
+  // this list, every stock row read as no quantity at all.
+  onHand: ["actual_qty", "actualQty", "qty", "quantity", "qty_on_hand", "quantity_on_hand", "units_in_stock", "unitsInStock", "stock", "stock_qty", "stock_level", "current_stock", "on_hand", "onHand", "available", "available_qty", "qty_available", "available_quantity", "balance", "closing_qty", "closing_balance", "in_stock"],
   reserved: ["reserved_qty", "reservedQty", "reserved", "committed", "committed_qty", "allocated", "allocated_qty", "on_order"],
   modified: ["modified", "updated_at", "updatedAt", "last_modified", "lastModified", "date_modified", "changed_at"],
 };
