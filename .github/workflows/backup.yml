@@ -39,7 +39,13 @@ jobs:
           name="majestic-roobee-$(date -u +%Y%m%d).sql"
           # The plaintext stays outside the upload path and is deleted either way.
           trap 'rm -f "$RUNNER_TEMP/$name"' EXIT
-          npx wrangler d1 export majestic-roobee --remote --output "$RUNNER_TEMP/$name"
+          # wrangler prints a download link to the whole export, valid for an
+          # hour; this log is public, so the output stays off it unless the
+          # export fails, and then with links removed.
+          if ! npx wrangler d1 export majestic-roobee --remote --output "$RUNNER_TEMP/$name" > "$RUNNER_TEMP/export.log" 2>&1; then
+            sed -E 's#https?://[^[:space:]]+#<link removed>#g' "$RUNNER_TEMP/export.log"
+            exit 1
+          fi
           gzip -c "$RUNNER_TEMP/$name" \
             | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE -out "$name.gz.enc"
       - uses: actions/upload-artifact@v4
