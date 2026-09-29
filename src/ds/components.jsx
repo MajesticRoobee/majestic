@@ -108,13 +108,18 @@ const fieldStyle = (focus, error) => ({
   outline: "none",
   boxShadow: focus ? "0 0 0 3px var(--focus-ring)" : "none",
   transition: "border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard)",
+  // Fill the field's box and never force it wider: two fields side by side on a
+  // phone must be able to share 360px.
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
 });
 
 export function Input({ label, hint, error, id, style = {}, ...rest }) {
   const fieldId = id || (label ? `mr-in-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined);
   const [focus, setFocus] = React.useState(false);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, ...style }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, ...style }}>
       {label && <label htmlFor={fieldId} style={labelStyle}>{label}</label>}
       <input id={fieldId} onFocus={() => setFocus(true)} onBlur={(e) => { setFocus(false); rest.onBlur && rest.onBlur(e); }} {...rest} style={fieldStyle(focus, error)} />
       {(hint || error) && <span style={hintStyle(error)}>{error || hint}</span>}
@@ -126,7 +131,7 @@ export function Textarea({ label, hint, error, id, rows = 4, style = {}, ...rest
   const fieldId = id || (label ? `mr-ta-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined);
   const [focus, setFocus] = React.useState(false);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, ...style }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, ...style }}>
       {label && <label htmlFor={fieldId} style={labelStyle}>{label}</label>}
       <textarea id={fieldId} rows={rows} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} {...rest} style={{ ...fieldStyle(focus, error), lineHeight: 1.6, resize: "vertical" }} />
       {(hint || error) && <span style={hintStyle(error)}>{error || hint}</span>}
@@ -138,7 +143,7 @@ export function Select({ label, hint, id, children, style = {}, ...rest }) {
   const fieldId = id || (label ? `mr-sel-${label.replace(/\s+/g, "-").toLowerCase()}` : undefined);
   const [focus, setFocus] = React.useState(false);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, ...style }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, ...style }}>
       {label && <label htmlFor={fieldId} style={labelStyle}>{label}</label>}
       <div style={{ position: "relative", display: "flex" }}>
         <select id={fieldId} onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} {...rest} style={{ ...fieldStyle(focus), appearance: "none", width: "100%", padding: "11px 40px 11px 14px", cursor: "pointer" }}>

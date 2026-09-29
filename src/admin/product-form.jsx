@@ -15,7 +15,7 @@ const blankVariant = () => ({ size: "", price: "", sku: "", imageUrl: "", stock:
 // caller say what this particular picture is for; `clearAfterPick` turns it
 // into a one-shot uploader (the blog's in-story pictures, which are handed to
 // the text rather than held here).
-export function ImagePicker({ ctx, value, onChange, label = "Product photo", hint = "JPEG/PNG/WebP up to 1.5MB. Square images look best.", clearAfterPick = false }) {
+export function ImagePicker({ ctx, value, onChange, label = "Product photo", hint = "Square image, up to 1.5MB", clearAfterPick = false }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -42,21 +42,24 @@ export function ImagePicker({ ctx, value, onChange, label = "Product photo", hin
               : <span style={{ fontSize: 10.5, color: "var(--text-muted)", textAlign: "center", padding: 6 }}>No photo</span>}
           </div>
         )}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* minWidth 0 lets this column shrink: a file input has a fixed
+            natural width, and without it the picker pushed a phone's page
+            wider than the screen. */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
           {urlMode ? (
             <Input label="" value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder="https://…/photo.jpg" />
           ) : (
             <input ref={fileRef} type="file" accept="image/*" onChange={(e) => pick(e.target.files && e.target.files[0])}
-              style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-body)" }} />
+              style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-body)", width: "100%", maxWidth: "100%" }} />
           )}
           <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <button onClick={() => setUrlMode(!urlMode)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--mr-purple-700)", padding: 0 }}>
-              {urlMode ? "Upload a file instead" : "Paste a URL instead"}
+              {urlMode ? "Upload file" : "Use a link"}
             </button>
             {value && !clearAfterPick && <button onClick={() => onChange("")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12, color: "var(--text-muted)", padding: 0 }}>Remove</button>}
             {busy && <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Uploading…</span>}
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{hint}</div>
+          {hint && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{hint}</div>}
           {err && <div style={{ fontSize: 12, color: "#c0587a" }}>{err}</div>}
         </div>
       </div>
@@ -71,22 +74,22 @@ function VariantRows({ ctx, variants, setVariants, stores, showStock = true, opt
   const setStock = (i, loc, val) => set(i, { stock: { ...variants[i].stock, [loc]: val.replace(/\D/g, "") } });
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>Variations — {optionName.toLowerCase()}, price, photo &amp; opening stock</div>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)" }}>{optionName}s</div>
       {variants.map((v, i) => (
         <div key={i} style={{ border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
             <Input label={optionName} value={v.size} onChange={(e) => set(i, { size: e.target.value })} placeholder="30ml" style={{ flex: 1 }} />
             <Input label="Price (₦)" value={v.price} onChange={(e) => set(i, { price: e.target.value.replace(/\D/g, "") })} placeholder="35000" style={{ flex: 1 }} />
             {variants.length > 1 && (
-              <button onClick={() => setVariants(variants.filter((_, j) => j !== i))} title="Remove this variation"
+              <button onClick={() => setVariants(variants.filter((_, j) => j !== i))} title="Remove"
                 style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)", paddingBottom: 12 }}>Remove</button>
             )}
           </div>
           <Input label="SKU (optional)" value={v.sku ?? ""} onChange={(e) => set(i, { sku: e.target.value })}
-            placeholder="Leave blank and we'll generate one" hint="The code your ERP and stock counts refer to." />
+            placeholder="Auto" />
           {ctx && (
             <ImagePicker ctx={ctx} value={v.imageUrl} onChange={(url) => set(i, { imageUrl: url })}
-              label={`Photo for this ${optionName.toLowerCase()}`} />
+              label="Photo" hint="" />
           )}
           {showStock && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
@@ -99,7 +102,7 @@ function VariantRows({ ctx, variants, setVariants, stores, showStock = true, opt
       ))}
       <button onClick={() => setVariants(variants.concat(blankVariant()))}
         style={{ alignSelf: "flex-start", background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>
-        + Add another variation
+        + Add
       </button>
     </div>
   );
@@ -134,7 +137,7 @@ function GalleryPanel({ ctx, product }) {
     catch (e) { ctx.authFail(e); setErr(e.message); }
   };
   const remove = async (im) => {
-    if (!window.confirm("Remove this photograph from the product? The file itself is kept.")) return;
+    if (!window.confirm("Remove this photo?")) return;
     try { await api.del(`/api/admin/images/${im.id}`, ctx.token); await load(); ctx.loadProducts(); }
     catch (e) { ctx.authFail(e); setErr(e.message); }
   };
@@ -142,15 +145,11 @@ function GalleryPanel({ ctx, product }) {
   const primary = product.imageUrl || "";
   return (
     <div>
-      <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 4 }}>Every photograph on this product</div>
-      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
-        The product page shows these in order, opening on the one the shop&rsquo;s cards use. A shot tagged to a variation only appears when
-        that variation is chosen; an untagged one is shared by all of them. If a picture here belongs to something else, remove it.
-      </div>
+      <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 10 }}>Gallery</div>
       {shots === null ? (
-        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Looking…</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Loading…</div>
       ) : !shots.length ? (
-        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Nothing filed beyond the photos above.</div>
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>No extra photos.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {shots.map((im) => (
@@ -159,10 +158,10 @@ function GalleryPanel({ ctx, product }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <select value={im.variantId || ""} onChange={(e) => retag(im, e.target.value ? parseInt(e.target.value, 10) : null)}
                   style={{ fontFamily: "var(--font-sans)", fontSize: 12, padding: "5px 8px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-sm)", background: "var(--surface-card)", color: "var(--text-strong)", cursor: "pointer", maxWidth: "100%" }}>
-                  <option value="">Shared by every variation</option>
-                  {product.variants.map((v) => <option key={v.id} value={v.id}>Only on {v.size}</option>)}
+                  <option value="">All sizes</option>
+                  {product.variants.map((v) => <option key={v.id} value={v.id}>{v.size} only</option>)}
                 </select>
-                {im.url === primary && <div style={{ fontSize: 10.5, color: "var(--mr-purple-700)", marginTop: 4 }}>This is the listing photo.</div>}
+                {im.url === primary && <div style={{ fontSize: 10.5, color: "var(--mr-purple-700)", marginTop: 4 }}>Main photo</div>}
               </div>
               <button onClick={() => remove(im)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#c0587a", fontFamily: "var(--font-sans)" }}>Remove</button>
             </div>
@@ -170,8 +169,7 @@ function GalleryPanel({ ctx, product }) {
         </div>
       )}
       <div style={{ marginTop: 12 }}>
-        <ImagePicker ctx={ctx} value="" clearAfterPick onChange={add} label="Add another photograph"
-          hint="Filed as a shared shot — tag it to one variation above if it only belongs to that size." />
+        <ImagePicker ctx={ctx} value="" clearAfterPick onChange={add} label="Add photo" hint="" />
       </div>
       {err && <div style={{ fontSize: 12, color: "#c0587a", marginTop: 8 }}>{err}</div>}
     </div>
@@ -199,13 +197,10 @@ export function NewProduct({ ctx }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Add a product</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>Set it live and it appears on the storefront immediately.</div>
-      </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Add a product</div>
       {done && (
         <div style={{ background: done.live ? "#e4efe4" : "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: "12px 14px", fontSize: 13, color: done.live ? "#3f6b45" : "var(--mr-purple-900)" }}>
-          <strong>{done.name}</strong> {done.live ? "is live on the storefront." : "is saved as a draft — flip it live when ready."}
+          <strong>{done.name}</strong> {done.live ? "is live." : "saved as draft."}
         </div>
       )}
       <Input label="Product name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Velvet Reign" />
@@ -216,24 +211,17 @@ export function NewProduct({ ctx }) {
       <Select label="Worn by" value={f.gender} onChange={(e) => setF({ ...f, gender: e.target.value })}>
         {GENDERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </Select>
-      <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee"
-        hint="The label on the bottle. Shoppers can filter the shop by it — leave blank for the house's own blends." />
-      <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
-        placeholder="Size" hint="Shown above the picker on the product page — usually Size, sometimes Scent or Shade." />
+      <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee" />
+      <Input label="Option name" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
+        placeholder="Size" hint="e.g. Size, Scent, Shade" />
       <VariantRows ctx={ctx} variants={variants} setVariants={setVariants} stores={ctx.openStores} optionName={f.optionName || "Size"} />
       <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} placeholder="Oud, saffron, smoked amber" />
-      <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} placeholder="A short, evocative description shoppers read on the product page." />
-      <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
-      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
-        Off (normal): one card in the shop with a picker on it. On: every variation gets its own card — for gift sets and distinct scents, where a picker would hide the choice.
-      </div>
+      <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} />
+      <Switch label="Show each size as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
       <Switch label="Pin to New arrivals" checked={f.pinNew} onChange={(e) => setF({ ...f, pinNew: e.target.checked })} />
       <Switch label="Pin to Best sellers" checked={f.pinBest} onChange={(e) => setF({ ...f, pinBest: e.target.checked })} />
-      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
-        Both shelves fill themselves — newest first, and best-selling by real orders. A pin puts this piece on one anyway, which is how a launch with no sales yet gets seen.
-      </div>
-      <Switch label="Live on the storefront now" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
-      <Button variant="primary" block disabled={busy} onClick={submit}>{busy ? "Saving…" : "Add to catalogue"}</Button>
+      <Switch label="Live" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
+      <Button variant="primary" block disabled={busy} onClick={submit}>{busy ? "Saving…" : "Add product"}</Button>
       {err && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{err}</div>}
     </div>
   );
@@ -296,7 +284,7 @@ export function EditProductPanel({ ctx, product, onClose }) {
     catch (e) { ctx.authFail(e); setMsg(e.message); }
   };
   const del = async () => {
-    if (!window.confirm(`Delete "${product.name}"? It disappears from the storefront. Past orders keep their record.`)) return;
+    if (!window.confirm(`Delete "${product.name}"?`)) return;
     try { await api.del(`/api/admin/products/${encodeURIComponent(product.id)}`, ctx.token); ctx.flash("Product deleted"); ctx.loadProducts(); onClose(); }
     catch (e) { ctx.authFail(e); setMsg(e.message); }
   };
@@ -307,7 +295,6 @@ export function EditProductPanel({ ctx, product, onClose }) {
         <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Edit product</div>
         <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--text-muted)" }}>Close</button>
       </div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -8 }}>Changes go live on the storefront immediately.</div>
       <Input label="Product name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
       <ImagePicker ctx={ctx} value={f.imageUrl} onChange={(url) => setF({ ...f, imageUrl: url })} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -320,17 +307,13 @@ export function EditProductPanel({ ctx, product, onClose }) {
         </Select>
       </div>
 
-      <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee"
-        hint="Shoppers can filter the shop by this. Blank means the house's own." />
+      <Input label="Brand" value={f.brand} onChange={(e) => setF({ ...f, brand: e.target.value })} placeholder="Majestic Roobee" />
 
-      <Input label="What the variations are called" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
-        placeholder="Size" hint="Shown above the picker on the product page." />
+      <Input label="Option name" value={f.optionName} onChange={(e) => setF({ ...f, optionName: e.target.value })}
+        placeholder="Size" hint="e.g. Size, Scent, Shade" />
 
       <div>
-        <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 4 }}>Variations</div>
-        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 10 }}>
-          Each one is its own SKU with its own price and photo. Renaming a variation is safe — carts and past orders track it by identity, not by its label.
-        </div>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 10 }}>{f.optionName || "Size"}s</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {product.variants.map((v) => {
             const e = vf[v.id] || { price: "", size: "", sku: "", imageUrl: "", lowStockAt: "" };
@@ -347,13 +330,12 @@ export function EditProductPanel({ ctx, product, onClose }) {
                   )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <Input label="SKU" value={e.sku} onChange={(ev) => setV(v.id, { sku: ev.target.value })} placeholder="Leave blank to regenerate" />
+                  <Input label="SKU" value={e.sku} onChange={(ev) => setV(v.id, { sku: ev.target.value })} placeholder="Auto" />
                   <Input label="Low stock at" value={e.lowStockAt} onChange={(ev) => setV(v.id, { lowStockAt: ev.target.value.replace(/\D/g, "") })}
-                    placeholder={`Store's line (${ctx.TH})`}
-                    hint="Per store. Leave empty to follow Settings → Inventory; a sample and an extrait rarely run low at the same number." />
+                    placeholder={`Default (${ctx.TH})`} hint="Per store" />
                 </div>
                 <ImagePicker ctx={ctx} value={e.imageUrl} onChange={(url) => setV(v.id, { imageUrl: url })}
-                  label={`Photo for this ${(f.optionName || "size").toLowerCase()}`} />
+                  label="Photo" hint="" />
               </div>
             );
           })}
@@ -364,46 +346,40 @@ export function EditProductPanel({ ctx, product, onClose }) {
               <Input label={`New ${(f.optionName || "size").toLowerCase()}`} value={addV.size} onChange={(e) => setAddV({ ...addV, size: e.target.value })} placeholder="50ml" style={{ flex: 1 }} />
               <Input label="Price (₦)" value={addV.price} onChange={(e) => setAddV({ ...addV, price: e.target.value.replace(/\D/g, "") })} placeholder="50000" style={{ flex: 1 }} />
             </div>
-            <Input label="SKU (optional)" value={addV.sku} onChange={(e) => setAddV({ ...addV, sku: e.target.value })} placeholder="Leave blank and we'll generate one" />
-            <ImagePicker ctx={ctx} value={addV.imageUrl} onChange={(url) => setAddV({ ...addV, imageUrl: url })} label="Photo for this variation" />
+            <Input label="SKU (optional)" value={addV.sku} onChange={(e) => setAddV({ ...addV, sku: e.target.value })} placeholder="Auto" />
+            <ImagePicker ctx={ctx} value={addV.imageUrl} onChange={(url) => setAddV({ ...addV, imageUrl: url })} label="Photo" hint="" />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(90px, 1fr))", gap: 10 }}>
               {ctx.openStores.map((l) => (
                 <Input key={l.id} label={l.city} value={addV.stock[l.id] ?? ""} onChange={(e) => setAddV({ ...addV, stock: { ...addV.stock, [l.id]: e.target.value.replace(/\D/g, "") } })} placeholder="0" />
               ))}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <Button variant="secondary" size="sm" onClick={addSize}>Save variation</Button>
+              <Button variant="secondary" size="sm" onClick={addSize}>Save</Button>
               <button onClick={() => setAddV(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12.5, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>Cancel</button>
             </div>
           </div>
         ) : (
-          <button onClick={() => setAddV(blankVariant())} style={{ marginTop: 10, background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ Add a variation</button>
+          <button onClick={() => setAddV(blankVariant())} style={{ marginTop: 10, background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ Add</button>
         )}
       </div>
 
       <GalleryPanel ctx={ctx} product={product} />
 
       <div>
-        <Switch label="List each variation as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
-        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
-          Off: one card in the shop with a picker. On: {product.variants.length} separate cards.
-        </div>
+        <Switch label="Show each size as its own card" checked={f.splitListing} onChange={(e) => setF({ ...f, splitListing: e.target.checked })} />
       </div>
 
       <div>
         <Switch label="Pin to New arrivals" checked={f.pinNew} onChange={(e) => setF({ ...f, pinNew: e.target.checked })} />
         <div style={{ height: 8 }} />
         <Switch label="Pin to Best sellers" checked={f.pinBest} onChange={(e) => setF({ ...f, pinBest: e.target.checked })} />
-        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
-          Both shelves fill themselves from the catalogue's age and the order book. A pin overrides that for this piece.
-        </div>
       </div>
 
       <Textarea label="Scent notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} rows={2} />
       <Textarea label="Product description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={3} />
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <Button variant="primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save changes"}</Button>
-        <button onClick={del} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#c0587a", fontFamily: "var(--font-sans)", marginLeft: "auto" }}>Delete product</button>
+        <Button variant="primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save"}</Button>
+        <button onClick={del} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#c0587a", fontFamily: "var(--font-sans)", marginLeft: "auto" }}>Delete</button>
       </div>
       {msg && <div style={{ fontSize: 12, color: "#c0587a" }}>{msg}</div>}
     </div>

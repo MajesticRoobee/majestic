@@ -25,7 +25,7 @@ export function Sales({ ctx }) {
       await api.post("/api/admin/promos", { code: pr.code, kind: pr.type, value: pr.value, scope: pr.scope, starts: pr.start, ends: pr.end }, ctx.token);
       setPr({ code: "", type: "pct", value: "", scope: "Storewide", start: "", end: "" });
       setPrErr("");
-      ctx.flash("Sale launched");
+      ctx.flash("Code created");
       ctx.loadPromos();
     } catch (e) {
       ctx.authFail(e);
@@ -41,10 +41,9 @@ export function Sales({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 20, alignItems: "start" }}>
       <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Create a sale</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>Codes apply at checkout and sync to the storefront instantly.</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 18 }}>New promo code</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Input label="Code" value={pr.code} onChange={(e) => setPr({ ...pr, code: e.target.value.toUpperCase().replace(/\s/g, "") })} placeholder="AUGUSTROYALE" hint="Uppercase, no spaces" />
+          <Input label="Code" value={pr.code} onChange={(e) => setPr({ ...pr, code: e.target.value.toUpperCase().replace(/\s/g, "") })} placeholder="AUGUSTROYALE" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Select label="Type" value={pr.type} onChange={(e) => setPr({ ...pr, type: e.target.value })}>
               <option value="pct">% off</option>
@@ -60,18 +59,15 @@ export function Sales({ ctx }) {
             <option value="Feminine care">Feminine care</option>
           </Select>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Input label="Starts" type="date" value={pr.start} onChange={(e) => setPr({ ...pr, start: e.target.value })} hint="Leave empty to start now" />
-            <Input label="Ends" type="date" value={pr.end} onChange={(e) => setPr({ ...pr, end: e.target.value })} hint="Last day it works" />
+            <Input label="Starts" type="date" value={pr.start} onChange={(e) => setPr({ ...pr, start: e.target.value })} hint="Optional" />
+            <Input label="Ends" type="date" value={pr.end} onChange={(e) => setPr({ ...pr, end: e.target.value })} hint="Last day" />
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -4 }}>
-            The end date is enforced at checkout — the code stops working the day after it, without anyone having to remember.
-          </div>
-          <Button variant="gold" block onClick={createPromo}>Launch sale</Button>
+          <Button variant="gold" block onClick={createPromo}>Create code</Button>
           {prErr && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{prErr}</div>}
         </div>
       </div>
       <div style={{ ...card, overflow: "hidden" }}>
-        <div style={{ padding: "18px 22px", fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Sales &amp; promo codes</div>
+        <div style={{ padding: "18px 22px", fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Promo codes</div>
         <div style={{ overflowX: "auto" }}>
           <div style={{ minWidth: 700, display: "grid", gridTemplateColumns: "140px 1.6fr 1fr 1fr 90px 90px", fontSize: 12.5 }}>
             <div style={{ ...th, paddingLeft: 22 }}>CODE</div>
@@ -80,7 +76,7 @@ export function Sales({ ctx }) {
             <div style={th}>REDEMPTIONS</div>
             <div style={th}>STATUS</div>
             <div style={{ ...th, paddingRight: 22 }}></div>
-            {!ctx.promos.length && <EmptyRow span={6}>No promo codes yet — create one with the form above and it works at checkout straight away.</EmptyRow>}
+            {!ctx.promos.length && <EmptyRow span={6}>No promo codes yet.</EmptyRow>}
             {ctx.promos.map((p) => {
               // What the server will actually do, not just the manual switch:
               // a code inside its window but past its end date is not "Active".
@@ -95,9 +91,8 @@ export function Sales({ ctx }) {
                   <div style={{ ...cell, color: "var(--text-muted)" }}>
                     {p.startsAt || p.starts} — {p.endsAt || p.ends}
                     {p.unenforceable && (
-                      <span title="This date is free text from before dates were enforced, so nothing stops this code. Re-enter it to set a real end date."
-                        style={{ display: "block", fontSize: 11, color: "var(--mr-gold-600)", marginTop: 3 }}>
-                        Not enforced — re-enter to set a real date
+                      <span style={{ display: "block", fontSize: 11, color: "var(--mr-gold-600)", marginTop: 3 }}>
+                        Invalid end date — re-enter it
                       </span>
                     )}
                   </div>
@@ -238,23 +233,16 @@ export function Rewards({ ctx }) {
         {stat("Ready to use", t.active)}
         {stat("Redeemed", t.redeemed)}
         {stat("Expired unused", t.expired)}
-        {stat("Given away", fmtN(t.discountGiven), "Discount on paid orders")}
+        {stat("Discount given", fmtN(t.discountGiven))}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
         {/* What a purchase earns */}
         <div style={{ ...card, padding: 24 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>What a purchase earns</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>
-            Applied when an order is <strong>paid for</strong> — a card that settles, or a transfer someone confirms.
-            An order that is placed and never paid earns nothing.
-          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 18 }}>Earn on paid orders</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Switch label="Give a reward for every qualifying purchase" checked={!!rule.on}
+            <Switch label="Rewards on" checked={!!rule.on}
               onChange={(e) => setRule({ ...rule, on: e.target.checked })} />
-            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -6 }}>
-              Off means no new codes are earned. Codes already issued keep working until they are spent or expire.
-            </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Select label="Reward" value={rule.kind} onChange={(e) => setRule({ ...rule, kind: e.target.value })}>
                 <option value="pct">% off next order</option>
@@ -266,25 +254,22 @@ export function Rewards({ ctx }) {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Qualifying spend (₦)" value={rule.minSpend} onChange={(e) => setRule({ ...rule, minSpend: e.target.value })}
-                placeholder="0" hint="Goods only, before delivery. 0 means every order." />
+                placeholder="0" hint="0 = any order" />
               <Input label="Expires after (days)" value={rule.expiryDays} onChange={(e) => setRule({ ...rule, expiryDays: e.target.value })}
-                placeholder="90" hint="0 means it never expires." />
+                placeholder="90" hint="0 = never" />
             </div>
             <Select label="Spendable on" value={rule.scope} onChange={(e) => setRule({ ...rule, scope: e.target.value })}>
               {REWARD_SCOPES.map((sc) => <option key={sc.id} value={sc.id}>{sc.label}</option>)}
             </Select>
             <Input label="Code prefix" value={rule.prefix} onChange={(e) => setRule({ ...rule, prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
-              placeholder="MR" hint="Codes look like MR-K4Q7BX." />
+              placeholder="MR" />
             <Button variant="primary" block disabled={busy} onClick={saveRule}>Save rule</Button>
           </div>
         </div>
 
         {/* Minting by hand */}
         <div style={{ ...card, padding: 24 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Issue reward codes</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>
-            For a giveaway, an apology, or an influencer. Leave the customer blank and anyone who types the code can use it — once.
-          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 18 }}>Issue reward codes</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Select label="Reward" value={mint.kind} onChange={(e) => setMint({ ...mint, kind: e.target.value })}>
@@ -298,8 +283,7 @@ export function Rewards({ ctx }) {
                 : <div />}
             </div>
             {mint.kind === "item" && (
-              <Select label="Which product" value={mint.freeVariantId} onChange={(e) => setMint({ ...mint, freeVariantId: e.target.value })}
-                hint="Leave on 'cheapest in scope' and the reward takes the price off whatever qualifying item costs least in their cart.">
+              <Select label="Which product" value={mint.freeVariantId} onChange={(e) => setMint({ ...mint, freeVariantId: e.target.value })}>
                 <option value="">Cheapest qualifying item in the cart</option>
                 {variants.map((v) => <option key={v.id} value={v.id}>{v.label} — {fmtN(v.ngn)}</option>)}
               </Select>
@@ -312,19 +296,19 @@ export function Rewards({ ctx }) {
               <Input label="Expires after (days)" value={mint.expiryDays} onChange={(e) => setMint({ ...mint, expiryDays: e.target.value })} placeholder="90" />
             </div>
             <Input label="Customer email or phone (optional)" value={mint.ownerContact} onChange={(e) => setMint({ ...mint, ownerContact: e.target.value })}
-              placeholder="ada@email.com" hint="Set it and only that customer can use the code at checkout." />
+              placeholder="ada@email.com" />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Their name (optional)" value={mint.ownerName} onChange={(e) => setMint({ ...mint, ownerName: e.target.value })} placeholder="Ada Nwosu" />
-              <Input label="How many" value={mint.count} onChange={(e) => setMint({ ...mint, count: e.target.value })} placeholder="1" hint="Up to 200 at a time." />
+              <Input label="How many" value={mint.count} onChange={(e) => setMint({ ...mint, count: e.target.value })} placeholder="1" hint="Max 200" />
             </div>
             <Input label="Name the code (optional)" value={mint.code} onChange={(e) => setMint({ ...mint, code: e.target.value.toUpperCase().replace(/\s/g, "") })}
-              placeholder="SORRYADA" hint="Leave empty and one is generated. Naming it means issuing exactly one." />
+              placeholder="SORRYADA" />
             <Input label="Note (optional)" value={mint.note} onChange={(e) => setMint({ ...mint, note: e.target.value })} placeholder="Late delivery, order MR-10412" />
             <Button variant="gold" block disabled={busy} onClick={create}>Issue</Button>
             {err && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{err}</div>}
             {issued.length > 0 && (
               <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", padding: "14px 16px" }}>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.06em", marginBottom: 8 }}>JUST ISSUED — COPY THESE</div>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.06em", marginBottom: 8 }}>NEW CODES</div>
                 <div style={{ fontFamily: "var(--font-condensed)", fontSize: 13.5, color: "var(--mr-purple-900)", lineHeight: 1.9, wordBreak: "break-all" }}>
                   {issued.map((i) => i.code).join("  ·  ")}
                 </div>
@@ -345,9 +329,9 @@ export function Rewards({ ctx }) {
             <option value="void">Void</option>
           </Select>
           <Select value={filter.source} onChange={(e) => setFilter({ ...filter, source: e.target.value })}>
-            <option value="">Earned & issued</option>
-            <option value="purchase">Earned by a purchase</option>
-            <option value="manual">Issued by hand</option>
+            <option value="">All sources</option>
+            <option value="purchase">Earned</option>
+            <option value="manual">Issued</option>
           </Select>
           <Input value={filter.owner} onChange={(e) => setFilter({ ...filter, owner: e.target.value })} placeholder="Find a customer" />
         </div>
@@ -356,13 +340,13 @@ export function Rewards({ ctx }) {
             <div style={{ ...th, paddingLeft: 22 }}>CODE</div>
             <div style={th}>WORTH</div>
             <div style={th}>WHO</div>
-            <div style={th}>WHERE IT CAME FROM</div>
+            <div style={th}>SOURCE</div>
             <div style={th}>EXPIRES</div>
             <div style={th}>STATUS</div>
             <div style={{ ...th, paddingRight: 22 }}></div>
             {!data.rewards.length && (
               <EmptyRow span={7}>
-                No reward codes match. Paid orders earn one automatically while the rule above is on — or issue some by hand.
+                No reward codes.
               </EmptyRow>
             )}
             {data.rewards.map((r) => {
@@ -378,7 +362,7 @@ export function Rewards({ ctx }) {
                   </div>
                   <div style={{ ...cell, color: "var(--text-body)" }}>
                     {r.owner ? <>{r.ownerName || r.owner}{r.ownerName && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{r.owner}</div>}</>
-                      : <span style={{ color: "var(--text-muted)" }}>Anyone with the code</span>}
+                      : <span style={{ color: "var(--text-muted)" }}>Anyone</span>}
                   </div>
                   <div style={{ ...cell, color: "var(--text-muted)", fontSize: 12 }}>
                     {r.source === "purchase" ? `Earned on ${r.earnedOn}` : `Issued by ${r.issuedBy || "the team"}`}
@@ -423,7 +407,7 @@ export function Notifications({ ctx }) {
     try {
       await api.post("/api/admin/campaigns", { kind: def.kind, title: f.title, message: f.msg, cta: f.cta, audience: f.aud }, ctx.token);
       setF({ title: "", msg: "", cta: "", aud: f.aud });
-      ctx.flash(def.kind === "Email" ? "Blast sent" : def.kind === "Push" ? "Push scheduled" : "Published to storefront");
+      ctx.flash(def.kind === "Email" ? "Sent" : def.kind === "Push" ? "Scheduled" : "Published");
       ctx.loadCampaigns();
       if (def.kind === "Banner") ctx.loadSettings();
     } catch (e) { ctx.authFail(e); }
@@ -432,8 +416,7 @@ export function Notifications({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 20, alignItems: "start" }}>
       <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Compose</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>Pop-ups and banners go live on the storefront; blasts go through your connected email &amp; push tools.</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 18 }}>New campaign</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
           {N_TYPES.map((t) => {
             const on = nType === t.id;
@@ -454,13 +437,13 @@ export function Notifications({ ctx }) {
             </Select>
           </div>
           <Button variant="primary" block onClick={publish}>
-            {nType === "email" ? "Send blast" : nType === "push" ? "Schedule push" : "Publish to storefront"}
+            {nType === "email" ? "Send" : nType === "push" ? "Schedule" : "Publish"}
           </Button>
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <div style={{ ...card, padding: 22 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)", marginBottom: 14 }}>Live preview — {N_TYPES.find((t) => t.id === nType).label}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)", marginBottom: 14 }}>Preview</div>
           {nType === "banner" && (
             <div style={{ background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", fontSize: 12, letterSpacing: "0.06em", textAlign: "center", padding: "10px 16px", borderRadius: "var(--radius-sm)" }}>{prevTitle} — {prevMsg}</div>
           )}
@@ -506,7 +489,7 @@ export function Notifications({ ctx }) {
               <div style={th}>AUDIENCE</div>
               <div style={th}>STATUS</div>
               <div style={{ ...th, paddingRight: 22 }}>PERFORMANCE</div>
-              {!ctx.campaigns.length && <EmptyRow span={5}>No campaigns yet — anything you send from the composer above is listed here.</EmptyRow>}
+              {!ctx.campaigns.length && <EmptyRow span={5}>No campaigns yet.</EmptyRow>}
               {ctx.campaigns.map((c) => {
                 const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)" };
                 return (
@@ -570,7 +553,7 @@ export function Inquiries({ ctx }) {
         <div style={card}>
           {ctx.isSuper && archiveToggle}
           <div style={{ padding: "20px", fontSize: 13, color: "var(--text-muted)" }}>
-            {ctx.showArchived ? "Nothing archived yet." : "No conversations yet — the inbox is quietly empty."}
+            {ctx.showArchived ? "Nothing archived." : "No messages."}
           </div>
         </div>
         <div />
@@ -652,7 +635,7 @@ export function Inquiries({ ctx }) {
             ))}
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <input value={reply} onChange={(e) => setReply(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Reply as the house…" style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 13, padding: "11px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)" }} />
+            <input value={reply} onChange={(e) => setReply(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="Write a reply…" style={{ flex: 1, fontFamily: "var(--font-sans)", fontSize: 13, padding: "11px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)" }} />
             <Button variant="primary" onClick={send}>Send</Button>
           </div>
         </div>
@@ -694,7 +677,7 @@ export function SettingsPage({ ctx }) {
   useEffect(() => {
     if (ctx.settingsData && !form) setForm({ ...ctx.settingsData.settings });
   }, [ctx.settingsData]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!form) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Fetching the house rules…</span></main>;
+  if (!form) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Loading…</span></main>;
   const touch = (patch) => { setForm({ ...form, ...patch }); setSaved(""); };
   const set = (k) => (e) => touch({ [k]: e.target.value });
 
@@ -712,20 +695,17 @@ export function SettingsPage({ ctx }) {
   };
 
   const section = { ...card, padding: 24, display: "flex", flexDirection: "column", gap: 16 };
-  const sectionHead = (title, sub) => (
-    <div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{title}</div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{sub}</div>
-    </div>
+  const sectionHead = (title) => (
+    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{title}</div>
   );
   // Every panel carries its own save, so one edit never means scrolling past
   // six others to keep it.
   const sectionSave = (id) => (
     <div style={{ display: "flex", gap: 12, alignItems: "center", borderTop: "1px solid var(--border-hairline)", paddingTop: 14 }}>
       <Button variant="primary" size="sm" disabled={busy === id} onClick={() => save(id, SECTION_KEYS[id])}>
-        {busy === id ? "Saving…" : "Save this section"}
+        {busy === id ? "Saving…" : "Save"}
       </Button>
-      {saved === id && <span style={{ fontSize: 12.5, color: "#3f6b45" }}>Saved — the storefront reads it on its next load.</span>}
+      {saved === id && <span style={{ fontSize: 12.5, color: "#3f6b45" }}>Saved</span>}
     </div>
   );
   // An empty box means "keep the shipped copy", which is right — but it also
@@ -737,33 +717,33 @@ export function SettingsPage({ ctx }) {
         onClick={() => {
           // Clearing throws away whatever is in the box, so it asks first; the
           // other direction only fills an empty one and needs no ceremony.
-          if (form[key] && !window.confirm("Clear this box? The page goes back to the words it shipped with, and what is written here is lost.")) return;
+          if (form[key] && !window.confirm("Clear this text?")) return;
           touch({ [key]: form[key] ? "" : shipped });
         }}>
-        {form[key] ? "Clear it — go back to the words we shipped with" : "Load the words we shipped with, to edit"}
+        {form[key] ? "Reset to default" : "Edit default text"}
       </button>
     </div>
   );
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 18, maxWidth: 960 }}>
       <div style={section}>
-        {sectionHead("Brand mark", "The logo in the storefront header and footer, and the founder\u2019s portrait on the story sections.")}
+        {sectionHead("Brand mark")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <ImagePicker ctx={ctx} label="Logo" value={form.logoUrl || ""} onChange={(url) => touch({ logoUrl: url })}
-            hint="Shown in the header, on the cream bar. A wide lockup on a transparent background (PNG or SVG) sits best — it is scaled to 46px tall." />
+            hint="Transparent PNG or SVG" />
           <ImagePicker ctx={ctx} label="Logo — light version" value={form.logoLightUrl || ""} onChange={(url) => touch({ logoLightUrl: url })}
-            hint="For the footer, which is near-black purple. Leave it empty and the footer keeps the cream wordmark rather than showing a mark nobody can see." />
+            hint="For the dark footer" />
         </div>
         <ImagePicker ctx={ctx} label="Founder's portrait" value={form.founderImage || ""} onChange={(url) => touch({ founderImage: url })}
-          hint="Beside the story on the home page and at the head of the About page. Portrait shape reads best. Leave it empty and the photo shipped with the site is used." />
+ />
         {sectionSave("brand")}
       </div>
       <div style={section}>
-        {sectionHead("Storefront text", "The top announcement bar and the homepage hero copy.")}
+        {sectionHead("Storefront text")}
         <Input label="Announcement bar" value={form.announcement || ""} onChange={set("announcement")} />
         <Input label="Line above the hero headline" value={form.heroEyebrow || ""} onChange={set("heroEyebrow")}
-          placeholder="Perfumes · Perfume oils · Body mists · Feminine care" hint="The small gold line over the headline." />
-        <Textarea label="Hero headline" value={form.heroHeadline || ""} onChange={set("heroHeadline")} rows={2} hint="A line break shows as two lines on the storefront." />
+          placeholder="Optional" />
+        <Textarea label="Hero headline" value={form.heroHeadline || ""} onChange={set("heroHeadline")} rows={2} />
         <Textarea label="Hero subtext" value={form.heroSub || ""} onChange={set("heroSub")} rows={2} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Select label="Homepage layout" value={form.heroDirection || "storefront grid"} onChange={set("heroDirection")}>
@@ -777,65 +757,50 @@ export function SettingsPage({ ctx }) {
           </Select>
         </div>
         <ImagePicker ctx={ctx} label="Hero image (optional)" value={form.heroImage || ""} onChange={(url) => touch({ heroImage: url })}
-          hint="The picture beside the headline on the home page — and the backdrop behind it on the full-bleed layout. Leave it empty for the monogram placeholder. Wide images look best." />
-        {(form.heroDirection || "storefront grid") === "storefront grid" && (
-          <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>
-            The tiles under the hero — their pictures, their words, how many there are and where each one leads —
-            are edited under <strong>Home page</strong>, along with every other section of it.
-          </div>
-        )}
-        <Switch label="Show the first-order pop-up to new visitors" checked={form.promoPopup ?? true} onChange={(e) => touch({ promoPopup: e.target.checked })} />
+          hint="Wide image" />
+        <Switch label="First-order pop-up" checked={form.promoPopup ?? true} onChange={(e) => touch({ promoPopup: e.target.checked })} />
         {sectionSave("storefront")}
       </div>
       <div style={section}>
-        {sectionHead("About page", <>Everything on <a href="/about" target="_blank" rel="noreferrer">/about</a> — the heading, what the house says about itself, the founder&apos;s story and the band at the foot. Leave a box empty and the page keeps the words it shipped with.</>)}
+        {sectionHead("About page")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 12 }}>
           <Input label="Line above the heading" value={form.aboutEyebrow || ""} onChange={set("aboutEyebrow")} placeholder={ABOUT_DEFAULTS.eyebrow} />
           <Input label="Heading" value={form.aboutHeadline || ""} onChange={set("aboutHeadline")} placeholder={ABOUT_DEFAULTS.headline} />
         </div>
         <Textarea label="Who we are" value={form.aboutIntro || ""} onChange={set("aboutIntro")} rows={7}
-          placeholder="Empty — the page shows the words it shipped with."
-          hint="The paragraphs under the heading. A blank line between paragraphs; start a line with ## for a heading — the same way the blog is written." />
+          placeholder="Default text"
+          hint="Blank line between paragraphs. ## for a heading." />
         {fillFrom("aboutIntro", ABOUT_DEFAULTS.intro)}
         <ImagePicker ctx={ctx} label="Founder's portrait" value={form.founderImage || ""} onChange={(url) => touch({ founderImage: url })}
-          hint="The same photograph as under Brand mark: at the head of the story here, and beside it on the home page. Portrait shape reads best." />
+ />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Whose story it is" value={form.founderName || ""} onChange={set("founderName")} placeholder={ABOUT_DEFAULTS.founderName} />
           <Input label="Their title" value={form.founderRole || ""} onChange={set("founderRole")} placeholder={ABOUT_DEFAULTS.founderRole} />
         </div>
-        <Input label="Story heading" value={form.storyTitle || ""} onChange={set("storyTitle")} placeholder={ABOUT_DEFAULTS.storyTitle}
-          hint="Also the heading on the home page's story band, unless that block has been given its own." />
+        <Input label="Story heading" value={form.storyTitle || ""} onChange={set("storyTitle")} placeholder={ABOUT_DEFAULTS.storyTitle} />
         <Textarea label="The story in full" value={form.storyBody || ""} onChange={set("storyBody")} rows={14}
-          placeholder="Empty — the page shows the story it shipped with."
-          hint="A blank line between paragraphs. The home page shows the first paragraph and links through, so open with the line you want a shopper to read." />
+          placeholder="Default text"
+          hint="Blank line between paragraphs." />
         {fillFrom("storyBody", ABOUT_DEFAULTS.story)}
         <Switch label="Show the stores on this page" checked={form.aboutStoresOn ?? true} onChange={(e) => touch({ aboutStoresOn: e.target.checked })} />
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-          The addresses and delivery times come from your stores — edit them under <strong>Settings → Stores</strong>, at the foot of this page.
-        </div>
         <Input label="Closing band — heading" value={form.aboutCtaTitle || ""} onChange={set("aboutCtaTitle")} placeholder={ABOUT_DEFAULTS.ctaTitle} />
         <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12 }}>
           <Input label="Closing band — line under it" value={form.aboutCtaSub || ""} onChange={set("aboutCtaSub")} placeholder={ABOUT_DEFAULTS.ctaSub} />
-          <Input label="Closing band — button" value={form.aboutCtaLabel || ""} onChange={set("aboutCtaLabel")} placeholder={ABOUT_DEFAULTS.ctaLabel}
-            hint="It leads to the shop." />
+          <Input label="Closing band — button" value={form.aboutCtaLabel || ""} onChange={set("aboutCtaLabel")} placeholder={ABOUT_DEFAULTS.ctaLabel} />
         </div>
         <Input label="Search result — title" value={form.aboutSeoTitle || ""} onChange={set("aboutSeoTitle")} placeholder={ABOUT_DEFAULTS.seoTitle} />
         <Textarea label="Search result — description" value={form.aboutSeoDesc || ""} onChange={set("aboutSeoDesc")} rows={3} placeholder={ABOUT_DEFAULTS.seoDesc}
-          hint="What Google and a shared link show under the title. Around 155 characters reads in full." />
+          hint="About 155 characters" />
         {sectionSave("about")}
       </div>
       <div style={section}>
-        {sectionHead("Shelves & social proof", "What the header's shelves read from, and whether shoppers see live purchases.")}
+        {sectionHead("Shelves & purchase notes")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="A product is “new” for (days)" value={form.newArrivalDays ?? ""} onChange={set("newArrivalDays")} placeholder="45"
-            hint="After this it drops off New arrivals — unless you pin it on the product." />
-          <Input label="Best sellers counted over (days)" value={form.bestSellerDays ?? ""} onChange={set("bestSellerDays")} placeholder="90"
-            hint="Only paid, uncancelled orders count." />
+ />
+          <Input label="Best sellers counted over (days)" value={form.bestSellerDays ?? ""} onChange={set("bestSellerDays")} placeholder="90" />
         </div>
-        <Switch label="Show live purchases to shoppers" checked={form.purchasePopups ?? true} onChange={(e) => touch({ purchasePopups: e.target.checked })} />
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-          A small note in the corner — “Dorothy from Abuja purchased Osk 30ml”. Built from real paid orders; only a first name and city ever leave the server.
-        </div>
+        <Switch label="Show recent purchase notes" checked={form.purchasePopups ?? true} onChange={(e) => touch({ purchasePopups: e.target.checked })} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Look back over (days)" value={form.purchasePopupDays ?? ""} onChange={set("purchasePopupDays")} placeholder="30" />
           <Input label="Seconds between notes" value={form.purchasePopupIntervalMs ? Math.round(form.purchasePopupIntervalMs / 1000) : ""}
@@ -845,45 +810,26 @@ export function SettingsPage({ ctx }) {
       </div>
       <InventorySection ctx={ctx} form={form} touch={touch} set={set} section={section} sectionHead={sectionHead} sectionSave={sectionSave} />
       <div style={section}>
-        {sectionHead("Shopper insights", "Whether the shop counts its own visits, and for how long it keeps the detail.")}
-        <Switch label="Measure what happens in the shop" checked={form.insightsOn ?? true} onChange={(e) => touch({ insightsOn: e.target.checked })} />
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-          Our own count, on our own site, shared with nobody — which is why it still works for the shoppers whose ad-blocker
-          stops Google and Meta loading. No name, email or address is ever recorded, a referring link is reduced to its site
-          name, and anyone can switch themselves out from the privacy page. Switched off here, nothing new is recorded at all.
-        </div>
+        {sectionHead("Insights")}
+        <Switch label="Track visits" checked={form.insightsOn ?? true} onChange={(e) => touch({ insightsOn: e.target.checked })} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Keep the detail for (days)" value={form.insightsRetainDays ?? ""} onChange={set("insightsRetainDays")} placeholder="90"
-            hint="After this the individual visits are deleted. The daily totals behind the charts are kept for good, and a visit that carried an order is never deleted." />
-          <Input label="A cart counts as abandoned after (minutes)" value={form.abandonAfterMins ?? ""} onChange={set("abandonAfterMins")} placeholder="45"
-            hint="How long a cart sits quiet before it appears in the group worth chasing." />
+          <Input label="Keep visit detail (days)" value={form.insightsRetainDays ?? ""} onChange={set("insightsRetainDays")} placeholder="90" />
+          <Input label="Cart abandoned after (minutes)" value={form.abandonAfterMins ?? ""} onChange={set("abandonAfterMins")} placeholder="45" />
         </div>
         {sectionSave("insights")}
       </div>
       <div style={section}>
-        {sectionHead("Winning the sale", "The quiet nudges that turn a full cart into an order.")}
+        {sectionHead("Recommendations & pop-ups")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Switch label="Show shoppers what they were looking at" checked={form.recentlyViewedOn ?? true} onChange={(e) => touch({ recentlyViewedOn: e.target.checked })} />
-          <Switch label="Show &ldquo;often opened together&rdquo; on a product" checked={form.alsoViewedOn ?? true} onChange={(e) => touch({ alsoViewedOn: e.target.checked })} />
+          <Switch label="Recently viewed" checked={form.recentlyViewedOn ?? true} onChange={(e) => touch({ recentlyViewedOn: e.target.checked })} />
+          <Switch label="Related products" checked={form.alsoViewedOn ?? true} onChange={(e) => touch({ alsoViewedOn: e.target.checked })} />
         </div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-          The first is read from the shopper&apos;s own browser, so it works for someone who has never signed in. The second is built
-          overnight from what real shoppers open in the same visit — it fills out as the shop gets traffic, and falls back to the
-          category until it has enough to say anything.
-        </div>
-        <Select label="Who sees the first-order pop-up" value={form.promoPopupWhen || "everyone"} onChange={set("promoPopupWhen")}>
-          <option value="everyone">Everyone (as it has always been)</option>
-          <option value="returning">Only someone who has been here before and not bought</option>
+        <Select label="First-order pop-up shows to" value={form.promoPopupWhen || "everyone"} onChange={set("promoPopupWhen")}>
+          <option value="everyone">Everyone</option>
+          <option value="returning">Returning visitors only</option>
         </Select>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-          A first-order offer is for somebody deciding whether to start, not for a stranger three seconds into their first look.
-        </div>
         <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 14 }}>
-          <Switch label="Say something when a shopper with a full cart is about to leave" checked={form.nudgeOn ?? false} onChange={(e) => touch({ nudgeOn: e.target.checked })} />
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.6 }}>
-            A small card in the corner — never for an empty cart, never at checkout, and never twice inside the window below.
-            Off until you have written what it should say.
-          </div>
+          <Switch label="Exit reminder for full carts" checked={form.nudgeOn ?? false} onChange={(e) => touch({ nudgeOn: e.target.checked })} />
         </div>
         {(form.nudgeOn ?? false) && (
           <>
@@ -894,7 +840,7 @@ export function SettingsPage({ ctx }) {
             <Textarea label="What it says" value={form.nudgeBody || ""} onChange={set("nudgeBody")} rows={2} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Offer a code (optional)" value={form.nudgeCode || ""} onChange={set("nudgeCode")} placeholder="COMEBACK10"
-                hint="Create it under Sales & Promos first — this only names it." />
+                hint="Create it in Promo codes" />
               <Input label="Not again for (days)" value={form.nudgeEveryDays ?? ""} onChange={set("nudgeEveryDays")} placeholder="7" />
             </div>
           </>
@@ -902,7 +848,7 @@ export function SettingsPage({ ctx }) {
         {sectionSave("convert")}
       </div>
       <div style={section}>
-        {sectionHead("Blog & reviews", "The headings above the blog and the testimonials wall.")}
+        {sectionHead("Blog & reviews")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Blog heading" value={form.blogHeadline || ""} onChange={set("blogHeadline")} placeholder="Blog" />
           <Input label="Reviews heading" value={form.reviewsHeadline || ""} onChange={set("reviewsHeadline")} placeholder="Reviews & testimonials" />
@@ -912,40 +858,29 @@ export function SettingsPage({ ctx }) {
         {sectionSave("editorial")}
       </div>
       <div style={{ ...section, gap: 14 }}>
-        {sectionHead("The Perfume Studio — consultations",
-          "A page of its own at /consultation where a customer books an hour in the studio, with the calendar on the page so they never leave the site. The button sits beside the search box in the header and floats above the support bubble on every page.")}
-        <Switch label="The studio is taking consultation bookings"
+        {sectionHead("Consultations")}
+        <Switch label="Taking bookings"
           checked={form.consultOn !== "0"} onChange={(e) => touch({ consultOn: e.target.checked ? "1" : "0" })} />
-        <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
-          Off: the button disappears, the footer link goes, the page says bookings aren&rsquo;t open, and it leaves the sitemap.
-          A page inviting someone to book an hour nobody will keep is worse than no page.
-        </div>
         <Input label="Calendly link" value={form.consultCalendlyUrl || ""} onChange={set("consultCalendlyUrl")}
           placeholder="https://calendly.com/majestic-roobee/consultation"
-          hint="The public booking link from Calendly — Event Types → the event → Copy link. The calendar is framed on the page itself, so nobody is sent to Calendly to finish." />
+ />
         {form.consultCalendlyUrl && !isCalendlyUrl(form.consultCalendlyUrl) && (
-          <div style={{ fontSize: 12, color: "#c0587a", marginTop: -8 }}>
-            That isn&rsquo;t a calendly.com address. Only Calendly can be framed here — anything else would draw an empty
-            rectangle. Paste the link Calendly gives you, or leave this empty and the page asks people to get in touch instead.
-          </div>
+          <div style={{ fontSize: 12, color: "#c0587a", marginTop: -8 }}>Must be a calendly.com link.</div>
         )}
         {form.consultOn !== "0" && !form.consultCalendlyUrl && (
-          <div style={{ fontSize: 12, color: "var(--mr-gold-600)", marginTop: -8 }}>
-            No calendar yet — the page will ask people to message or call for a time. Add the link when Calendly is set up.
-          </div>
+          <div style={{ fontSize: 12, color: "var(--mr-gold-600)", marginTop: -8 }}>No Calendly link yet.</div>
         )}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Line above the heading" value={form.consultEyebrow || ""} onChange={set("consultEyebrow")} placeholder={CONSULT_DEFAULTS.eyebrow} />
-          <Input label="Button label" value={form.consultCtaLabel || ""} onChange={set("consultCtaLabel")} placeholder={CONSULT_DEFAULTS.ctaLabel}
-            hint="On the floating button and the page." />
+          <Input label="Button label" value={form.consultCtaLabel || ""} onChange={set("consultCtaLabel")} placeholder={CONSULT_DEFAULTS.ctaLabel} />
         </div>
         <Input label="Heading" value={form.consultHeadline || ""} onChange={set("consultHeadline")} placeholder={CONSULT_DEFAULTS.headline} />
         <Textarea label="The line under it" value={form.consultIntro || ""} onChange={set("consultIntro")} rows={2} placeholder={CONSULT_DEFAULTS.intro} />
         <ImagePicker ctx={ctx} label="Photograph (optional)" value={form.consultImage || ""} onChange={(url) => touch({ consultImage: url })}
-          hint="Sits above the copy. A wide shot of the studio works best." />
+          hint="Wide image" />
         <Textarea label="What a consultation is" value={form.consultBody || ""} onChange={set("consultBody")} rows={10}
           placeholder={CONSULT_DEFAULTS.body}
-          hint="Written the way the blog is written: a blank line between paragraphs, ## for a heading." />
+          hint="Blank line between paragraphs. ## for a heading." />
         {fillFrom("consultBody", CONSULT_DEFAULTS.body)}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Search result title" value={form.consultSeoTitle || ""} onChange={set("consultSeoTitle")} placeholder={CONSULT_DEFAULTS.seoTitle} />
@@ -955,7 +890,7 @@ export function SettingsPage({ ctx }) {
       </div>
       <StoresSection ctx={ctx} />
       <div style={{ ...section, gap: 14 }}>
-        {sectionHead("Contact details", "Shown on the Contact page and in the concierge.")}
+        {sectionHead("Contact details")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="WhatsApp / phone" value={form.contactPhone || ""} onChange={set("contactPhone")} />
           <Input label="Email" value={form.contactEmail || ""} onChange={set("contactEmail")} />
@@ -966,12 +901,12 @@ export function SettingsPage({ ctx }) {
           value={form.bankDetails || ""}
           onChange={set("bankDetails")}
           placeholder="Majestic Roobee — 0123456789, Providus Bank"
-          hint="Shown to shoppers who choose bank transfer. Leave empty and we'll ask them to contact you instead."
+          hint="Shown at checkout for bank transfer"
         />
         {sectionSave("contact")}
       </div>
       <div style={{ ...section, gap: 14 }}>
-        {sectionHead("Footer", "Tagline and the social links in the storefront footer. An empty link means that icon is not shown.")}
+        {sectionHead("Footer")}
         <Textarea label="Footer tagline" value={form.footerTagline || ""} onChange={set("footerTagline")} rows={2} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Instagram URL" value={form.igUrl || ""} onChange={set("igUrl")} />
@@ -982,18 +917,17 @@ export function SettingsPage({ ctx }) {
         {sectionSave("footer")}
       </div>
       <div style={section}>
-        {sectionHead("SEO", "How the store appears in search results and when shared. Product pages generate their own tags automatically.")}
+        {sectionHead("SEO & sharing")}
         <Input label="Site name" value={form.siteName || ""} onChange={set("siteName")} placeholder="Majestic Roobee" />
-        <Input label="The shop's web address" value={form.siteUrl || ""} onChange={set("siteUrl")} placeholder="https://majesticroobee.shop"
-          hint="Used in the links we email — a cart-recovery link has no request to take the address from. Set this before switching on the abandoned-cart chase, or those messages go out without their link." />
-        <Textarea label="Default meta description" value={form.metaDescription || ""} onChange={set("metaDescription")} rows={2} hint="Used on the homepage and as a fallback (aim for 150–160 characters)." />
-        <ImagePicker ctx={ctx} label="Social share image (optional)" value={form.ogImage || ""} onChange={(url) => touch({ ogImage: url })}
-          hint="Shown when a link is shared on WhatsApp, Instagram, X, etc. 1200×630 is the shape they all crop to." />
+        <Input label="Website address" value={form.siteUrl || ""} onChange={set("siteUrl")} placeholder="https://majesticroobee.shop" />
+        <Textarea label="Default meta description" value={form.metaDescription || ""} onChange={set("metaDescription")} rows={2} hint="About 155 characters" />
+        <ImagePicker ctx={ctx} label="Link preview image" value={form.ogImage || ""} onChange={(url) => touch({ ogImage: url })}
+          hint="1200 × 630" />
         {sectionSave("seo")}
       </div>
 
       <div style={section}>
-        {sectionHead("Marketing & analytics", "Paste your measurement IDs — tags load only after a shopper accepts cookies on the storefront. Leave blank to disable.")}
+        {sectionHead("Analytics")}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <Input label="Google Analytics 4 ID" value={form.ga4Id || ""} onChange={set("ga4Id")} placeholder="G-XXXXXXX" />
           <Input label="Microsoft Clarity ID" value={form.clarityId || ""} onChange={set("clarityId")} placeholder="abcdefghij" />
@@ -1006,17 +940,15 @@ export function SettingsPage({ ctx }) {
           <Input label="Meta (Facebook) Pixel ID" value={form.metaPixelId || ""} onChange={set("metaPixelId")} placeholder="1234567890" />
           <Input label="TikTok Pixel ID" value={form.tiktokPixelId || ""} onChange={set("tiktokPixelId")} placeholder="CXXXXXXXXXXXX" />
         </div>
-        <Input label="Google Search Console verification" value={form.gscVerification || ""} onChange={set("gscVerification")} placeholder="google-site-verification token" hint="From the 'HTML tag' method — paste only the content token. Or verify via your linked Google Analytics / DNS instead." />
+        <Input label="Google Search Console verification" value={form.gscVerification || ""} onChange={set("gscVerification")} placeholder="Verification code" />
         {sectionSave("analytics")}
       </div>
 
       <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <Button variant="gold" disabled={busy === "all"} onClick={() => save("all", Object.values(SECTION_KEYS).flat())}>
-          {busy === "all" ? "Saving…" : "Save every section"}
+          {busy === "all" ? "Saving…" : "Save all"}
         </Button>
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-          {saved === "all" ? "All saved — the storefront reads the same settings." : "Each panel above also saves on its own."}
-        </span>
+        {saved === "all" && <span style={{ fontSize: 12, color: "#3f6b45" }}>Saved</span>}
       </div>
     </main>
   );
@@ -1040,45 +972,33 @@ function InventorySection({ ctx, form, touch, set, section, sectionHead, section
       const parts = [];
       if (r.out) parts.push(`${r.out} sold out`);
       if (r.low) parts.push(`${r.low} running low`);
-      if (r.recovered) parts.push(`${r.recovered} back above the line`);
-      setSweeping(parts.length ? parts.join(", ") + (r.alerted ? " — alert sent" : "") : "Nothing crossed the line");
+      if (r.recovered) parts.push(`${r.recovered} restocked`);
+      setSweeping(parts.length ? parts.join(", ") + (r.alerted ? " — alert sent" : "") : "No changes");
       ctx.loadStockHealth();
     } catch (e) { ctx.authFail(e); setSweeping(""); }
   };
   return (
     <div style={section}>
-      {sectionHead("Inventory", "When a shelf counts as running low, and who hears about it.")}
+      {sectionHead("Low stock")}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Select label="How &ldquo;low&rdquo; is decided" value={form.lowStockMode || "flat"} onChange={set("lowStockMode")}>
-          <option value="flat">A flat number of units</option>
-          <option value="cover">Days of cover (from recent sales)</option>
+        <Select label="Low stock rule" value={form.lowStockMode || "flat"} onChange={set("lowStockMode")}>
+          <option value="flat">Fixed number of units</option>
+          <option value="cover">Days of stock left</option>
         </Select>
-        <Input label={cover ? "Never warn above (units)" : "Low at this many units or fewer"}
-          value={form.lowStockThreshold ?? ""} onChange={set("lowStockThreshold")} placeholder="5"
-          hint={cover
-            ? "The floor. A piece that has never sold still gets a warning at this figure rather than going from healthy to gone with nothing in between."
-            : "Counted per store, not across all of them — a shelf is empty where the shopper is standing."} />
+        <Input label={cover ? "Minimum (units)" : "Low at (units)"}
+          value={form.lowStockThreshold ?? ""} onChange={set("lowStockThreshold")} placeholder="5" hint="Per store" />
       </div>
       {cover && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Days of cover to keep" value={form.lowStockCoverDays ?? ""} onChange={set("lowStockCoverDays")} placeholder="14"
-            hint="Warn when a store holds less than this many days of what it has been selling." />
-          <Input label="Measured over the last (days)" value={form.lowStockVelocityDays ?? ""} onChange={set("lowStockVelocityDays")} placeholder="30"
-            hint="Only paid, uncancelled orders count." />
+          <Input label="Low under (days of stock)" value={form.lowStockCoverDays ?? ""} onChange={set("lowStockCoverDays")} placeholder="14" />
+          <Input label="Sales period (days)" value={form.lowStockVelocityDays ?? ""} onChange={set("lowStockVelocityDays")} placeholder="30" />
         </div>
       )}
-      <Switch label="Send an alert when a shelf runs low or sells out" checked={form.lowStockAlerts ?? true} onChange={(e) => touch({ lowStockAlerts: e.target.checked })} />
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-        Raised on the crossing, not every quarter of an hour — and again if it recovers and dips a second time.
-        Edit the wording under Integrations → Automations. Until an email provider is connected they queue there, readable, rather than being lost.
-      </div>
-      <Switch label="Show shoppers when stock is nearly gone" checked={form.lowStockOnStorefront ?? true} onChange={(e) => touch({ lowStockOnStorefront: e.target.checked })} />
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-        &ldquo;Only 2 left in Abuja&rdquo; on the product page, read off this same line. Switched off, the figures are not published at all.
-      </div>
+      <Switch label="Low stock alerts" checked={form.lowStockAlerts ?? true} onChange={(e) => touch({ lowStockAlerts: e.target.checked })} />
+      <Switch label="Show “Only X left” on products" checked={form.lowStockOnStorefront ?? true} onChange={(e) => touch({ lowStockOnStorefront: e.target.checked })} />
       <div style={{ fontSize: 12.5, color: "var(--text-muted)", display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-        <Button variant="ghost" size="sm" disabled={sweeping === "…"} onClick={sweep}>{sweeping === "…" ? "Checking…" : "Check every shelf now"}</Button>
-        {counts && <span>Right now: {counts.low} low, {counts.out} out.</span>}
+        <Button variant="ghost" size="sm" disabled={sweeping === "…"} onClick={sweep}>{sweeping === "…" ? "Checking…" : "Check now"}</Button>
+        {counts && <span>{counts.low} low, {counts.out} out</span>}
         {sweeping && sweeping !== "…" && <span style={{ color: "#3f6b45" }}>{sweeping}</span>}
       </div>
       {sectionSave("inventory")}
@@ -1123,8 +1043,8 @@ function StoresSection({ ctx }) {
 
   const remove = async (l) => {
     const warning = l.orders
-      ? `${l.city} has fulfilled ${l.orders} order${l.orders === 1 ? "" : "s"}, so it will be closed rather than deleted — the history stays. Continue?`
-      : `Remove ${l.city} — ${l.store}? Its stock rows go with it. Products and orders are untouched.`;
+      ? `${l.city} has orders, so it will be closed instead. Continue?`
+      : `Remove ${l.city} — ${l.store}?`;
     if (!window.confirm(warning)) return;
     try {
       const r = await api.del(`/api/admin/locations/${encodeURIComponent(l.id)}`, ctx.token);
@@ -1136,7 +1056,7 @@ function StoresSection({ ctx }) {
   const section = { ...card, padding: 24, display: "flex", flexDirection: "column", gap: 14 };
   const form = (
     <div style={{ border: "1px solid var(--mr-purple-600)", borderRadius: "var(--radius-md)", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>{adding ? "Open a store" : `Edit ${draft ? draft.city : ""}`}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)" }}>{adding ? "New store" : `Edit ${draft ? draft.city : ""}`}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <Input label="City" value={draft ? draft.city : ""} onChange={set("city")} placeholder="Port Harcourt" />
         <Input label="Store name" value={draft ? draft.store : ""} onChange={set("store")} placeholder="GRA Store" />
@@ -1147,18 +1067,17 @@ function StoresSection({ ctx }) {
         <Input label="Delivery ETA" value={draft ? draft.eta : ""} onChange={set("eta")} placeholder="1–2 days" />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Input label="Delivery fee (₦)" value={draft ? draft.shipNGN : ""} onChange={set("shipNGN")} placeholder="2500" hint="Charged when this store ships to its own city." />
+        <Input label="Delivery fee (₦)" value={draft ? draft.shipNGN : ""} onChange={set("shipNGN")} placeholder="2500" hint="Same-city delivery" />
         <Input label="Delivery fee ($)" value={draft ? draft.shipUSD : ""} onChange={set("shipUSD")} placeholder="4" />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Input label="Opening hours" value={draft ? draft.hours || "" : ""} onChange={set("hours")} placeholder="Mon–Sat, 9am–7pm" hint="Shown on the Locations page." />
-        <Input label="Map link" value={draft ? draft.mapsUrl || "" : ""} onChange={set("mapsUrl")} placeholder="https://maps.app.goo.gl/…" hint="Becomes the “Get directions” link." />
+        <Input label="Opening hours" value={draft ? draft.hours || "" : ""} onChange={set("hours")} placeholder="Mon–Sat, 9am–7pm" />
+        <Input label="Map link" value={draft ? draft.mapsUrl || "" : ""} onChange={set("mapsUrl")} placeholder="https://maps.app.goo.gl/…" />
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <Button variant="primary" size="sm" disabled={busy} onClick={save}>{busy ? "Saving…" : adding ? "Open this store" : "Save changes"}</Button>
+        <Button variant="primary" size="sm" disabled={busy} onClick={save}>{busy ? "Saving…" : adding ? "Add store" : "Save"}</Button>
         <button onClick={cancel} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-muted)" }}>Cancel</button>
       </div>
-      {adding && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Every size in the catalogue gets a stock row here at zero — set the real counts in Inventory.</div>}
       {err && <div style={{ fontSize: 12, color: "#c0587a" }}>{err}</div>}
     </div>
   );
@@ -1166,12 +1085,7 @@ function StoresSection({ ctx }) {
   return (
     <div style={section}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Stores</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-            Every store here holds stock, ships orders and can have staff scoped to it. Shoppers pick one of the open stores as their city.
-          </div>
-        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Stores</div>
         {ctx.isSuper && !adding && <Button variant="secondary" size="sm" onClick={startAdd}>Add a store</Button>}
       </div>
 
@@ -1200,8 +1114,8 @@ function StoresSection({ ctx }) {
               </div>
               {ctx.isSuper && (
                 <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-                  <button onClick={() => startEdit(l)} style={storeLink}>Edit →</button>
-                  <button onClick={() => setActive(l, !l.active)} style={storeLink}>{l.active ? "Close temporarily" : "Reopen"}</button>
+                  <button onClick={() => startEdit(l)} style={storeLink}>Edit</button>
+                  <button onClick={() => setActive(l, !l.active)} style={storeLink}>{l.active ? "Close" : "Reopen"}</button>
                   <button onClick={() => remove(l)} style={{ ...storeLink, color: "#c0587a", marginLeft: "auto" }}>Remove</button>
                 </div>
               )}
@@ -1209,7 +1123,6 @@ function StoresSection({ ctx }) {
           )}
         </div>
       ))}
-      {!ctx.isSuper && <div style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Only a super admin can open, edit or close a store.</div>}
     </div>
   );
 }

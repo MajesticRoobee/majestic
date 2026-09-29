@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
+import { useWindowWidth } from "../lib/hooks.js";
 import { Badge, Button, Input } from "../ds/components.jsx";
 import { Dashboard, Inventory, Catalogue, CollectionsPage } from "./pages-ops.jsx";
 import { CategoriesPage, DealsPage, BlogPage, TestimonialsPage, PagesPage } from "./pages-content.jsx";
@@ -43,28 +44,31 @@ export const statusBadge = (st) => ({
 }[st]);
 
 const PAGES = [
-  { id: "dash", label: "Dashboard", title: "Dashboard" },
-  { id: "insights", label: "Insights", title: "Shopper insights" },
-  { id: "inv", label: "Inventory", title: "Inventory" },
-  { id: "cat", label: "Products", title: "Product catalogue" },
-  { id: "home", label: "Home page", title: "The home page" },
-  { id: "collections", label: "Collections", title: "Collections & sets" },
-  { id: "categories", label: "Categories", title: "Categories" },
-  { id: "deals", label: "Deals", title: "Deals & hot offers" },
-  { id: "daily-deals", label: "Daily Deals", title: "Daily deals & countdown" },
-  { id: "blog", label: "Blog", title: "The blog" },
-  { id: "pages", label: "Pages", title: "Information & legal pages" },
-  { id: "reviews", label: "Reviews", title: "Reviews & testimonials" },
-  { id: "sales", label: "Sales & Promos", title: "Sales & promos" },
-  { id: "rewards", label: "Rewards", title: "Reward codes" },
-  { id: "notif", label: "Notifications", title: "Notifications & pop-ups" },
-  { id: "inq", label: "Customer Service", title: "Customer service" },
-  { id: "integrations", label: "Integrations", title: "Integrations & automations", super: true },
-  { id: "team", label: "Team", title: "Team & access", super: true },
-  { id: "golive", label: "Go live", title: "Go live & data", super: true },
-  { id: "settings", label: "Settings", title: "Store & content settings" },
-  { id: "account", label: "My account", title: "My account" },
+  { id: "dash", label: "Dashboard" },
+  { id: "insights", label: "Insights" },
+  { id: "inv", label: "Inventory" },
+  { id: "cat", label: "Products" },
+  { id: "home", label: "Home page" },
+  { id: "collections", label: "Collections" },
+  { id: "categories", label: "Categories" },
+  { id: "deals", label: "Deals" },
+  { id: "daily-deals", label: "Daily Deals" },
+  { id: "blog", label: "Blog" },
+  { id: "pages", label: "Pages" },
+  { id: "reviews", label: "Reviews" },
+  { id: "sales", label: "Promo codes" },
+  { id: "rewards", label: "Rewards" },
+  { id: "notif", label: "Notifications" },
+  { id: "inq", label: "Messages" },
+  { id: "integrations", label: "Integrations", super: true },
+  { id: "team", label: "Team", super: true },
+  { id: "golive", label: "Data", super: true },
+  { id: "settings", label: "Settings" },
+  { id: "account", label: "My account" },
 ];
+
+// Below this the nav rail becomes a drawer behind a menu button.
+const NARROW = 900;
 
 const shell = { minHeight: "100vh", background: "var(--royal-wash)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "var(--font-sans)" };
 const panel = { background: "var(--surface-card)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", maxWidth: 400, width: "100%", padding: "40px 36px", textAlign: "center" };
@@ -75,6 +79,8 @@ const brand = (
   </>
 );
 
+// A real <form>: on a phone that is what gives the keyboard its "Go" key and
+// lets a password manager fill the fields.
 function Login({ onAuth }) {
   const [username, setUsername] = useState("");
   const [pw, setPw] = useState("");
@@ -82,7 +88,9 @@ function Login({ onAuth }) {
   const [needTotp, setNeedTotp] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const submit = async () => {
+  const submit = async (e) => {
+    if (e) e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setErr("");
     try {
@@ -102,15 +110,19 @@ function Login({ onAuth }) {
     <div style={shell}>
       <div style={panel}>
         {brand}
-        <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 14 }}>
-          <Input label="Username" value={username} onChange={(e) => setUsername(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="your handle" hint="Leave blank to use the master passphrase." />
-          <Input label="Passphrase" type="password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="••••••••" />
+        <form onSubmit={submit} style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 14 }}>
+          <Input label="Username" name="username" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+            value={username} onChange={(e) => setUsername(e.target.value)} />
+          <Input label="Password" name="password" type="password" autoComplete="current-password"
+            value={pw} onChange={(e) => setPw(e.target.value)} />
           {needTotp && (
-            <Input label="2FA code" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="123456" />
+            <Input label="2FA code" name="totp" inputMode="numeric" autoComplete="one-time-code" autoFocus
+              value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" />
           )}
-          {err && <div style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
-          <Button variant="primary" block disabled={busy} onClick={submit}>{busy ? "Opening…" : "Enter the house"}</Button>
-        </div>
+          {err && <div role="alert" style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
+          <Button type="submit" variant="primary" block disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
+        </form>
+        <a href="/" style={{ display: "inline-block", marginTop: 18, fontSize: 12.5, color: "var(--text-muted)" }}>Back to store</a>
       </div>
     </div>
   );
@@ -119,9 +131,10 @@ function Login({ onAuth }) {
 function ForceChange({ ctx }) {
   const [f, setF] = useState({ current: "", next: "", confirm: "" });
   const [err, setErr] = useState("");
-  const submit = async () => {
+  const submit = async (e) => {
+    if (e) e.preventDefault();
     setErr("");
-    if (f.next !== f.confirm) return setErr("The two new passphrases don't match.");
+    if (f.next !== f.confirm) return setErr("Passwords don't match.");
     try {
       await api.post("/api/admin/account/password", { current: f.current, next: f.next }, ctx.token);
       ctx.loadMe();
@@ -131,14 +144,14 @@ function ForceChange({ ctx }) {
     <div style={shell}>
       <div style={panel}>
         {brand}
-        <div style={{ fontSize: 13.5, color: "var(--text-body)", marginBottom: 16 }}>Welcome, {ctx.me.name}. Set your own passphrase to continue.</div>
-        <div style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 14 }}>
-          <Input label="Passphrase you were given" type="password" value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} />
-          <Input label="New passphrase" type="password" value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} hint="At least 8 characters." />
-          <Input label="Confirm new passphrase" type="password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} onKeyDown={(e) => e.key === "Enter" && submit()} />
-          {err && <div style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
-          <Button variant="primary" block onClick={submit}>Set passphrase &amp; continue</Button>
-        </div>
+        <div style={{ fontSize: 13.5, color: "var(--text-body)", marginBottom: 16 }}>Welcome, {ctx.me.name}. Set a new password.</div>
+        <form onSubmit={submit} style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 14 }}>
+          <Input label="Current password" type="password" autoComplete="current-password" value={f.current} onChange={(e) => setF({ ...f, current: e.target.value })} />
+          <Input label="New password" type="password" autoComplete="new-password" value={f.next} onChange={(e) => setF({ ...f, next: e.target.value })} hint="At least 8 characters." />
+          <Input label="Confirm new password" type="password" autoComplete="new-password" value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} />
+          {err && <div role="alert" style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
+          <Button type="submit" variant="primary" block>Continue</Button>
+        </form>
       </div>
     </div>
   );
@@ -170,6 +183,8 @@ export default function App() {
   const [stockHealth, setStockHealth] = useState(null);
   const [toast, setToast] = useState("");
   const [me, setMe] = useState(null);
+  const narrow = useWindowWidth() < NARROW;
+  const [navOpen, setNavOpen] = useState(false);
 
   const authFail = useCallback((e) => {
     if (e && e.status === 401) {
@@ -296,7 +311,8 @@ export default function App() {
 
   // Opening a page puts the reader at the top of it — otherwise a click from
   // the bottom of a long screen lands halfway down a short one.
-  const goPage = (id) => { setPage(id); window.scrollTo({ top: 0 }); };
+  const goPage = (id) => { setPage(id); setNavOpen(false); window.scrollTo({ top: 0 }); };
+  const signOut = () => { localStorage.removeItem("mr-admin-token"); setToken(""); setMe(null); };
 
   const ctx = {
     token, page, setPage: goPage, scope, setScope, scopeLabel, TH, lowLine, stockHealth, loadStockHealth, me, loadMe, isSuper,
@@ -328,20 +344,32 @@ export default function App() {
 
   const visiblePages = PAGES.filter((p) => !p.super || isSuper);
   const activePage = (visiblePages.find((p) => p.id === page) ? page : "dash");
-  const title = (PAGES.find((p) => p.id === activePage) || {}).title || "";
+  const title = (PAGES.find((p) => p.id === activePage) || {}).label || "";
   const initials = (me && me.name ? me.name : "MR").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+
+  // On a desktop the rail is a sticky column; on a phone it is a drawer over
+  // the page, opened from the header's menu button.
+  const railStyle = narrow
+    ? { position: "fixed", top: 0, left: 0, bottom: 0, zIndex: 120, width: "min(280px, 84vw)", transform: navOpen ? "none" : "translateX(-102%)", transition: "transform var(--dur-base) var(--ease-glide)", boxShadow: navOpen ? "var(--shadow-lg)" : "none" }
+    : { position: "sticky", top: 0, width: 232, flexShrink: 0 };
 
   return (
     <div style={{ fontFamily: "var(--font-sans)", color: "var(--text-body)", background: "var(--mr-cream)", minHeight: "100vh", display: "flex" }}>
+      {narrow && navOpen && <div onClick={() => setNavOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 110, background: "rgba(36,20,48,0.5)" }} />}
       {/* The rail is exactly one viewport tall and keeps its own overflow: with
           sixteen pages on it, the list is taller than a laptop screen, and
           anything spilling out of this box would both paint over the page and
           stretch the document — which is what used to push the whole sticky
           rail off the top of the screen. */}
-      <aside style={{ width: 232, flexShrink: 0, background: "var(--royal-wash)", color: "var(--text-on-dark-muted)", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflow: "hidden" }}>
-        <div style={{ padding: "24px 22px 18px" }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)" }}>Majestic Roobee</div>
-          <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10.5, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--mr-gold-400)", marginTop: 4 }}>Operations</div>
+      <aside aria-hidden={narrow && !navOpen ? true : undefined} style={{ ...railStyle, background: "var(--royal-wash)", color: "var(--text-on-dark-muted)", display: "flex", flexDirection: "column", height: narrow ? undefined : "100vh", overflow: "hidden" }}>
+        <div style={{ padding: "24px 22px 18px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)" }}>Majestic Roobee</div>
+            <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10.5, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--mr-gold-400)", marginTop: 4 }}>Admin</div>
+          </div>
+          {narrow && (
+            <button onClick={() => setNavOpen(false)} aria-label="Close menu" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--mr-cream)", fontSize: 18, lineHeight: 1, padding: 6, margin: "-4px -6px 0 0" }}>✕</button>
+          )}
         </div>
         {/* minHeight 0 is what lets a flex child actually shrink and scroll. */}
         <nav style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2, padding: "6px 12px", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.28) transparent" }}>
@@ -359,28 +387,39 @@ export default function App() {
           })}
         </nav>
         <div style={{ flexShrink: 0, padding: "18px 22px", borderTop: "1px solid var(--border-inverse)" }}>
-          <div style={{ fontSize: 12.5, color: "var(--mr-cream)", fontWeight: 500 }}>{me ? (me.master ? "Master (super admin)" : me.name) : "…"}</div>
-          <div style={{ fontSize: 11, marginTop: 2 }}>{isSuper ? "Full access — every store" : `Scoped to ${scopeLabel} store`}</div>
-          <a href="/" style={{ display: "inline-block", fontSize: 11.5, color: "var(--mr-gold-400)", marginTop: 12 }}>View storefront —</a>
-          <button onClick={() => { localStorage.removeItem("mr-admin-token"); setToken(""); setMe(null); }} style={{ display: "block", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--text-on-dark-muted)", padding: 0, marginTop: 8 }}>Sign out</button>
+          <div style={{ fontSize: 12.5, color: "var(--mr-cream)", fontWeight: 500 }}>{me ? (me.master ? "Owner" : me.name) : "…"}</div>
+          {!isSuper && <div style={{ fontSize: 11, marginTop: 2 }}>{scopeLabel} store</div>}
+          <a href="/" style={{ display: "inline-block", fontSize: 11.5, color: "var(--mr-gold-400)", marginTop: 12 }}>View store</a>
+          <button onClick={signOut} style={{ display: "block", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--text-on-dark-muted)", padding: 0, marginTop: 8 }}>Sign out</button>
         </div>
       </aside>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(250,246,241,0.92)", backdropFilter: "blur(14px)", borderBottom: "1px solid var(--border-hairline)", display: "flex", alignItems: "center", gap: 16, padding: "0 28px", height: 62 }}>
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 21, color: "var(--text-strong)", margin: 0, letterSpacing: "var(--ls-heading)" }}>{title}</h1>
+      <div className="mr-admin-main" style={{ flex: 1, minWidth: 0 }}>
+        <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(250,246,241,0.92)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderBottom: "1px solid var(--border-hairline)", display: "flex", alignItems: "center", gap: narrow ? 10 : 16, padding: narrow ? "0 12px 0 6px" : "0 28px", height: narrow ? 56 : 62 }}>
+          {narrow && (
+            <button onClick={() => setNavOpen(true)} aria-label="Menu" aria-expanded={navOpen} style={{ width: 44, height: 44, flex: "none", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--mr-purple-900)", padding: 0, position: "relative" }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="20" y2="17" /></svg>
+              {openInq > 0 && <span style={{ position: "absolute", top: 8, right: 7, width: 8, height: 8, borderRadius: "50%", background: "var(--accent-gold)" }} />}
+            </button>
+          )}
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: narrow ? 19 : 21, color: "var(--text-strong)", margin: 0, letterSpacing: "var(--ls-heading)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{title}</h1>
           <div style={{ flex: 1 }} />
-          {toast && <Badge tone="success">{toast}</Badge>}
+          {toast && !narrow && <Badge tone="success">{toast}</Badge>}
           {isSuper ? (
-            <select value={scope} onChange={(e) => setScope(e.target.value)} style={{ fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 500, padding: "8px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", outline: "none" }}>
-              <option value="all">All locations</option>
-              {openStores.map((l) => <option key={l.id} value={l.id}>{l.city} — {l.store}</option>)}
+            <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Store" style={{ fontFamily: "var(--font-sans)", fontSize: narrow ? 16 : 12.5, fontWeight: 500, padding: narrow ? "6px 10px" : "8px 12px", maxWidth: narrow ? 130 : undefined, border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", background: "var(--surface-card)", color: "var(--mr-purple-800)", cursor: "pointer", outline: "none" }}>
+              <option value="all">All stores</option>
+              {openStores.map((l) => <option key={l.id} value={l.id}>{narrow ? l.city : `${l.city} — ${l.store}`}</option>)}
             </select>
           ) : (
-            <Badge tone="neutral">{scopeLabel} only</Badge>
+            <Badge tone="neutral">{scopeLabel}</Badge>
           )}
-          <span style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--mr-lavender-300)", color: "var(--mr-purple-900)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 14 }}>{initials}</span>
+          {!narrow && <span style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--mr-lavender-300)", color: "var(--mr-purple-900)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-display)", fontSize: 14 }}>{initials}</span>}
         </header>
+        {/* On a phone the confirmation floats at the foot of the screen, where
+            the header has no room for it. */}
+        {toast && narrow && (
+          <div role="status" style={{ position: "fixed", left: "50%", bottom: "calc(18px + env(safe-area-inset-bottom))", transform: "translateX(-50%)", zIndex: 130, background: "var(--mr-purple-950)", color: "var(--mr-cream)", borderRadius: "var(--radius-pill)", padding: "10px 18px", fontSize: 13, boxShadow: "var(--shadow-md)", maxWidth: "calc(100vw - 32px)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{toast}</div>
+        )}
 
         {activePage === "dash" && <Dashboard ctx={ctx} />}
         {activePage === "inv" && <Inventory ctx={ctx} />}

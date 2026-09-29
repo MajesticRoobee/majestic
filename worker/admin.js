@@ -49,8 +49,24 @@ admin.post("/login", async (c) => {
   if (username) {
     const u = await db.prepare("SELECT * FROM admin_users WHERE username=? AND active=1").bind(String(username).trim().toLowerCase()).first();
     if (!u || !(await verifyPassword(password || "", u.pass_salt, u.pass_hash))) {
-      await recordFailure(db, buckets);
-      return c.json({ error: "That username or passphrase isn't right." }, 401);
+      // A phone's password manager fills the username box on its own, so the
+      // owner signing in with the master passphrase often arrives *with* a
+      // username. That is still the master passphrase. The master's own,
+      // tighter bucket is checked first — and every failed named attempt is
+      // counted against it too — so varying the username never buys an
+      // attacker extra guesses at the break-glass credential.
+      const master = loginBuckets("admin", clientIp(c.req), "passphrase", "m");
+      const mGate = await checkThrottle(db, master);
+      if (!mGate.ok) {
+        return c.json({ error: lockedMessage(mGate.retryAfter) }, 429, { "retry-after": String(mGate.retryAfter) });
+      }
+      if (password && c.env.ADMIN_PASSWORD && password === c.env.ADMIN_PASSWORD) {
+        await clearFailures(db, [...new Set([...buckets, ...master])]);
+        const token = await issueToken(c.env.ADMIN_TOKEN_SECRET, { typ: "admin", uid: 0, role: "super", scope: null, master: true });
+        return c.json({ token, role: "Super admin", name: "Master", scope: null, master: true });
+      }
+      await recordFailure(db, [...new Set([...buckets, master[0]])]);
+      return c.json({ error: "Wrong username or password." }, 401);
     }
     if (u.totp_enabled) {
       // The passphrase was right, so this is not a failed attempt — but it is
@@ -58,7 +74,7 @@ admin.post("/login", async (c) => {
       if (!totp) return c.json({ error: "2FA required.", needTotp: true }, 401);
       if (!(await totpVerify(u.totp_secret, totp))) {
         await recordFailure(db, buckets);
-        return c.json({ error: "That 2FA code isn't right.", needTotp: true }, 401);
+        return c.json({ error: "Wrong 2FA code.", needTotp: true }, 401);
       }
     }
     await clearFailures(db, buckets);
@@ -74,7 +90,7 @@ admin.post("/login", async (c) => {
     return c.json({ token, role: "Super admin", name: "Master", scope: null, master: true });
   }
   await recordFailure(db, buckets);
-  return c.json({ error: "That's not the key to the house." }, 401);
+  return c.json({ error: "Wrong password." }, 401);
 });
 
 admin.use("*", async (c, next) => {
@@ -110,11 +126,11 @@ admin.get("/me", async (c) => {
 
 admin.post("/account/password", async (c) => {
   const a = c.get("admin");
-  if (a.uid === 0) return c.json({ error: "The master passphrase is changed via the ADMIN_PASSWORD secret, not here." }, 400);
+  if (a.uid === 0) return c.json({ error: "The owner password can't be changed here." }, 400);
   const { current, next: newPass } = await c.req.json();
-  if (!newPass || String(newPass).length < 8) return c.json({ error: "New passphrase must be at least 8 characters." }, 400);
+  if (!newPass || String(newPass).length < 8) return c.json({ error: "Password must be at least 8 characters." }, 400);
   const u = await c.env.DB.prepare("SELECT * FROM admin_users WHERE id=?").bind(a.uid).first();
-  if (!u || !(await verifyPassword(current || "", u.pass_salt, u.pass_hash))) return c.json({ error: "Your current passphrase isn't right." }, 401);
+  if (!u || !(await verifyPassword(current || "", u.pass_salt, u.pass_hash))) return c.json({ error: "Current password is wrong." }, 401);
   const { salt, hash } = await hashPassword(String(newPass));
   await c.env.DB.prepare("UPDATE admin_users SET pass_hash=?, pass_salt=?, must_change=0 WHERE id=?").bind(hash, salt, a.uid).run();
   return c.json({ ok: true });
@@ -123,7 +139,7 @@ admin.post("/account/password", async (c) => {
 // 2FA enrolment: init returns a secret + otpauth URI; enable verifies a code.
 admin.post("/account/totp/init", async (c) => {
   const a = c.get("admin");
-  if (a.uid === 0) return c.json({ error: "Enable 2FA on a named account, not the master passphrase." }, 400);
+  if (a.uid === 0) return c.json({ error: "2FA needs a named account." }, 400);
   const u = await c.env.DB.prepare("SELECT username FROM admin_users WHERE id=?").bind(a.uid).first();
   const secret = randomTotpSecret();
   await c.env.DB.prepare("UPDATE admin_users SET totp_secret=?, totp_enabled=0 WHERE id=?").bind(secret, a.uid).run();
@@ -134,7 +150,7 @@ admin.post("/account/totp/enable", async (c) => {
   const { code } = await c.req.json();
   const u = await c.env.DB.prepare("SELECT totp_secret FROM admin_users WHERE id=?").bind(a.uid).first();
   if (!u || !u.totp_secret) return c.json({ error: "Start 2FA setup first." }, 400);
-  if (!(await totpVerify(u.totp_secret, code))) return c.json({ error: "That code isn't right — check your authenticator." }, 400);
+  if (!(await totpVerify(u.totp_secret, code))) return c.json({ error: "Wrong code." }, 400);
   await c.env.DB.prepare("UPDATE admin_users SET totp_enabled=1 WHERE id=?").bind(a.uid).run();
   return c.json({ ok: true });
 });

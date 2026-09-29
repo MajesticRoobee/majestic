@@ -6,7 +6,7 @@
 // banner look like the feminine care one, and let us change those pictures".
 // Both were the same sentence — the home page was written into a file — so
 // both are answered by the same list.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { ImagePicker } from "./product-form.jsx";
@@ -17,26 +17,21 @@ const linkBtn = { background: "none", border: "none", cursor: "pointer", fontFam
 // What each kind is, in the house's own words, so the list reads as the page
 // rather than as a table of records.
 const KIND_LABEL = {
-  tile: "Banner tile", band: "Banner", shelf: "Product row",
-  perks: "The three promises", categories: "Shop by category", story: "The founder's story",
-  rewards: "How rewards work", reviews: "Reviews rail", blog: "Blog",
-  newsletter: "Join the list", instagram: "Instagram",
-};
-const KIND_NOTE = {
-  tile: "Under the hero. A picture, two lines and somewhere to go.",
-  band: "A wide band: the copy on one side, and either the bottles or a button.",
-  shelf: "A heading and a row of product cards.",
+  tile: "Tile", band: "Banner", shelf: "Product row",
+  perks: "Delivery & payment icons", categories: "Categories", story: "Our story",
+  rewards: "Rewards", reviews: "Reviews", blog: "Blog",
+  newsletter: "Newsletter", instagram: "Instagram",
 };
 // Which kinds actually show products, and can therefore be curated.
 const PRODUCT_KINDS = new Set(["band", "shelf"]);
 
 const SOURCE_LABEL = {
-  segment: "A computed shelf (best sellers, new, deals, gift sets)",
-  category: "A category — everything filed under it",
-  collection: "A collection you curated",
-  "in-city": "Whatever is in stock in the shopper's city",
-  manual: "Products I choose, by hand",
-  none: "No products — just the copy and a button",
+  segment: "Automatic (best sellers, new, deals, gift sets)",
+  category: "A category",
+  collection: "A collection",
+  "in-city": "In stock in the shopper's city",
+  manual: "Chosen by hand",
+  none: "No products",
 };
 const SEGMENTS = ["best-sellers", "new-arrivals", "deals", "gift-sets"];
 
@@ -51,8 +46,13 @@ export function HomePageAdmin({ ctx }) {
 
   const load = () => api.get("/api/admin/home-blocks", ctx.token).then((r) => setBlocks(r.blocks)).catch(ctx.authFail);
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // On a phone the editor sits under the whole list; opening a section brings it into view.
+  const panel = useRef(null);
+  useEffect(() => {
+    if (editing && panel.current && window.innerWidth < 900) panel.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editing]);
 
-  if (!blocks) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Reading the home page…</span></main>;
+  if (!blocks) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Loading…</span></main>;
 
   const tiles = blocks.filter((b) => b.kind === "tile");
   const flow = blocks.filter((b) => b.kind !== "tile");
@@ -108,7 +108,7 @@ export function HomePageAdmin({ ctx }) {
   };
 
   const remove = async (b) => {
-    if (!window.confirm(`Delete "${b.title || KIND_LABEL[b.kind]}" from the home page?`)) return;
+    if (!window.confirm(`Delete "${b.title || KIND_LABEL[b.kind]}"?`)) return;
     try {
       await api.del(`/api/admin/home-blocks/${encodeURIComponent(b.id)}`, ctx.token);
       await load();
@@ -137,8 +137,8 @@ export function HomePageAdmin({ ctx }) {
             {PRODUCT_KINDS.has(b.kind) && (
               <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 5 }}>
                 {b.source === "manual"
-                  ? `${n} product${n === 1 ? "" : "s"} chosen by hand`
-                  : b.source === "none" ? "Copy and a button"
+                  ? `${n} product${n === 1 ? "" : "s"}`
+                  : b.source === "none" ? "Text and button"
                   : `${SOURCE_LABEL[b.source] || b.source}${b.refId ? ` — ${b.refId}` : ""}`}
                 {b.source !== "none" && ` · shows ${b.count}`}
               </div>
@@ -165,43 +165,32 @@ export function HomePageAdmin({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 20, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ ...card, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>The home page</div>
-          <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>
-            Everything below is a section of the storefront&apos;s home page, in the order it runs. Reorder it, rewrite any heading,
-            change a photograph, switch a section off, or add a banner of your own. A <strong>product row</strong> and a
-            <strong> banner</strong> can take the products you pick by hand instead of the ones the shop works out for itself —
-            though a piece that has sold out or been taken off the floor is always dropped, and a short row is topped up, so
-            a hand-picked shelf can never promise something nobody can buy.
-          </div>
-        </div>
-
-        <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)", marginTop: 4 }}>
-          Tiles under the hero
+        <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+          Tiles
         </div>
         {tiles.map((b, i) => row(b, i, tiles))}
         <button onClick={() => add("tile")} disabled={adding === "tile"} style={{ alignSelf: "flex-start", background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>
-          {adding === "tile" ? "Adding…" : "+ Add a tile"}
+          {adding === "tile" ? "Adding…" : "+ Tile"}
         </button>
 
         <div style={{ fontSize: 11, fontFamily: "var(--font-condensed)", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)", marginTop: 14 }}>
-          Down the page
+          Sections
         </div>
         {flow.map((b, i) => row(b, i, flow))}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button onClick={() => add("band")} disabled={adding === "band"} style={{ background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>
-            {adding === "band" ? "Adding…" : "+ Add a banner"}
+            {adding === "band" ? "Adding…" : "+ Banner"}
           </button>
           <button onClick={() => add("shelf")} disabled={adding === "shelf"} style={{ background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "7px 14px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>
-            {adding === "shelf" ? "Adding…" : "+ Add a product row"}
+            {adding === "shelf" ? "Adding…" : "+ Product row"}
           </button>
         </div>
       </div>
 
-      <div style={{ ...card, padding: 22, position: "sticky", top: 20, display: "flex", flexDirection: "column", gap: 14, maxHeight: "calc(100vh - 40px)", overflowY: "auto" }}>
+      <div ref={panel} style={{ ...card, padding: 22, position: "sticky", top: 20, display: "flex", flexDirection: "column", gap: 14, maxHeight: "calc(100vh - 40px)", overflowY: "auto", scrollMarginTop: 70 }}>
         {!f ? (
           <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
-            Pick a section on the left to edit its words, its picture and what it shows.
+            Select a section to edit.
           </div>
         ) : (
           <>
@@ -209,28 +198,25 @@ export function HomePageAdmin({ ctx }) {
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{KIND_LABEL[f.kind] || f.kind}</div>
               <button onClick={close} style={{ ...linkBtn, color: "var(--text-muted)" }}>Close</button>
             </div>
-            {KIND_NOTE[f.kind] && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -8 }}>{KIND_NOTE[f.kind]}</div>}
 
             <Input label="Small line above" value={f.eyebrow} onChange={(e) => setF({ ...f, eyebrow: e.target.value })}
-              hint="Type {city} and it becomes wherever the shopper is shopping." />
+              hint="{city} = shopper's city" />
             <Input label="Heading" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
             {["shelf", "categories", "rewards", "instagram", "newsletter"].includes(f.kind) && (
               <Textarea label="Line under the heading" value={f.sub} onChange={(e) => setF({ ...f, sub: e.target.value })} rows={2} />
             )}
             {f.kind === "band" && (
-              <Textarea label="The copy" value={f.lines} onChange={(e) => setF({ ...f, lines: e.target.value })} rows={3}
-                hint="One line each. They stack under the heading." />
+              <Textarea label="Text" value={f.lines} onChange={(e) => setF({ ...f, lines: e.target.value })} rows={3} />
             )}
 
             {f.kind === "tile" && (
               <ImagePicker ctx={ctx} label="Picture" value={f.imageUrl || ""} onChange={(url) => setF({ ...f, imageUrl: url })}
-                hint="Landscape crops best. Leave it empty and the monogram shows instead." />
+                hint="Landscape image" />
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Input label="Button / link text" value={f.ctaLabel} onChange={(e) => setF({ ...f, ctaLabel: e.target.value })} placeholder="Shop best sellers" />
-              <Input label="Where it goes" value={f.ctaTarget} onChange={(e) => setF({ ...f, ctaTarget: e.target.value })} placeholder="/best-sellers"
-                hint="A page of the shop: /shop, /deals, /shop?category=home." />
+              <Input label="Button text" value={f.ctaLabel} onChange={(e) => setF({ ...f, ctaLabel: e.target.value })} placeholder="Shop best sellers" />
+              <Input label="Link" value={f.ctaTarget} onChange={(e) => setF({ ...f, ctaTarget: e.target.value })} placeholder="/best-sellers" />
             </div>
 
             {f.kind === "band" && (
@@ -268,11 +254,7 @@ export function HomePageAdmin({ ctx }) {
                 )}
                 {f.source === "manual" && (
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 4 }}>The products, in your order</div>
-                    <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 8, lineHeight: 1.6 }}>
-                      Anything sold out or taken off the shop floor drops out on its own, and a row left short is filled from the
-                      catalogue — so this is your preference, not a promise the shop has to keep.
-                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 4 }}>Products</div>
                     {f.productIds.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                         {f.productIds.map((id, i) => {
@@ -295,7 +277,7 @@ export function HomePageAdmin({ ctx }) {
                           {f.productIds.includes(p.id) ? "✓ " : ""}{p.name}
                         </button>
                       ))}
-                      {!matches.length && <div style={{ padding: "10px 12px", fontSize: 12.5, color: "var(--text-muted)" }}>Nothing matches that.</div>}
+                      {!matches.length && <div style={{ padding: "10px 12px", fontSize: 12.5, color: "var(--text-muted)" }}>No matches.</div>}
                     </div>
                   </div>
                 )}
