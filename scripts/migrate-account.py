@@ -8,9 +8,13 @@ bucket. `.github/workflows/migrate-account.yml` runs the steps in order:
 
   check-target [--replace]   refuse to import over data unless told to, and
                              when told to, empty the new database first
-  prepare <export.sql> <dir> reshape the export (below), writing import.sql,
-                             the images to upload, and the expected row counts
+  prepare <export.sql> <dir> reshape the export (below) into batches of SQL,
+                             list the images to upload and the expected row
+                             counts, and replay the batches locally so a
+                             problem is named here, before the new account
+                             is touched
   copy-media <dir>           put every image into the new account's bucket
+  import <dir>               load the batches into the new database
   verify <dir>               compare the new database's row counts with the
                              export's, table by table
 
@@ -21,8 +25,8 @@ are in R2. Rather than carry those BLOBs across, `prepare` lifts them out, and
 them and every image serves from R2 from day one. That is the same end state
 the admin's "move images to R2" action produces, reached without touching the
 old account. It also keeps each import statement small. It uses Python
-because its sqlite3 module can load the export and write it back out
-(`iterdump`) with exact quoting. Node has no equivalent built in.
+because its sqlite3 module can load the export, rewrite it and replay it in
+memory with foreign keys enforced. Node has no equivalent built in.
 
 Every remote wrangler call runs from the work directory, which has no wrangler
 config, so a database is looked up by *name* in whichever account the
@@ -67,7 +71,7 @@ def side_args(side):
     return shlex.split(os.environ.get(f"{side.upper()}_WRANGLER_ARGS", "--remote"))
 
 
-def wrangler(side, args, cwd, attempts=3):
+def wrangler(side, args, cwd, attempts=3, wait=2):
     """Run wrangler against one account; retry transient failures."""
     cmd = [WRANGLER, *args, *side_args(side)]
     for attempt in range(1, attempts + 1):
@@ -76,8 +80,8 @@ def wrangler(side, args, cwd, attempts=3):
             return r.stdout
         if attempt == attempts:
             # --json failures land on stdout, the rest on stderr.
-            raise RuntimeError(f"wrangler {args[0]} {args[1]} failed:\n{(r.stdout + r.stderr)[-2000:]}")
-        time.sleep(2 * attempt)
+            raise RuntimeError(f"wrangler {args[0]} {args[1]} failed:\n{scrub(r.stdout + r.stderr)[-2000:]}")
+        time.sleep(wait * attempt)
 
 
 def query_new_each(statements, cwd, batch=25):
@@ -137,17 +141,160 @@ def check_target(replace, workdir):
             ready = [t for t in tables if t not in dropped]
         order += ready
         dropped.update(ready)
-    # One file, one transaction: if any DROP fails, nothing is dropped.
-    drop = workdir / "reset.sql"
-    drop.write_text(
-        "PRAGMA defer_foreign_keys = TRUE;\n"
-        + "".join(f'DROP TABLE IF EXISTS "{t}";\n' for t in order)
-    )
-    wrangler("new", ["d1", "execute", DB_NAME, "--yes", "--file", str(drop)], workdir)
+    # One batch, one transaction: if any DROP fails, nothing is dropped.
+    err = run_batch(as_sql([f'DROP TABLE IF EXISTS "{t}";' for t in order]), workdir)
+    if err:
+        sys.exit(f"Couldn't empty the new database:\n{err[-1500:]}")
     left = user_tables(query_new(TABLES_SQL, workdir))
     if left:
         sys.exit(f"Reset left tables behind: {left}")
     print(f"Emptied the new database ({len(tables)} tables dropped).")
+
+
+# D1 refuses any SQL string over 100 KB — and when several statements are sent
+# together, that is the whole string. The shop writes long values through
+# bound parameters, which don't count, but a migration is literal SQL, so a
+# value the shop stored happily can still be too long. Rows past the line
+# have their long text built up in a scratch table a piece at a time, and the
+# INSERT reads it from there. Batches of statements stay under the same line.
+LIMIT = 90_000
+# Characters per piece: 4-byte UTF-8, doubled by hex, still under the limit.
+PIECE = 10_000
+PARTS = "_migrate_parts"
+DEFER = "PRAGMA defer_foreign_keys = TRUE;"
+
+
+def hex_text(value):
+    """A text value as hex bytes. No quotes, semicolons, keywords or comment
+    markers can then appear in the data — nothing a SQL splitter could trip on."""
+    return f"CAST(X'{value.encode().hex()}' AS TEXT)"
+
+
+def parent_first(conn, tables):
+    """Tables ordered so every table comes after the tables it references.
+
+    Each batch is its own transaction with its own foreign-key check, so a
+    child row must never arrive in an earlier batch than its parent."""
+    refs = {t: {r[2] for r in conn.execute(f'PRAGMA foreign_key_list("{t}")')} - {t} for t in tables}
+    order, done = [], set()
+    while len(order) < len(tables):
+        ready = [t for t in tables if t not in done and refs[t] & set(tables) <= done]
+        if not ready:  # a cycle: fall back to creation order for the rest
+            ready = [t for t in tables if t not in done]
+        order += ready
+        done.update(ready)
+    return order
+
+
+def dump(conn):
+    """The prepared database as statements, grouped into batches under LIMIT.
+
+    Every table first (creation order), then scratch pieces for any long
+    values, then every row (parents before children), then the AUTOINCREMENT
+    counters, then indexes, triggers and views. Text travels as hex; numbers,
+    NULLs and BLOBs as SQLite's own literals.
+    """
+    master = conn.execute(
+        "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL "
+        "AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY rowid").fetchall()
+    tables = [n for t, n, _ in master if t == "table"]
+    rows, parts, key = [], [], 0
+    for name in parent_first(conn, tables):
+        cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{name}")')]
+        collist = ", ".join(f'"{c}"' for c in cols)
+        # typeof + raw value per column: text is re-encoded here, the rest
+        # keeps SQLite's own quote() literal.
+        fields = ", ".join(f'typeof("{c}"), "{c}", quote("{c}")' for c in cols)
+        for rec in conn.execute(f'SELECT {fields} FROM "{name}"'):
+            lits = []
+            for i in range(0, len(rec), 3):
+                kind, raw, quoted = rec[i:i + 3]
+                lits.append(hex_text(raw) if kind == "text" else quoted)
+            stmt = f'INSERT INTO "{name}" ({collist}) VALUES({", ".join(lits)});'
+            if len(stmt.encode()) > LIMIT:
+                for i, lit in enumerate(lits):
+                    raw = rec[3 * i + 1]
+                    if len(lit) <= LIMIT // 4:
+                        continue
+                    if rec[3 * i] != "text":
+                        sys.exit(f"A {cols[i]} value in {name} is too large to copy and is not text.")
+                    key += 1
+                    pieces = [raw[j:j + PIECE] for j in range(0, len(raw), PIECE)]
+                    parts.append(f"INSERT INTO {PARTS} (k, v) VALUES ({key}, {hex_text(pieces[0])});")
+                    parts += [f"UPDATE {PARTS} SET v = v || {hex_text(p)} WHERE k = {key};" for p in pieces[1:]]
+                    lits[i] = f"(SELECT v FROM {PARTS} WHERE k = {key})"
+                stmt = f'INSERT INTO "{name}" ({collist}) VALUES({", ".join(lits)});'
+                if len(stmt.encode()) > LIMIT:
+                    sys.exit(f"A row in {name} is too large to copy even with its long values split.")
+            rows.append(stmt)
+    seq = []
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence'").fetchone():
+        seq = ["DELETE FROM sqlite_sequence;"] + [
+            f"INSERT INTO sqlite_sequence (name, seq) VALUES({hex_text(n)}, {v});"
+            for n, v in conn.execute("SELECT name, seq FROM sqlite_sequence")]
+    if parts:
+        print(f"{key} long values split into {len(parts)} pieces to fit D1's statement limit.")
+    statements = [
+        *[sql + ";" for t, _, sql in master if t == "table"],
+        *([f"CREATE TABLE {PARTS} (k INTEGER PRIMARY KEY, v TEXT NOT NULL);"] if parts else []),
+        *parts, *rows, *seq,
+        *[sql + ";" for t, _, sql in master if t != "table"],
+        *([f"DROP TABLE {PARTS};"] if parts else []),
+    ]
+    batches, current = [], []
+    for stmt in statements:
+        if current and len(" ".join([DEFER, *current, stmt]).encode()) > LIMIT:
+            batches.append(current)
+            current = []
+        current.append(stmt)
+    batches.append(current)
+    return batches
+
+
+def as_sql(batch):
+    # Deferred per batch: each batch is a transaction of its own, and the
+    # setting lasts only for that transaction.
+    return " ".join([DEFER, *batch])
+
+
+def preflight(batches):
+    """Replay the batches into a scratch SQLite, each as its own transaction
+    with foreign keys enforced — exactly how D1 will run them — so a problem
+    is named here, before anything touches the new account. Names tables and
+    columns only, never values: the Actions log of a public repo is public.
+    """
+    check = sqlite3.connect(":memory:", isolation_level=None)
+    check.execute("PRAGMA foreign_keys = ON")
+    for b, batch in enumerate(batches):
+        check.execute("BEGIN")
+        check.execute(DEFER)
+        for stmt in batch:
+            try:
+                check.execute(stmt)
+            except sqlite3.Error as e:
+                sys.exit(f"Batch {b + 1}: {describe(stmt)} fails: {e}")
+        try:
+            check.execute("COMMIT")
+        except sqlite3.IntegrityError:
+            broken = {}
+            for child, _, parent, _ in check.execute("PRAGMA foreign_key_check"):
+                broken[(child, parent)] = broken.get((child, parent), 0) + 1
+            sys.exit("The old data has rows pointing at rows that no longer exist, which D1 refuses:\n"
+                     + "\n".join(f"  {c} → {p}: {k} rows" for (c, p), k in sorted(broken.items())))
+    total = sum(len(b) for b in batches)
+    print(f"Checked locally: {total} statements in {len(batches)} batches, foreign keys intact.")
+
+
+def describe(stmt):
+    """What a statement does, without any of its data."""
+    m = re.match(r'\s*(INSERT INTO|CREATE TABLE|CREATE INDEX|CREATE UNIQUE INDEX|UPDATE|DELETE FROM|DROP TABLE)\s+"?([\w]+)"?', stmt, re.I)
+    return f"{m.group(1).upper()} {m.group(2)}" if m else stmt.split()[0].upper()
+
+
+def scrub(text):
+    """Error text safe for a public log: no links, no hex-encoded data."""
+    text = re.sub(r"https?://\S+", "<link removed>", text)
+    return re.sub(r"X'[0-9A-Fa-f]*'", "X'…'", text)
 
 
 def prepare(export_sql, workdir):
@@ -177,36 +324,17 @@ def prepare(export_sql, workdir):
     conn.execute("UPDATE media SET storage='r2', bytes=X'' WHERE storage='d1' AND length(bytes) > 0")
     conn.commit()
 
-    # iterdump opens and closes its own transaction; D1 runs an import as one
-    # transaction itself and rejects BEGIN/COMMIT, and it takes foreign keys
-    # through defer_foreign_keys rather than foreign_keys=OFF.
-    #
-    # iterdump also writes each table's rows straight after its CREATE, in
-    # alphabetical order — so `stock` rows would arrive before the `variants`
-    # table they reference exists, which SQLite refuses even with the checks
-    # deferred ("no such table: main.variants"). So: every table first, then
-    # every row, then indexes, triggers and views.
-    tables, rows, rest = [], [], []
-    for stmt in conn.iterdump():
-        head = stmt.lstrip().upper()
-        if head.startswith(("BEGIN", "COMMIT", "PRAGMA")):
-            continue
-        if head.startswith("CREATE TABLE"):
-            tables.append(stmt)
-        elif head.startswith(("INSERT", "DELETE")):
-            rows.append(stmt)
-        else:
-            rest.append(stmt)
-    lines = ["PRAGMA defer_foreign_keys = TRUE;", *tables, *rows, *rest]
-    (workdir / "import.sql").write_text("\n".join(lines) + "\n")
+    batches = dump(conn)
+    preflight(batches)
+    (workdir / "batches.json").write_text(json.dumps(batches))
 
     counts = {t: conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
               for t in user_tables(conn.execute(TABLES_SQL).fetchall())}
     (workdir / "counts.json").write_text(json.dumps(counts, indent=1))
     (workdir / "media.json").write_text(json.dumps({"copy": copy, "upload": upload}, indent=1))
 
-    size = (workdir / "import.sql").stat().st_size
-    print(f"Prepared {len(counts)} tables, {sum(counts.values())} rows, import file {size / 1e6:.1f} MB.")
+    size = sum(len(as_sql(b).encode()) for b in batches)
+    print(f"Prepared {len(counts)} tables, {sum(counts.values())} rows, {size / 1e6:.1f} MB of SQL.")
     # Totals only: the Actions log of a public repo is public.
     print(f"Images: {len(upload)} to lift out of the database, {len(copy)} to copy bucket to bucket.")
 
@@ -247,6 +375,44 @@ def copy_media(workdir):
         print(f"  ! {m}")
 
 
+def run_batch(sql, workdir):
+    """Run one batch on the new database; None, or D1's error with the data scrubbed."""
+    try:
+        wrangler("new", ["d1", "execute", DB_NAME, "--json", "--command", sql], workdir, attempts=3, wait=5)
+        return None
+    except RuntimeError as e:
+        return scrub(str(e))
+
+
+def import_new(workdir):
+    """Load the batches through D1's query API.
+
+    Not `wrangler d1 execute --file`: that goes through D1's bulk-import
+    service, which rejected this data twice with nothing more than
+    {"D1_RESET_DO":true} while the same SQL ran cleanly in SQLite. The query
+    API is the path the shop itself uses, and it names what it refuses. A
+    batch is a transaction, so a failed one leaves nothing behind; it is then
+    halved until the single statement at fault is found and named.
+    """
+    batches = json.loads((workdir / "batches.json").read_text())
+
+    def attempt(batch, label):
+        err = run_batch(as_sql(batch), workdir)
+        if err is None:
+            return
+        if len(batch) == 1:
+            sys.exit(f"{label}: {describe(batch[0])} is refused by D1:\n{err[-1500:]}\n\n"
+                     "The batches before it are in the new database, so run again with "
+                     "'Replace what is in the new database' ticked once this is fixed.")
+        mid = len(batch) // 2
+        attempt(batch[:mid], label)
+        attempt(batch[mid:], label)
+
+    for n, batch in enumerate(batches, 1):
+        attempt(batch, f"Batch {n} of {len(batches)}")
+    print(f"Loaded {sum(len(b) for b in batches)} statements in {len(batches)} batches.")
+
+
 def verify(workdir):
     want = json.loads((workdir / "counts.json").read_text())
     got_tables = set(user_tables(query_new(TABLES_SQL, workdir)))
@@ -276,6 +442,8 @@ def main(argv):
         check_target(replace, Path(dirs[0] if dirs else "."))
     elif cmd == "prepare":
         prepare(rest[0], Path(rest[1]))
+    elif cmd == "import":
+        import_new(Path(rest[0]))
     elif cmd == "copy-media":
         copy_media(Path(rest[0]))
     elif cmd == "verify":

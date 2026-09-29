@@ -12,8 +12,9 @@ name: Migrate from old Cloudflare account
 # the new shop's orders with the old account's.
 #
 # This repository is public, and so are its Actions logs and artifacts. The
-# export never leaves the runner: nothing is uploaded, and the log carries
-# only table and row totals.
+# export never leaves the runner: nothing is uploaded, wrangler's download
+# link to it is kept off the log, and the log carries only table and row
+# totals.
 
 on:
   workflow_dispatch:
@@ -64,11 +65,18 @@ jobs:
           echo "WRANGLER=$GITHUB_WORKSPACE/node_modules/.bin/wrangler" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/migrate"
 
+      # wrangler prints a download link to the whole export, valid for an
+      # hour, and this log is public — so its output is kept off the log, and
+      # shown with links removed only if the export fails.
       - name: Export the old database
         working-directory: ${{ runner.temp }}/migrate
         run: |
-          CLOUDFLARE_API_TOKEN="$OLD_CLOUDFLARE_API_TOKEN" CLOUDFLARE_ACCOUNT_ID="$OLD_CLOUDFLARE_ACCOUNT_ID" \
-            "$WRANGLER" d1 export majestic-roobee --remote --skip-confirmation --output old.sql
+          if ! CLOUDFLARE_API_TOKEN="$OLD_CLOUDFLARE_API_TOKEN" CLOUDFLARE_ACCOUNT_ID="$OLD_CLOUDFLARE_ACCOUNT_ID" \
+            "$WRANGLER" d1 export majestic-roobee --remote --skip-confirmation --output old.sql > export.log 2>&1; then
+            sed -E 's#https?://[^[:space:]]+#<link removed>#g' export.log
+            exit 1
+          fi
+          echo "Exported ($(du -h old.sql | cut -f1))."
 
       - name: Prepare the import
         run: python3 scripts/migrate-account.py prepare "$WORK/old.sql" "$WORK"
@@ -82,8 +90,7 @@ jobs:
         run: python3 scripts/migrate-account.py check-target ${{ inputs.replace && '--replace' || '' }} "$WORK"
 
       - name: Import into the new database
-        working-directory: ${{ runner.temp }}/migrate
-        run: '"$WRANGLER" d1 execute majestic-roobee --remote --yes --file import.sql'
+        run: python3 scripts/migrate-account.py import "$WORK"
 
       - name: Verify row counts
         run: python3 scripts/migrate-account.py verify "$WORK"
