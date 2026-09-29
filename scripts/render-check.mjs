@@ -3,7 +3,9 @@
 // regressions that the HTML/API smoke test can't (it never executes JS).
 import { chromium } from "playwright";
 
-const base = process.env.SITE_URL || "https://majestic-roobee.victorugwu4real.workers.dev";
+// The deploy passes the address it just deployed to. Run bare, it checks a
+// local `wrangler dev` — never a guessed production address.
+const base = process.env.SITE_URL || "http://127.0.0.1:8787";
 
 // Pull a product page from whatever is actually live rather than naming one.
 // The demo catalogue gets cleared at go-live, and a hardcoded slug would quietly

@@ -44,16 +44,51 @@ Required repository secrets (*Settings → Secrets and variables → Actions*):
 | `RESEND_API_KEY` | Sends email (order updates, password resets, alerts) through Resend — see below |
 | `RESEND_FROM` | The From address, e.g. `Majestic Roobee <hello@majesticroobee.shop>` — must be on a domain verified in Resend |
 | `RESEND_REPLY_TO` | Optional — where customers' replies land |
+| `BACKUP_PASSPHRASE` | Encrypts the nightly database backup. **Required** — this repository is public, so without it the backup job refuses to run rather than publish the database |
+| `OLD_CLOUDFLARE_API_TOKEN` / `OLD_CLOUDFLARE_ACCOUNT_ID` | Only while moving accounts — see below. Delete them afterwards |
+
+The deploy checks the site at the `workers.dev` address wrangler reports for the account it deployed to. To check a custom domain instead, set the repository **variable** (not secret) `SITE_URL`, e.g. `https://majesticroobee.shop`.
 
 To deploy from a machine instead: `wrangler login`, then `npm run deploy` and `wrangler secret put` for the secrets above.
 
+## Moving Cloudflare accounts
+
+Cloudflare can't move a D1 database or an R2 bucket from one account to another,
+so the shop moves by copy. *Actions → Migrate from old Cloudflare account*
+(`.github/workflows/migrate-account.yml`) exports the old account's database,
+lifts the product photos still stored inside it out into the new account's R2
+bucket along with the ones already in R2, imports the rest, and checks every
+table's row count against the export. Nothing it reads is uploaded or logged —
+this repository is public.
+
+1. **New account:** a D1 database named `majestic-roobee` (its id in
+   `wrangler.jsonc`) and an R2 bucket named `majesticroobee`. Both exist.
+2. **Secrets:** `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` for the *new*
+   account (the "Edit Cloudflare Workers" template plus **D1 Edit** and
+   **R2 Edit**), and `OLD_CLOUDFLARE_API_TOKEN` / `OLD_CLOUDFLARE_ACCOUNT_ID`
+   for the old one (**D1 Read** and **R2 Read** are enough). Plus every Worker
+   secret above — Cloudflare never shows a secret again once set, so they come
+   from wherever they were first recorded.
+3. **Run the migration.** Tick *Replace what is in the new database* on any
+   run after the first, or if a deploy has already run — a deploy applies the
+   migrations, which seed the sample catalogue into an empty database. Then
+   look the new site over.
+4. **Switch over.** Run the migration once more, with *replace* ticked, so
+   orders placed in the meantime come across. Then straight away: re-point the
+   Paystack and ERPRev webhooks at the new address, and in the **old** account
+   remove the `majestic-roobee` Worker's cron trigger (Settings → Triggers) or
+   delete the Worker. Left running, its 15-minute job keeps pulling from ERPRev
+   and sending automation emails from the old database alongside the new site.
+5. **Never run the migration after the switch** — it replaces the new
+   database with the old account's.
+
 ## Moving to majesticroobee.shop
 
-The Worker answers on `majestic-roobee.victorugwu4real.workers.dev` today. Once
-the domain is on Cloudflare:
+The Worker answers on its `workers.dev` address today (the deploy log prints
+it). Once the domain is on the Cloudflare account:
 
 1. **Add the domain to the Worker.** Cloudflare dashboard → Workers & Pages →
-   `majestic-roobee` → Settings → Domains & Routes → **Add → Custom domain** →
+   `majestic` → Settings → Domains & Routes → **Add → Custom domain** →
    `majesticroobee.shop` (and again for `www.majesticroobee.shop`). Cloudflare
    creates the DNS records and the certificate. Nothing in the repo changes;
    the workers.dev address keeps working, which the deploy's smoke test uses.

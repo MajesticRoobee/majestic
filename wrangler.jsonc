@@ -1,6 +1,6 @@
 {
   // Majestic Roobee — Cloudflare Worker (API + static assets)
-  "name": "majestic-roobee",
+  "name": "majestic",
   "main": "worker/index.js",
   "compatibility_date": "2026-01-01",
   // `dist/` is a build artifact (gitignored), so any deploy must build first or
@@ -26,7 +26,7 @@
     {
       "binding": "DB",
       "database_name": "majestic-roobee",
-      "database_id": "584c76c0-293e-4dff-ba57-3506629a9076",
+      "database_id": "305e9633-d97a-462b-8f73-91c42d1baf14",
       "migrations_dir": "migrations"
     }
   ],
