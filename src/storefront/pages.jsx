@@ -26,9 +26,6 @@ const TILE_VEILS = [
   "linear-gradient(0deg, rgba(90,45,110,0.9), rgba(90,45,110,0.12))",
 ];
 
-// The line above the hero headline. A setting overrides it; this is what the
-// store opens with.
-const HERO_EYEBROW = "Perfumes · Perfume oils · Body mists · Feminine care";
 
 
 // One section heading: the small line above, the heading, the line under it,
@@ -37,7 +34,7 @@ function SectionHead({ eyebrow, title, sub, centred = false, action = null, subS
   const head = (
     <div style={{ maxWidth: "62ch", ...(centred ? { margin: "0 auto" } : null) }}>
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-      <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
+      <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: eyebrow ? "10px 0 0" : 0 }}>{title}</h2>
       {sub && (subStrong
         // A running deal's own line, under its name on the home page. It is
         // the sales message, so it is set to be read, not to recede.
@@ -73,10 +70,9 @@ function CtaBand({ title, lines, cta, onClick, dark = false }) {
 
 // How the rewards work, in the four steps the client wrote.
 const REWARD_STEPS = [
-  { step: "Shop", copy: "Purchase your favourite Majestic Roobee products." },
-  { step: "Earn", copy: "A reward code lands with every qualifying purchase." },
-  { step: "Redeem", copy: "Enter it at checkout on your next order." },
-  { step: "Enjoy", copy: "Come back for more of the scents you love." },
+  { step: "Shop", copy: "Place an order." },
+  { step: "Earn", copy: "Get a reward code." },
+  { step: "Redeem", copy: "Use it at checkout." },
 ];
 
 // The newsletter block. It feeds the same list as the first-order pop-up, so
@@ -88,16 +84,16 @@ function NewsletterSignup({ ctx, title, sub }) {
   return (
     <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
       <div style={{ background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "clamp(28px, 4vw, 48px)", textAlign: "center" }}>
-        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: 0 }}>{title || "Join the list"}</h2>
-        <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 20px", maxWidth: "54ch" }}>{sub}</p>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: sub ? 0 : "0 0 20px" }}>{title || "Newsletter"}</h2>
+        {sub && <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "10px auto 20px", maxWidth: "54ch" }}>{sub}</p>}
         {done ? (
-          <p style={{ fontSize: 14, color: "var(--mr-purple-900)", fontWeight: 500, margin: 0 }}>You&apos;re on the list. Watch your inbox.</p>
+          <p style={{ fontSize: 14, color: "var(--mr-purple-900)", fontWeight: 500, margin: 0 }}>You&apos;re subscribed.</p>
         ) : (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", maxWidth: 460, margin: "0 auto" }}>
             <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && join()}
-              type="email" aria-label="Your email address" placeholder="Enter your email address"
+              type="email" autoComplete="email" aria-label="Your email address" placeholder="Email address"
               style={{ flex: "1 1 220px", minWidth: 0, fontFamily: "var(--font-sans)", fontSize: 14, padding: "12px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", color: "var(--text-strong)", background: "var(--surface-card)" }} />
-            <Button variant="primary" onClick={join}>Join the list</Button>
+            <Button variant="primary" onClick={join}>Subscribe</Button>
           </div>
         )}
       </div>
@@ -117,8 +113,8 @@ function ProductBand({ eyebrow, title, lines, cta, picks, onOpen }) {
     <section style={{ maxWidth: 1280, margin: "clamp(40px, 7vw, 72px) auto 0", padding: `0 ${PAD}` }}>
       <div style={{ background: "var(--royal-wash)", borderRadius: "var(--radius-lg)", overflow: "hidden", display: "grid", gridTemplateColumns: picks.length ? "repeat(auto-fit, minmax(min(320px, 100%), 1fr))" : "1fr", gap: "clamp(20px, 3vw, 40px)", alignItems: "center", padding: "clamp(26px, 4vw, 44px)" }}>
         <div style={{ maxWidth: "44ch" }}>
-          <Eyebrow tone="light">{eyebrow}</Eyebrow>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--mr-cream)", letterSpacing: "var(--ls-heading)", margin: "12px 0 0" }}>{title}</h2>
+          {eyebrow && <Eyebrow tone="light">{eyebrow}</Eyebrow>}
+          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 3vw, 34px)", color: "var(--mr-cream)", letterSpacing: "var(--ls-heading)", margin: eyebrow ? "12px 0 0" : 0 }}>{title}</h2>
           {lines.map((l) => (
             <p key={l} style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--text-on-dark-muted)", margin: "10px 0 0" }}>{l}</p>
           ))}
@@ -166,7 +162,7 @@ function BlockLink({ ctx, block }) {
 }
 
 export function HomePage({ ctx }) {
-  const { settings, products, categories, cityName, L, testimonials, latestPosts, homeBlocks } = ctx;
+  const { settings, products, categories, cityName, testimonials, latestPosts, homeBlocks } = ctx;
   const dir = settings.heroDirection || "storefront grid";
   const sellable = products.filter((p) => p.variants && p.variants.length);
   // Three picks from whatever is live, city stock first — never named ids, which
@@ -178,6 +174,9 @@ export function HomePage({ ctx }) {
   const flow = homeBlocks.filter((b) => b.kind !== "tile");
   const vars = { city: cityName };
   const runningDeal = ctx.deals.length === 1 ? ctx.deals[0] : null;
+  // The right-hand column is the daily deal's. With no deal running the banner
+  // takes the width rather than leaving a blank column beside it.
+  const dealOn = !!(ctx.dailyDeal && ctx.dailyDeal.endsAtMs > Date.now());
 
   const perk = (icon, title, sub) => (
     <div style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "18px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
@@ -198,23 +197,28 @@ export function HomePage({ ctx }) {
               width of the header's category rail, which stands open over it on
               this page. The banner takes the middle, the daily deal the right.
               A phone gets one column and the deal card below the tiles. */}
-          <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(18px, 2.6vw, 30px) ${PAD} 0`, display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : "250px minmax(0, 1fr) 300px", gap: "clamp(16px, 1.8vw, 24px)", alignItems: "start" }}>
+          <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(18px, 2.6vw, 30px) ${PAD} 0`, display: "grid", gridTemplateColumns: ctx.isMobile ? "minmax(0, 1fr)" : dealOn ? "250px minmax(0, 1fr) 300px" : "250px minmax(0, 1fr)", gap: "clamp(16px, 1.8vw, 24px)", alignItems: "start" }}>
             {!ctx.isMobile && <div />}
             <div style={{ minWidth: 0 }}>
               <div style={{ position: "relative", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
                 {/* No placeholder caption on this one: the wash and the
                     headline already sit on top of it, and a second line of
                     grey type showing through them reads as a fault. */}
-                <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="(max-width: 860px) 92vw, 720px"
-                  style={{ width: "100%", height: "clamp(320px, 34vw, 420px)" }} />
+                {/* Until a hero photograph is set the banner is the royal wash
+                    alone — a placeholder monogram behind the headline reads as
+                    a fault. */}
+                {settings.heroImage
+                  ? <ImageSlot src={settings.heroImage} eager name="Majestic Roobee" sizes="(max-width: 860px) 92vw, 720px"
+                    style={{ width: "100%", height: "clamp(320px, 34vw, 420px)" }} />
+                  : <div style={{ width: "100%", height: "clamp(320px, 34vw, 420px)", background: "var(--royal-wash)" }} />}
                 {/* The wash is heaviest where the words are and clears to the
                     right, so the photograph still reads as a photograph. */}
                 <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, rgba(61,35,80,0.86) 0%, rgba(61,35,80,0.52) 48%, rgba(61,35,80,0.06) 100%)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 16, padding: "clamp(24px, 4vw, 48px)", pointerEvents: "none" }}>
-                  <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{settings.heroEyebrow || HERO_EYEBROW}</span>
+                  {settings.heroEyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{settings.heroEyebrow}</span>}
                   <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 3.4vw, 46px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: 0, maxWidth: "20ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
-                  <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--text-on-dark-muted)", maxWidth: "34ch", margin: 0 }}>{settings.heroSub}</p>
+                  {settings.heroSub && <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(16px, 1.5vw, 19px)", lineHeight: 1.5, color: "var(--text-on-dark-muted)", maxWidth: "34ch", margin: 0 }}>{settings.heroSub}</p>}
                   <div style={{ display: "flex", pointerEvents: "auto", marginTop: 4 }}>
-                    <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
+                    <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
                   </div>
                 </div>
               </div>
@@ -229,7 +233,7 @@ export function HomePage({ ctx }) {
                       style={{ position: "relative", display: "block", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
                       <ImageSlot src={t.imageUrl} name={t.title} sizes="(max-width: 860px) 92vw, 240px" style={{ width: "100%", height: 150 }} />
                       <span style={{ position: "absolute", inset: 0, background: TILE_VEILS[i % TILE_VEILS.length], display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 4, padding: 16 }}>
-                        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{fill(t.eyebrow, vars)}</span>
+                        {t.eyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 10, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold)" }}>{fill(t.eyebrow, vars)}</span>}
                         <span style={{ fontFamily: "var(--font-display)", fontSize: 19, color: "var(--mr-cream)", lineHeight: 1.15 }}>{fill(t.title, vars)}</span>
                       </span>
                     </a>
@@ -247,16 +251,11 @@ export function HomePage({ ctx }) {
       {dir === "editorial split" && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 88px) ${PAD}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(420px, 100%), 1fr))", gap: "clamp(28px, 5vw, 64px)", alignItems: "center" }}>
           <div>
-            <Eyebrow>{settings.heroEyebrow || HERO_EYEBROW}</Eyebrow>
+            {settings.heroEyebrow && <Eyebrow>{settings.heroEyebrow}</Eyebrow>}
             <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(38px, 5.4vw, 64px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "18px 0 0", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
             <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(19px, 2vw, 23px)", lineHeight: 1.5, color: "var(--text-body)", maxWidth: "46ch", margin: "22px 0 30px" }}>{settings.heroSub}</p>
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
-              <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
-              <Button variant="ghost" size="lg" onClick={() => ctx.nav("about")}>Our story</Button>
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 34, fontSize: 12.5, color: "var(--text-muted)" }}>
-              <span style={{ width: 22, height: 1, background: "var(--mr-gold-500)" }} />
-              Delivering to {cityName} from our {L ? L.store : "store"}
+              <Button variant="primary" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
             </div>
           </div>
           <div style={{ position: "relative", minHeight: 380 }}>
@@ -272,15 +271,13 @@ export function HomePage({ ctx }) {
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(40px, 6.4vw, 84px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--mr-cream)", margin: "22px auto 0", maxWidth: "18ch", whiteSpace: "pre-line" }}>{settings.heroHeadline}</h1>
           <GildedRule width="220px" style={{ margin: "18px auto" }} />
           <p style={{ fontFamily: "var(--font-serif)", fontSize: "clamp(18px, 2vw, 22px)", color: "var(--text-on-dark-muted)", maxWidth: "52ch", margin: "0 auto 34px" }}>{settings.heroSub}</p>
-          <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop fragrances</Button>
+          <Button variant="gold" size="lg" onClick={() => ctx.nav("shop")}>Shop now</Button>
         </section>
       )}
       {dir === "product-led" && (
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 6vw, 72px) ${PAD}` }}>
           <div style={{ maxWidth: 640 }}>
-            <Eyebrow>Featured</Eyebrow>
-            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(36px, 4.6vw, 56px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "16px 0 12px" }}>This month&apos;s favourites</h1>
-            <p style={{ fontFamily: "var(--font-serif)", fontSize: 20, color: "var(--text-body)", margin: "0 0 30px" }}>Three fragrances our customers keep coming back for.</p>
+            <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(36px, 4.6vw, 56px)", lineHeight: "var(--lh-tight)", letterSpacing: "var(--ls-display)", color: "var(--text-strong)", margin: "0 0 30px" }}>Featured</h1>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(250px, 100%), 1fr))", gap: 20 }}>
             {heroPicks.map((hp) => (
@@ -325,15 +322,15 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(230px, 100%), 1fr))", gap: 14 }}>
             {perk(
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>,
-              "Delivered from your nearest store", "Your order ships from the store that has everything you chose."
+              "Fast delivery", "From your nearest store"
             )}
             {perk(
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><rect x="3" y="11" width="18" height="10" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>,
-              "Secure payment", "Card, bank transfer, or order on WhatsApp."
+              "Secure payment", "Card or bank transfer"
             )}
             {perk(
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent-gold-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={iconStyle}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg>,
-              "Worldwide delivery", "Naira and US Dollar pricing, delivered anywhere."
+              "Worldwide delivery", "Pay in ₦ or $"
             )}
           </div>
         </section>
@@ -384,7 +381,7 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(36px, 6vw, 64px) ${PAD} 0` }}>
           <SectionHead
             eyebrow={eyebrow}
-            title={named ? runningDeal.title : (title || (isDeals ? "Hot deals" : ""))}
+            title={named ? runningDeal.title : (title || (isDeals ? "Deals" : ""))}
             sub={named && runningDeal.desc ? runningDeal.desc : sub}
             subStrong={!!(named && runningDeal.desc)}
             action={<BlockLink ctx={ctx} block={block} />}
@@ -459,9 +456,9 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
-              <Eyebrow>{eyebrow}</Eyebrow>
-              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
-                {title || settings.reviewsHeadline || "Don't just take our word for it"}
+              {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: eyebrow ? "10px 0 0" : 0 }}>
+                {title || settings.reviewsHeadline || "Reviews"}
               </h2>
             </div>
             <BlockLink ctx={ctx} block={block} />
@@ -480,8 +477,8 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
         <section style={{ maxWidth: 1280, margin: "0 auto", padding: `clamp(40px, 7vw, 72px) ${PAD} 0` }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 22 }}>
             <div>
-              <Eyebrow>{eyebrow}</Eyebrow>
-              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>
+              {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
+              <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(26px, 3vw, 36px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: eyebrow ? "10px 0 0" : 0 }}>
                 {title || settings.blogHeadline || "Blog"}
               </h2>
             </div>
@@ -529,7 +526,7 @@ function HomeBlock({ block, ctx, vars, runningDeal, perk, iconStyle, categories,
 // Read from their own browser rather than fetched back from the server: it is
 // theirs, it is instant, and — the point — it works for the anonymous visitor
 // who is most of the traffic. Nothing here needs an account.
-export function RecentlyViewed({ ctx, exclude = null, title = "Pick up where you left off" }) {
+export function RecentlyViewed({ ctx, exclude = null, title = "Recently viewed" }) {
   const ids = (ctx.recentIds || []).filter((id) => id !== exclude);
   const picks = ids
     .map((id) => ctx.listings.find((e) => e.product.id === id))
@@ -541,10 +538,7 @@ export function RecentlyViewed({ ctx, exclude = null, title = "Pick up where you
   return (
     <section style={{ maxWidth: 1280, margin: "clamp(36px, 6vw, 64px) auto 0", padding: `0 ${PAD}` }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 18 }}>
-        <div>
-          <Eyebrow>Recently viewed</Eyebrow>
-          <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "10px 0 0" }}>{title}</h2>
-        </div>
+        <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(22px, 2.6vw, 30px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: 0 }}>{title}</h2>
         <button onClick={ctx.clearRecent} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--text-muted)" }}>Clear</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(240px, 100%), 1fr))", gap: 20 }}>
@@ -579,8 +573,7 @@ export function ShopPage({ ctx }) {
           <section key={col.id} style={{ marginBottom: 40 }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
               <div>
-                <Eyebrow>Collection</Eyebrow>
-                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 2.6vw, 32px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "8px 0 4px" }}>{col.title}</h2>
+                <h2 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(24px, 2.6vw, 32px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "0 0 4px" }}>{col.title}</h2>
                 {col.desc && <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: 0, maxWidth: "60ch" }}>{col.desc}</p>}
               </div>
               {picks.length > 4 && (
@@ -612,16 +605,7 @@ export function ShopPage({ ctx }) {
           ))}
         </div>
       )}
-      <Eyebrow>
-        {segCopy ? segCopy.eyebrow
-          : brand ? "By the label"
-            : collection ? "Collection"
-              // Under a sub-category the eyebrow names its parent, which is the
-              // one piece of context a heading alone can't carry.
-              : trail.length > 1 ? trail[0].label
-                : activeCat ? "Category" : "Shop"}
-      </Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: `12px 0 ${subLine ? 6 : 24}px` }}>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: `0 0 ${subLine ? 6 : 24}px` }}>
         {segCopy
           ? (activeCat ? `${segCopy.title} — ${activeCat.label}` : segCopy.title)
           : brand ? brandName
@@ -642,24 +626,19 @@ export function ShopPage({ ctx }) {
       )}
 
       {(collection || brand) && (
-        <button onClick={() => ctx.nav("shop", { fCat: "all" })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← Back to all products</button>
+        <button onClick={() => ctx.nav("shop", { fCat: "all" })} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500, padding: 0, marginBottom: 18 }}>← All products</button>
       )}
       {/* This store, or every store. Hidden mid-search, which always reaches
           every store. */}
       {!searching && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
           {chip(ctx.fScope === "city", () => ctx.setFScope("city"), `In stock in ${cityName}`, "sc-city")}
-          {chip(ctx.fScope === "all", () => ctx.setFScope("all"), "Every store", "sc-all")}
-          {ctx.fScope === "city" && scopedOut > 0 && (
-            <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
-              {scopedOut} more {scopedOut === 1 ? "product ships" : "products ship"} from our other stores — switch to see {scopedOut === 1 ? "it" : "them"}.
-            </span>
-          )}
+          {chip(ctx.fScope === "all", () => ctx.setFScope("all"), scopedOut > 0 ? `All stores (+${scopedOut})` : "All stores", "sc-all")}
         </div>
       )}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 28 }}>
         <select value={ctx.fSort} onChange={(e) => ctx.setFSort(e.target.value)} style={selStyle}>
-          <option value="featured">{seg ? `Sort — ${segCopy.title.toLowerCase()} first` : `Sort — ${cityName} first`}</option>
+          <option value="featured">Featured</option>
           <option value="best">Best sellers</option>
           <option value="new">Newest</option>
           <option value="low">Price · low to high</option>
@@ -667,9 +646,6 @@ export function ShopPage({ ctx }) {
           <option value="name">Name A–Z</option>
         </select>
         <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{list.length} {list.length === 1 ? "product" : "products"}</span>
-        <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
-          {list.reduce((n, e) => n + e.variants.length, 0)} sizes in total
-        </span>
         {filtersDirty && (
           <button onClick={() => { ctx.setFScope("city"); ctx.setSearch(""); ctx.nav("shop", { fCat: "all" }); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--mr-orchid-600)", fontWeight: 500 }}>Clear filters</button>
         )}
@@ -678,13 +654,11 @@ export function ShopPage({ ctx }) {
         <div style={{ textAlign: "center", padding: "56px 20px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)" }}>
           <p style={{ fontFamily: "var(--font-serif)", fontSize: 19, color: "var(--text-body)", margin: "0 0 14px" }}>
             {searching
-              ? `Nothing matches "${ctx.search}" in any of our stores.`
-              : seg
-                ? `Nothing here${activeCat ? ` under ${activeCat.label}` : ""} in ${cityName} today.`
-                : `Nothing in stock in ${cityName} under this filter.`}
+              ? `No results for "${ctx.search}".`
+              : `Nothing in stock in ${cityName}.`}
           </p>
           {!searching && ctx.fScope === "city" && scopedOut > 0 && (
-            <Button variant="secondary" onClick={() => ctx.setFScope("all")}>Search every store</Button>
+            <Button variant="secondary" onClick={() => ctx.setFScope("all")}>Show all stores</Button>
           )}
         </div>
       ) : (
@@ -1288,7 +1262,7 @@ export function ConfirmPage({ ctx }) {
         <div style={{ marginTop: 18, background: "var(--mr-gold-200)", borderRadius: "var(--radius-md)", padding: "14px 18px", fontSize: 13.5, lineHeight: 1.7, color: "var(--mr-gold-600)" }}>
           {ctx.settings.bankDetails
             ? <>Transfer <strong>{p.totalLabel}</strong> to <strong>{ctx.settings.bankDetails}</strong>, using <strong>{p.no}</strong> as the reference.</>
-            : <>We'll send you the account details shortly. Your order is held for 2 hours.</>}
+            : <>We'll send you the bank details shortly.</>}
         </div>
       )}
 
@@ -1323,8 +1297,7 @@ function AccountNudge({ ctx }) {
   );
   return (
     <div style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "18px 20px", marginTop: 20, textAlign: "left" }}>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginBottom: 4 }}>Save this order</div>
-      <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>Track it faster and keep your address for next time.</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginBottom: 14 }}>Create an account</div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
         <Input label="Choose a password" type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} style={{ flex: 1, minWidth: 200 }} />
         <Button variant="gold" disabled={busy} onClick={create}>{busy ? "Saving…" : "Create account"}</Button>
@@ -1401,22 +1374,20 @@ export function ContactPage({ ctx }) {
   const card = { background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: 22 };
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
-      <Eyebrow>Contact</Eyebrow>
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "12px 0 6px", maxWidth: "24ch" }}>Have a question about an order, product or fragrance?</h1>
-      <p style={{ fontSize: 15, color: "var(--text-muted)", margin: "0 0 28px" }}>We&apos;re happy to help.</p>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", margin: "0 0 28px" }}>Contact us</h1>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px, 100%), 1fr))", gap: 24, alignItems: "start" }}>
         <div style={{ ...card, padding: 26 }}>
           {ctx.contactSent ? (
             <div style={{ textAlign: "center", padding: "30px 10px" }}>
               <div style={{ fontFamily: "var(--font-display)", fontSize: 24, color: "var(--mr-purple-900)", marginBottom: 8 }}>Message received.</div>
-              <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>We&apos;ll reply within a few hours{cf.name.trim() ? `, ${cf.name.trim().split(" ")[0]}` : ""}. Watch your inbox.</p>
+              <p style={{ fontSize: 14, color: "var(--text-muted)", margin: 0 }}>We&apos;ll reply soon.</p>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <Input label="Your name" value={cf.name} onChange={(e) => setCf({ ...cf, name: e.target.value })} placeholder="Adaeze Okafor" />
-              <Input label="Email" value={cf.email} onChange={(e) => setCf({ ...cf, email: e.target.value })} placeholder="you@email.com" />
-              <Textarea label="How can we help?" value={cf.msg} onChange={(e) => setCf({ ...cf, msg: e.target.value })} rows={4} placeholder="An order, a gift, a fragrance question…" />
-              <Button variant="primary" onClick={ctx.sendContact}>Send us a message</Button>
+              <Input label="Name" autoComplete="name" value={cf.name} onChange={(e) => setCf({ ...cf, name: e.target.value })} />
+              <Input label="Email" type="email" autoComplete="email" value={cf.email} onChange={(e) => setCf({ ...cf, email: e.target.value })} />
+              <Textarea label="Message" value={cf.msg} onChange={(e) => setCf({ ...cf, msg: e.target.value })} rows={4} />
+              <Button variant="primary" onClick={ctx.sendContact}>Send</Button>
             </div>
           )}
         </div>
@@ -1474,12 +1445,8 @@ export function InfoPage({ ctx }) {
   if (wrapper.error || !wrapper.page) {
     return (
       <main style={{ maxWidth: 760, margin: "0 auto", padding: `clamp(32px, 5vw, 56px) ${PAD}` }}>
-        <Eyebrow>Not found</Eyebrow>
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 4vw, 40px)", color: "var(--text-strong)", margin: "12px 0 10px" }}>There is no page here</h1>
-        <p style={{ fontSize: 14.5, color: "var(--text-muted)", lineHeight: 1.7, margin: "0 0 22px" }}>
-          The address may have changed, or the page may not be published yet.
-        </p>
-        <Button variant="primary" onClick={() => ctx.nav("shop")}>Shop all products</Button>
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(28px, 4vw, 40px)", color: "var(--text-strong)", margin: "0 0 22px" }}>Page not found</h1>
+        <Button variant="primary" onClick={() => ctx.nav("shop")}>Shop</Button>
       </main>
     );
   }
@@ -1505,23 +1472,15 @@ function MeasureSwitch({ ctx }) {
   const on = ctx.measuring;
   return (
     <div style={{ marginTop: 32, background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", padding: "20px 22px" }}>
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>Counting your visit</div>
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>Visit analytics</div>
       <p style={{ fontSize: 14.5, lineHeight: 1.7, color: "var(--text-body)", margin: "8px 0 14px" }}>
-        We keep a count of what is looked at in our own shop, on our own site, so we know which
-        products people open and which ones they never find. It is not shared with anyone, it carries
-        no name, email or address, and it is not the advertising cookies above — those you turn on or
-        off from the banner. If you would rather not be counted at all, switch it off here.
+        We count page views anonymously to improve the shop. Nothing is shared.
       </p>
       <button
         onClick={() => ctx.setMeasuring(!on)}
         style={{ cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 13.5, fontWeight: 500, padding: "10px 18px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border-strong)", background: on ? "var(--surface-card)" : "var(--mr-purple-900)", color: on ? "var(--mr-purple-800)" : "var(--mr-cream)" }}>
-        {on ? "Stop counting my visits" : "Counting is off — turn it back on"}
+        {on ? "Turn off" : "Turn on"}
       </button>
-      <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 10 }}>
-        {on
-          ? "Your browser's Do Not Track or Global Privacy Control setting also turns this off on its own."
-          : "Nothing about your visits is being recorded."}
-      </div>
     </div>
   );
 }

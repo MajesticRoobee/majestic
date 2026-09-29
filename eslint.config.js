@@ -46,7 +46,8 @@ export default [
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: "module",
-      globals: { ...globals.browser, ...globals.node },
+      // HTMLRewriter is the Workers runtime's own streaming HTML parser.
+      globals: { ...globals.browser, ...globals.node, HTMLRewriter: "readonly" },
     },
     rules: {
       ...js.configs.recommended.rules,

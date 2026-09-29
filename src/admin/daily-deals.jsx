@@ -67,7 +67,7 @@ function ProductPicker({ ctx, value, onPick }) {
           {!chosen.live && <span style={{ fontSize: 11, color: "#c0587a" }}>draft</span>}
         </div>
       )}
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the catalogue…"
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…"
         style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)", marginBottom: 8 }} />
       <div style={{ maxHeight: 200, overflowY: "auto", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)" }}>
         {matches.slice(0, 60).map((p) => (
@@ -77,7 +77,7 @@ function ProductPicker({ ctx, value, onPick }) {
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{ctx.catLabel(p.cat)}</span>
           </button>
         ))}
-        {!matches.length && <div style={{ padding: 12, fontSize: 12.5, color: "var(--text-muted)" }}>Nothing matches that search.</div>}
+        {!matches.length && <div style={{ padding: 12, fontSize: 12.5, color: "var(--text-muted)" }}>No matches.</div>}
       </div>
     </div>
   );
@@ -154,7 +154,7 @@ export function DailyDealsPage({ ctx }) {
   };
 
   const remove = async (d) => {
-    if (!window.confirm(`Remove the daily deal on "${d.productName}"? Its usual price is untouched.`)) return;
+    if (!window.confirm(`Delete the deal on "${d.productName}"?`)) return;
     try {
       await api.del(`/api/admin/daily-deals/${d.id}`, ctx.token);
       load();
@@ -187,23 +187,13 @@ export function DailyDealsPage({ ctx }) {
   return (
     <main style={pageStyle}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ ...card, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Daily deals</div>
-          <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>
-            The countdown card at the top of the home page. One piece, one price, and a clock running down to the end of its
-            window — queue tomorrow&apos;s tonight and it takes over on its own. The price you set here is the price charged:
-            it lands on the shop grid, the product page, the cart and the card payment together, and lifts again the moment
-            the window closes.
-          </div>
-        </div>
-
         <div style={{ ...card, padding: 18 }}>
-          <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10.5, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>On the storefront now</div>
+          <div style={{ fontFamily: "var(--font-condensed)", fontSize: 10.5, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Live now</div>
           {!data ? (
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 8 }}>Reading the schedule…</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 8 }}>Loading…</div>
           ) : !showing ? (
             <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8 }}>
-              Nothing — the card is hidden. {cfg && !cfg.dailyDealOn ? "Turn it on beside this." : "Schedule one, or mark a piece down and let the fallback find it."}
+              None{cfg && !cfg.dailyDealOn ? " — the deal card is off." : "."}
             </div>
           ) : (
             <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
@@ -230,7 +220,6 @@ export function DailyDealsPage({ ctx }) {
         {data && !deals.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>Nothing scheduled</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Build one beside this — a piece, a price, and the hours it runs for.</div>
           </div>
         )}
 
@@ -274,24 +263,22 @@ export function DailyDealsPage({ ctx }) {
           </div>
           {!editing ? (
             <>
-              <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Put one piece on the front page at a price, for a few hours or a whole day.</div>
               <Button variant="primary" block onClick={() => open(null)}>Schedule one</Button>
             </>
           ) : (
             <>
               <ProductPicker ctx={ctx} value={f.productId} onPick={(p) => setF((s) => ({ ...s, productId: p.id, variantId: "" }))} />
               {variants.length > 1 && (
-                <Select label="Variation" value={String(f.variantId || (variant ? variant.id : ""))} onChange={(e) => setF({ ...f, variantId: e.target.value })}
-                  hint="Which size carries the offer. The others keep their usual price.">
+                <Select label="Variation" value={String(f.variantId || (variant ? variant.id : ""))} onChange={(e) => setF({ ...f, variantId: e.target.value })}>
                   {variants.map((v) => <option key={v.id} value={String(v.id)}>{v.size} — {fmtN(v.ngn)}</option>)}
                 </Select>
               )}
-              <Input label="Headline" value={f.headline} onChange={(e) => setF({ ...f, headline: e.target.value })} placeholder="Daily Deal" hint="The line above the card." />
+              <Input label="Headline" value={f.headline} onChange={(e) => setF({ ...f, headline: e.target.value })} placeholder="Daily Deal" />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Input label="Deal price (₦)" value={f.priceNgn} onChange={(e) => setF({ ...f, priceNgn: e.target.value.replace(/[^0-9]/g, "") })}
-                  placeholder={variant ? String(variant.ngn) : "—"} hint="Blank keeps the usual price." />
+                  placeholder={variant ? String(variant.ngn) : "—"} hint="Optional" />
                 <Input label="Was (₦)" value={f.compareAtNgn} onChange={(e) => setF({ ...f, compareAtNgn: e.target.value.replace(/[^0-9]/g, "") })}
-                  placeholder={variant && variant.compareAtNgn ? String(variant.compareAtNgn) : "—"} hint="Struck through beside it." />
+                  placeholder={variant && variant.compareAtNgn ? String(variant.compareAtNgn) : "—"} hint="Optional" />
               </div>
               {variant && f.priceNgn !== "" && Number(f.priceNgn) >= (Number(f.compareAtNgn) || variant.compareAtNgn || variant.ngn) && (
                 <div style={{ fontSize: 12, color: "var(--mr-gold-600)", lineHeight: 1.55 }}>
@@ -300,7 +287,7 @@ export function DailyDealsPage({ ctx }) {
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Input label="Starts (WAT)" type="datetime-local" value={f.startsAt} onChange={(e) => setF({ ...f, startsAt: e.target.value })} />
-                <Input label="Ends (WAT)" type="datetime-local" value={f.endsAt} onChange={(e) => setF({ ...f, endsAt: e.target.value })} hint="What the clock counts down to." />
+                <Input label="Ends (WAT)" type="datetime-local" value={f.endsAt} onChange={(e) => setF({ ...f, endsAt: e.target.value })} />
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: -4 }}>
                 {preset("Now → midnight", now, midnight)}
@@ -318,13 +305,9 @@ export function DailyDealsPage({ ctx }) {
 
         {cfg && (
           <div style={{ ...card, padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>The card itself</div>
-            <Switch label="Show the daily-deal card" checked={cfg.dailyDealOn} onChange={(e) => setCfg({ ...cfg, dailyDealOn: e.target.checked })} />
-            <Switch label="When nothing is scheduled, feature the deepest markdown" checked={cfg.dailyDealAuto} onChange={(e) => setCfg({ ...cfg, dailyDealAuto: e.target.checked })} />
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, lineHeight: 1.6 }}>
-              Whatever is furthest below its own was-price, running until midnight and re-picked each day — so the corner of
-              the home page is never empty. Turn it off and the card only ever shows what you scheduled.
-            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Deal card</div>
+            <Switch label="Show on home page" checked={cfg.dailyDealOn} onChange={(e) => setCfg({ ...cfg, dailyDealOn: e.target.checked })} />
+            <Switch label="Auto-pick a deal when none is scheduled" checked={cfg.dailyDealAuto} onChange={(e) => setCfg({ ...cfg, dailyDealAuto: e.target.checked })} />
             <Input label="Default headline" value={cfg.dailyDealHeadline} onChange={(e) => setCfg({ ...cfg, dailyDealHeadline: e.target.value })} placeholder="Daily Deal" />
             <Button variant="primary" size="sm" disabled={cfgBusy} onClick={saveCfg}>{cfgBusy ? "Saving…" : "Save"}</Button>
           </div>

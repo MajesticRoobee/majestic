@@ -29,15 +29,14 @@ function useSearchRecord(term, found) {
 // new or what has sold well. Category, sub-category, brand, collection and
 // search all compose, so "gift sets in body mists" is one address.
 export const SEGMENT_COPY = {
-  "new-arrivals": { eyebrow: "New in", title: "New arrivals", sub: "The newest products in the store, newest first." },
-  "best-sellers": { eyebrow: "Best sellers", title: "Best sellers", sub: "The products our customers keep coming back for." },
-  deals: { eyebrow: "On sale now", title: "Deals" },
-  "gift-sets": { eyebrow: "Ready to give", title: "Gift sets", sub: "Fragrance, mist and custom-oil sets, boxed and ready to give." },
+  "new-arrivals": { title: "New arrivals" },
+  "best-sellers": { title: "Best sellers" },
+  deals: { title: "Deals" },
+  "gift-sets": { title: "Gift sets" },
 };
 
-// The shop page with nothing narrowed down, in the client's words.
-export const SHOP_TITLE = "Shop Majestic Roobee products";
-export const SHOP_SUB = "From everyday signature fragrances to fragrances reserved for special moments, plus wellness products made with you in mind, discover our collection of perfumes, perfume oils, body mists, feminine care, and home fragrances. Find something that smells like you.";
+// The shop page with nothing narrowed down.
+export const SHOP_TITLE = "Shop";
 
 // The phone's price bands, in naira: under the first, between, over the second.
 export const PRICE_BANDS = [30000, 50000];
@@ -62,19 +61,15 @@ export function useShopList(ctx, { mobile = false } = {}) {
   // The deals running right now, so the Deals page names them rather than
   // showing a wall of discounted products with no reason attached.
   const runningDeals = seg === "deals" ? ctx.deals.filter((d) => d.productIds.length) : [];
-  // The line under the title. Deals carries none — the title says it all — so
-  // the heading stands alone there.
-  const subLine = segCopy
-    ? segCopy.sub || ""
-    : brand
-      ? `Every ${brandName} product we carry.`
-      : collection && collection.desc
-        ? collection.desc
-        : activeCat && activeCat.desc
-          ? activeCat.desc
-          : searching
-            ? `Searching every store. Products in stock in ${cityName} come first.`
-            : SHOP_SUB;
+  // The line under the title: only what the house wrote for a collection or a
+  // category. The shop's own pages need no caption.
+  const subLine = segCopy || brand || searching
+    ? ""
+    : collection && collection.desc
+      ? collection.desc
+      : activeCat && activeCat.desc
+        ? activeCat.desc
+        : "";
   // The grid iterates listing entries, not products: one entry per card. A
   // product with a picker is one entry carrying all its variations; a
   // split-listed product contributes one entry per variation.

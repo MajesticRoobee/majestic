@@ -14,7 +14,7 @@ function PageHead({ eyebrow, title, sub }) {
   return (
     <>
       {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: "12px 0 6px" }}>{title}</h1>
+      <h1 style={{ fontFamily: "var(--font-display)", fontSize: "clamp(30px, 4vw, 44px)", color: "var(--text-strong)", letterSpacing: "var(--ls-heading)", margin: `${eyebrow ? 12 : 0}px 0 ${sub ? 6 : 24}px` }}>{title}</h1>
       {sub && <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 26px", maxWidth: "62ch", lineHeight: 1.7 }}>{sub}</p>}
     </>
   );
@@ -36,17 +36,10 @@ export function WishlistPage({ ctx }) {
   const missing = ctx.wishlist.length - saved.length;
   return (
     <main style={shellStyle}>
-      <PageHead
-        eyebrow="Saved"
-        title="Your wishlist"
-        sub={ctx.cust
-          ? `Saved to your account — ${ctx.cust.name || ctx.cust.email}. It follows you to any device you sign in on.`
-          : "Saved in this browser. Create an account and everything here comes with you."}
-      />
+      <PageHead title="Wishlist" />
       {!ctx.wishlist.length ? (
         <Empty title="Nothing saved yet.">
-          <p style={{ fontSize: 13.5, color: "var(--text-muted)", margin: "0 0 18px" }}>Tap the heart on any product and it waits for you here.</p>
-          <Button variant="primary" onClick={() => ctx.nav("shop")}>Shop all products</Button>
+          <Button variant="primary" onClick={() => ctx.nav("shop")}>Shop</Button>
         </Empty>
       ) : (
         <>
@@ -81,7 +74,6 @@ export function LocationsPage({ ctx }) {
       <PageHead
         eyebrow="Visit us"
         title="Our stores"
-        sub="Order online and collect from any of our stores, or walk in and we'll take you through the range."
       />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 18 }}>
         {ctx.locations.map((l) => {
@@ -111,8 +103,8 @@ export function LocationsPage({ ctx }) {
         })}
       </div>
       <div style={{ marginTop: 32, padding: "22px 24px", background: "var(--surface-sunken)", borderRadius: "var(--radius-lg)", fontSize: 13.5, color: "var(--text-body)", lineHeight: 1.7 }}>
-        Not near a store? We deliver nationwide, and worldwide in Naira or US Dollars — pick anything and we ship it from whichever store holds your whole order.
-        {settings.contactPhone && <> Questions before you travel: <a href={`tel:${settings.contactPhone.replace(/[^\d+]/g, "")}`}>{settings.contactPhone}</a>.</>}
+        We deliver nationwide and worldwide.
+        {settings.contactPhone && <> Call <a href={`tel:${settings.contactPhone.replace(/[^\d+]/g, "")}`}>{settings.contactPhone}</a>.</>}
       </div>
     </main>
   );
@@ -169,8 +161,7 @@ export function FaqPage({ ctx }) {
   const wa = `https://wa.me/${String(settings.contactPhone || "").replace(/[^\d]/g, "").replace(/^0/, "234")}`;
   return (
     <main style={{ ...shellStyle, maxWidth: 820 }}>
-      <PageHead eyebrow="Help" title="Frequently asked questions"
-        sub="Everything we are asked most often. If your question is not here, contact us and we will answer it." />
+      <PageHead eyebrow="Help" title="FAQs" />
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {FAQS.map((f) => (
           <div key={f.q} id={f.id} style={{ background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-lg)", padding: "20px 22px", scrollMarginTop: 100 }}>
@@ -568,7 +559,7 @@ export function BlogPage({ ctx }) {
         <p style={{ fontSize: 13.5, color: "var(--text-muted)" }}>Opening the blog…</p>
       ) : !posts.length ? (
         <Empty title={tag ? `Nothing filed under “${tag}” yet.` : "The first story is being written."}>
-          <Button variant="primary" onClick={() => (tag ? ctx.setBlogTag("") : ctx.nav("shop"))}>{tag ? "Show everything" : "Shop all products"}</Button>
+          <Button variant="primary" onClick={() => (tag ? ctx.setBlogTag("") : ctx.nav("shop"))}>{tag ? "Show all posts" : "Shop"}</Button>
         </Empty>
       ) : (
         <>

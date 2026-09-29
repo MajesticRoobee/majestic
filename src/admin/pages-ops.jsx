@@ -1,5 +1,5 @@
 // Admin — Dashboard, Inventory, Product catalogue, Collections.
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, Input, Switch, Textarea, EmptyRow } from "../ds/components.jsx";
 import { fmtN, statusBadge } from "./App.jsx";
@@ -20,7 +20,7 @@ const orderTone = (st) => ({ "In transit": "mute", "Ready for pickup": "warn", D
 
 export function Dashboard({ ctx }) {
   const o = ctx.overview;
-  if (!o) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Setting the table…</span></main>;
+  if (!o) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Loading…</span></main>;
   const deltaTxt = (cur, prev, unit = "") => {
     if (!prev) return "— vs prior period";
     const pct = Math.round(((cur - prev) / prev) * 100);
@@ -30,8 +30,8 @@ export function Dashboard({ ctx }) {
   const kpis = [
     { label: "Revenue — 14 days", value: fmtN(o.kpis.revenue14), delta: deltaTxt(o.kpis.revenue14, o.kpis.revenuePrev), deltaColor: deltaColor(o.kpis.revenue14, o.kpis.revenuePrev) },
     { label: "Orders — 14 days", value: o.kpis.orders14, delta: deltaTxt(o.kpis.orders14, o.kpis.ordersPrev), deltaColor: deltaColor(o.kpis.orders14, o.kpis.ordersPrev) },
-    { label: "Avg order value", value: fmtN(o.kpis.avgOrder), delta: "Across paid orders", deltaColor: "#3f6b45" },
-    { label: "Low / out of stock", value: o.kpis.lowCount + o.kpis.outCount, delta: `${o.kpis.outCount} fully out — restock today`, deltaColor: o.kpis.outCount > 0 ? "#c0587a" : "#3f6b45" },
+    { label: "Avg order value", value: fmtN(o.kpis.avgOrder), delta: "Paid orders", deltaColor: "#3f6b45" },
+    { label: "Low / out of stock", value: o.kpis.lowCount + o.kpis.outCount, delta: `${o.kpis.outCount} out of stock`, deltaColor: o.kpis.outCount > 0 ? "#c0587a" : "#3f6b45" },
   ];
   const max = Math.max(...o.series.map((s) => s.value), 1);
   const locColors = ["var(--mr-purple-700)", "var(--mr-orchid-500)", "var(--accent-gold)"];
@@ -66,7 +66,7 @@ export function Dashboard({ ctx }) {
           <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 6, height: 170 }}>
             {!o.series.some((s) => s.value > 0) && (
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, color: "var(--text-muted)", textAlign: "center" }}>
-                No revenue recorded in this window yet.
+                No revenue yet.
               </div>
             )}
             {o.series.map((b, i) => (
@@ -96,7 +96,7 @@ export function Dashboard({ ctx }) {
           </div>
           <div style={{ ...card, padding: 22, flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 12 }}>Top products — 30 days</div>
-            {!o.topProducts.length && <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>No sales in the last 30 days yet — your best sellers will rank here.</div>}
+            {!o.topProducts.length && <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>No sales yet.</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
               {o.topProducts.map((t, i) => (
                 <div key={t.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5 }}>
@@ -111,7 +111,6 @@ export function Dashboard({ ctx }) {
       <div style={{ ...card, overflow: "hidden" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 22px" }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Recent orders</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Routed automatically to the store holding full stock</div>
         </div>
         <div style={{ overflowX: "auto" }}>
           <div style={{ minWidth: 860, display: "grid", gridTemplateColumns: "110px 1.4fr 1fr 1.2fr 100px 150px", fontSize: 12.5 }}>
@@ -121,7 +120,7 @@ export function Dashboard({ ctx }) {
             <div style={th}>METHOD · PAYMENT</div>
             <div style={th}>TOTAL</div>
             <div style={{ ...th, paddingRight: 22 }}>STATUS</div>
-            {!o.orders.length && <EmptyRow span={6}>No orders yet — the moment someone checks out, the order lands here and you can move it through packing, transit and delivery.</EmptyRow>}
+            {!o.orders.length && <EmptyRow span={6}>No orders yet.</EmptyRow>}
             {o.orders.map((or) => {
               const stores = (o.locations || []).reduce((m, l) => ({ ...m, [l.id]: l.city }), {});
               // An order can be several parcels now — say so rather than
@@ -159,8 +158,7 @@ export function Dashboard({ ctx }) {
       </div>
       <div style={{ ...card, overflow: "hidden" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 22px" }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Checkouts — did they go ahead?</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Completed orders vs carts abandoned at checkout — with shopper contact</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Checkouts</div>
         </div>
         <div style={{ overflowX: "auto" }}>
           <div style={{ minWidth: 760, display: "grid", gridTemplateColumns: "1.7fr 0.8fr 0.9fr 1.2fr 120px", fontSize: 12.5 }}>
@@ -169,7 +167,7 @@ export function Dashboard({ ctx }) {
             <div style={th}>VALUE</div>
             <div style={th}>STAGE · WHEN</div>
             <div style={{ ...th, paddingRight: 22 }}>OUTCOME</div>
-            {!abandonedRows.length && <EmptyRow span={5}>Nothing here yet — both completed orders and carts left at checkout will show up, with the shopper&apos;s contact details so you can follow up.</EmptyRow>}
+            {!abandonedRows.length && <EmptyRow span={5}>No checkouts yet.</EmptyRow>}
             {abandonedRows.map((c, i) => {
               const cell = { padding: "13px 14px", borderTop: "1px solid var(--border-hairline)", display: "flex", alignItems: "center" };
               return (
@@ -197,9 +195,9 @@ export function Dashboard({ ctx }) {
 function lowStockNote(ctx) {
   const cfg = (ctx.stockHealth && ctx.stockHealth.cfg) || {};
   if (cfg.mode === "cover") {
-    return `Low when a store holds under ${cfg.coverDays} days of cover (never above ${cfg.flat ?? ctx.TH}) — Settings → Inventory`;
+    return `Low: under ${cfg.coverDays} days of stock`;
   }
-  return `Low at ${cfg.flat ?? ctx.TH} units or fewer, per store — Settings → Inventory`;
+  return `Low: ${cfg.flat ?? ctx.TH} units or fewer`;
 }
 
 export function Inventory({ ctx }) {
@@ -263,9 +261,9 @@ export function Inventory({ ctx }) {
     );
   };
   const kpis = [
-    { label: "Units on hand — " + ctx.scopeLabel, value: unitTotal.toLocaleString(), color: "var(--text-strong)" },
-    { label: "Low stock shelves", value: lowCount, color: lowCount ? "var(--mr-gold-600)" : "var(--text-strong)" },
-    { label: "Out of stock shelves", value: outCount, color: outCount ? "#c0587a" : "var(--text-strong)" },
+    { label: "Units in stock", value: unitTotal.toLocaleString(), color: "var(--text-strong)" },
+    { label: "Low stock", value: lowCount, color: lowCount ? "var(--mr-gold-600)" : "var(--text-strong)" },
+    { label: "Out of stock", value: outCount, color: outCount ? "#c0587a" : "var(--text-strong)" },
   ];
   const cell = { padding: "12px 14px", borderTop: "1px solid var(--border-hairline)", display: "flex", alignItems: "center" };
   return (
@@ -296,10 +294,10 @@ export function Inventory({ ctx }) {
           {!rows.length && (
             <EmptyRow span={4 + stores.length}>
               {!ctx.products.length
-                ? "No products yet — add them under Products and every size will appear here with its stock in each store."
+                ? "No products yet."
                 : q || lowOnly
                   ? "Nothing matches that filter."
-                  : "Every size is well stocked — nothing low or out."}
+                  : "All stocked."}
             </EmptyRow>
           )}
           {rows.map(({ p, v, counts, st }) => {
@@ -318,11 +316,11 @@ export function Inventory({ ctx }) {
                   {v.sku && <span style={{ fontSize: 10.5, color: "var(--text-muted)", fontFamily: "monospace" }}>{v.sku}</span>}
                 </div>
                 {stores.map((l, i) => (
-                  <div key={l.id} style={cell} title={`Low at ${ctx.lowLine(v.id, l.id)} or fewer in ${l.city}`}>
+                  <div key={l.id} style={cell} title={`Low at ${ctx.lowLine(v.id, l.id)}`}>
                     {stepper(counts[i], stateAt(v, l.id), () => bump(p.id, v.id, l.id, -1), () => bump(p.id, v.id, l.id, 1))}
                   </div>
                 ))}
-                <div style={cell}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: badge.bg, color: badge.fg }}>{st === "bad" ? "Out of stock" : st === "warn" ? "Low stock" : "Healthy"}</span></div>
+                <div style={cell}><span style={{ fontSize: 11, fontWeight: 500, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: badge.bg, color: badge.fg }}>{st === "bad" ? "Out of stock" : st === "warn" ? "Low stock" : "In stock"}</span></div>
                 <div style={{ ...cell, paddingRight: 22 }}>
                   <button onClick={() => bump(p.id, v.id, scope === "all" ? (stores[0] ? stores[0].id : scope) : scope, 20)} style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "5px 12px", fontFamily: "var(--font-sans)", fontSize: 11.5, fontWeight: 500, color: "var(--mr-purple-800)", cursor: "pointer" }}>Restock +20</button>
                 </div>
@@ -337,9 +335,16 @@ export function Inventory({ ctx }) {
 
 
 export function Catalogue({ ctx }) {
-  const [editId, setEditId] = useState(null);
+  const [editId, setEditIdRaw] = useState(null);
   const [q, setQ] = useState("");
+  const panel = useRef(null);
   const editing = ctx.products.find((p) => p.id === editId);
+  // On a phone the panel sits under the whole catalogue, so opening a product
+  // brings it into view rather than leaving it off-screen.
+  const setEditId = (id) => {
+    setEditIdRaw(id);
+    if (id && panel.current && window.innerWidth < 900) setTimeout(() => panel.current.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
   const toggleLive = async (p) => {
     ctx.setProducts((cur) => cur.map((x) => (x.id === p.id ? { ...x, live: !x.live } : x)));
     try { await api.patch(`/api/admin/products/${encodeURIComponent(p.id)}`, { live: !p.live }, ctx.token); }
@@ -353,12 +358,12 @@ export function Catalogue({ ctx }) {
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…"
             style={{ fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 14px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-pill)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)", width: 220 }} />
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{ctx.products.length} products · {variants} variants</div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{ctx.products.length} products · {variants} sizes</div>
         </div>
         {ctx.products.length === 0 && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>No products yet</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Add your first product with the form beside this — set it live and it appears on the storefront straight away.</div>
+            
           </div>
         )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
@@ -386,14 +391,14 @@ export function Catalogue({ ctx }) {
                   <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: "var(--surface-sunken)", color: "var(--mr-purple-800)" }}>{total} in stock</span>
                   <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: p.live ? "#e4efe4" : "var(--mr-gold-200)", color: p.live ? "#3f6b45" : "var(--mr-gold-600)" }}>{p.live ? "Live" : "Draft"}</span>
                   {!p.imageUrl && <span style={{ fontSize: 11, padding: "2px 9px", borderRadius: "var(--radius-pill)", background: "#f7e3ea", color: "#c0587a" }}>No photo</span>}
-                  <button onClick={() => setEditId(p.id)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--mr-purple-700)", fontFamily: "var(--font-sans)", padding: 0 }}>Edit →</button>
+                  <button onClick={() => setEditId(p.id)} style={{ marginLeft: "auto", background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--mr-purple-700)", fontFamily: "var(--font-sans)", padding: 0 }}>Edit</button>
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-      <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
+      <div ref={panel} style={{ ...card, padding: 24, position: "sticky", top: 84, scrollMarginTop: 70 }}>
         {/* Keyed on the product. Without this, clicking "Edit" on a second
             product while the first is open reuses the same component: React
             keeps the state, the `useState` initialisers never re-run, and the
@@ -438,7 +443,7 @@ export function CollectionsPage({ ctx }) {
   };
 
   const remove = async (col) => {
-    if (!window.confirm(`Delete "${col.title}"? The products stay in the catalogue — only the grouping goes.`)) return;
+    if (!window.confirm(`Delete "${col.title}"?`)) return;
     try {
       await api.del(`/api/admin/collections/${encodeURIComponent(col.id)}`, ctx.token);
       ctx.loadCollections();
@@ -477,19 +482,10 @@ export function CollectionsPage({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <div style={{ ...card, padding: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Collections &amp; sets</div>
-          <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>
-            Curated groupings — gift sets, a seasonal edit, a bestsellers rail. Live collections appear on the shop page
-            <strong> above</strong> the full catalogue, in the order below. A product can be in several at once, and its
-            category never changes.
-          </div>
-        </div>
-
         {!ctx.collections.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>No collections yet</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Build one with the panel beside this — pick a title and the products that belong in it.</div>
+            
           </div>
         )}
 
@@ -500,15 +496,15 @@ export function CollectionsPage({ ctx }) {
                 <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)" }}>{col.title}</div>
                 {col.desc && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{col.desc}</div>}
                 <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
-                  {col.productIds.length} {col.productIds.length === 1 ? "product" : "products"} · {col.live ? "Live on the shop page" : "Hidden"}
+                  {col.productIds.length} {col.productIds.length === 1 ? "product" : "products"} · {col.live ? "Live" : "Hidden"}
                 </div>
               </div>
               <Switch checked={col.live} onChange={() => toggleLive(col)} />
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={() => open(col)} style={linkBtn}>Edit →</button>
-              <button onClick={() => move(col, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑ Move up</button>
-              <button onClick={() => move(col, 1)} disabled={i === all.length - 1} style={{ ...linkBtn, opacity: i === all.length - 1 ? 0.4 : 1 }}>↓ Move down</button>
+              <button onClick={() => open(col)} style={linkBtn}>Edit</button>
+              <button onClick={() => move(col, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑ Up</button>
+              <button onClick={() => move(col, 1)} disabled={i === all.length - 1} style={{ ...linkBtn, opacity: i === all.length - 1 ? 0.4 : 1 }}>↓ Down</button>
               <button onClick={() => remove(col)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
             </div>
           </div>
@@ -522,14 +518,13 @@ export function CollectionsPage({ ctx }) {
         </div>
         {!editing ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Group products into a set shoppers see first.</div>
-            <Button variant="primary" block onClick={() => open(null)}>Start a collection</Button>
+            <Button variant="primary" block onClick={() => open(null)}>New collection</Button>
           </>
         ) : (
           <>
             <Input label="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. The gift edit" />
-            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="One line shoppers read under the title." />
-            <Switch label="Live on the shop page" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
+            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="Optional" />
+            <Switch label="Live" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
 
             <div>
               <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginBottom: 6 }}>
@@ -538,14 +533,14 @@ export function CollectionsPage({ ctx }) {
               {chosen.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
                   {chosen.map((p) => (
-                    <button key={p.id} onClick={() => pick(p.id)} title="Remove from this collection"
+                    <button key={p.id} onClick={() => pick(p.id)} title="Remove"
                       style={{ display: "inline-flex", gap: 6, alignItems: "center", background: "var(--mr-lavender-200)", border: "none", borderRadius: "var(--radius-pill)", padding: "5px 10px", fontFamily: "var(--font-sans)", fontSize: 11.5, color: "var(--mr-purple-900)", cursor: "pointer" }}>
                       {p.name} <span style={{ opacity: 0.7 }}>✕</span>
                     </button>
                   ))}
                 </div>
               )}
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the catalogue…"
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…"
                 style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)", marginBottom: 8 }} />
               <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)" }}>
                 {matches.slice(0, 60).map((p) => {
@@ -558,12 +553,12 @@ export function CollectionsPage({ ctx }) {
                     </label>
                   );
                 })}
-                {!matches.length && <div style={{ padding: "12px", fontSize: 12.5, color: "var(--text-muted)" }}>Nothing matches that search.</div>}
+                {!matches.length && <div style={{ padding: "12px", fontSize: 12.5, color: "var(--text-muted)" }}>No matches.</div>}
               </div>
             </div>
 
             <Button variant="primary" block disabled={busy || !f.title.trim()} onClick={save}>
-              {busy ? "Saving…" : editing === "new" ? "Create collection" : "Save changes"}
+              {busy ? "Saving…" : editing === "new" ? "Create" : "Save"}
             </Button>
             {err && <div style={{ fontSize: 12, color: "#c0587a", textAlign: "center" }}>{err}</div>}
           </>

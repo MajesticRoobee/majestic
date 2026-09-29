@@ -1,6 +1,6 @@
 // Admin — the content the storefront's new header leads to: categories and
 // their sub-shelves, deals, the blog, and the reviews wall.
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { Button, DealCard, Input, Select, Switch, Textarea } from "../ds/components.jsx";
 import { ImagePicker } from "./product-form.jsx";
@@ -12,18 +12,24 @@ const linkBtn = { background: "none", border: "none", cursor: "pointer", fontFam
 const two = { display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20, alignItems: "start" };
 const pageStyle = { padding: "26px 28px 48px", ...two };
 
-function Intro({ title, children }) {
+// A page's heading card. Pages used to explain themselves here; the heading
+// is enough.
+function Intro({ title }) {
   return (
-    <div style={{ ...card, padding: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{title}</div>
-      <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.6 }}>{children}</div>
-    </div>
+    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", padding: "2px 2px 0" }}>{title}</div>
   );
 }
 
+// The editor beside a list. On a phone it sits under the whole list, so it
+// scrolls itself into view when something is opened in it.
 function Panel({ title, onClose, children }) {
+  const ref = useRef(null);
+  const editing = !!onClose;
+  useEffect(() => {
+    if (editing && ref.current && window.innerWidth < 900) ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [editing, title]);
   return (
-    <div style={{ ...card, padding: 24, position: "sticky", top: 84, display: "flex", flexDirection: "column", gap: 14 }}>
+    <div ref={ref} style={{ ...card, padding: 24, position: "sticky", top: 84, display: "flex", flexDirection: "column", gap: 14, scrollMarginTop: 70 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{title}</div>
         {onClose && <button onClick={onClose} style={{ ...linkBtn, color: "var(--text-muted)" }}>Close</button>}
@@ -54,7 +60,7 @@ function ProductMultiPicker({ ctx, ids, toggle }) {
           ))}
         </div>
       )}
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the catalogue…"
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…"
         style={{ width: "100%", fontFamily: "var(--font-sans)", fontSize: 13, padding: "9px 12px", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", outline: "none", background: "var(--surface-card)", color: "var(--text-strong)", marginBottom: 8 }} />
       <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)" }}>
         {matches.slice(0, 60).map((p) => {
@@ -67,7 +73,7 @@ function ProductMultiPicker({ ctx, ids, toggle }) {
             </label>
           );
         })}
-        {!matches.length && <div style={{ padding: 12, fontSize: 12.5, color: "var(--text-muted)" }}>Nothing matches that search.</div>}
+        {!matches.length && <div style={{ padding: 12, fontSize: 12.5, color: "var(--text-muted)" }}>No matches.</div>}
       </div>
     </div>
   );
@@ -110,7 +116,7 @@ export function CategoriesPage({ ctx }) {
   };
 
   const remove = async (c) => {
-    if (!window.confirm(`Delete "${c.label}"? Only an empty category can go — its products would lose their shelf otherwise.`)) return;
+    if (!window.confirm(`Delete "${c.label}"?`)) return;
     try {
       await api.del(`/api/admin/categories/${encodeURIComponent(c.id)}`, ctx.token);
       ctx.loadCategories();
@@ -156,14 +162,14 @@ export function CategoriesPage({ ctx }) {
             {c.products} filed
             {!c.parentId && countIn(ctx.categories, liveProducts, c.id) !== c.products
               && ` · ${countIn(ctx.categories, liveProducts, c.id)} on the shelf`}
-            {` · /shop?category=${c.id}`}
+            
             {c.grp ? ` · ${(GROUPS.find((g) => g.id === c.grp) || {}).label}` : ""}
           </div>
         </div>
         <Switch checked={c.live} onChange={() => patch(c, { live: !c.live }, c.live ? `${c.label} hidden` : `${c.label} is live`)} />
       </div>
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
-        <button onClick={() => open(c)} style={linkBtn}>Edit →</button>
+        <button onClick={() => open(c)} style={linkBtn}>Edit</button>
         <button onClick={() => move(c, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑</button>
         <button onClick={() => move(c, 1)} disabled={i === n - 1} style={{ ...linkBtn, opacity: i === n - 1 ? 0.4 : 1 }}>↓</button>
         <button onClick={() => remove(c)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
@@ -174,12 +180,7 @@ export function CategoriesPage({ ctx }) {
   return (
     <main style={pageStyle}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Intro title="Categories">
-          A category is where a product lives — one each — and this is the store&apos;s only category system: what is here is exactly what
-          shoppers see under <strong>All categories</strong> in the header, and nowhere else offers a competing menu. A category can hold
-          sub-categories one level deep (Perfume Oils → Designer Oils), and a category shows everything underneath it, so a shopper on
-          Perfume Oils sees every designer oil and custom oil at once.
-        </Intro>
+        <Intro title="Categories" />
         {shelves.map((c, i) => (
           <div key={c.id} style={{ ...card, padding: 18, opacity: c.live ? 1 : 0.62 }}>
             {row(c, i, shelves.length)}
@@ -199,23 +200,17 @@ export function CategoriesPage({ ctx }) {
       <Panel title={editing && editing !== "new" ? "Edit category" : "New category"} onClose={editing ? close : null}>
         {!editing ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Add a shelf, rename one, move it under another, or reorder the menu shoppers see.</div>
             <Button variant="primary" block onClick={() => open(null)}>Add a category</Button>
           </>
         ) : (
           <>
-            <Input label="Name" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="e.g. Attar Oils"
-              hint={editing === "new" ? "The URL is made from this and never changes afterwards." : ""} />
-            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="One line shoppers read under the heading." />
+            <Input label="Name" value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} placeholder="e.g. Attar Oils" />
+            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="Optional" />
             <Select label="Group" value={f.grp} onChange={(e) => setF({ ...f, grp: e.target.value })}>
               {GROUPS.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
             </Select>
-            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: -8 }}>
-              Anything grouped as <strong>Gift &amp; sets</strong> is what the storefront's Gift sets shelf is made of.
-            </div>
-            <Select label="Sits under" value={f.parentId} onChange={(e) => setF({ ...f, parentId: e.target.value })}
-              hint="Its own shelf in the header, or a sub-category of one. The tree is two deep.">
-              <option value="">— a shelf of its own —</option>
+            <Select label="Parent" value={f.parentId} onChange={(e) => setF({ ...f, parentId: e.target.value })}>
+              <option value="">None (top level)</option>
               {/* Only a category that is itself top level and childless-safe can
                   be a parent; the server refuses the rest either way. */}
               {ctx.categories.filter((c) => !c.parentId && c.id !== editing).map((c) => (
@@ -262,7 +257,7 @@ export function DealsPage({ ctx }) {
   };
 
   const remove = async (d) => {
-    if (!window.confirm(`Delete "${d.title}"? The products stay in the catalogue at their usual prices.`)) return;
+    if (!window.confirm(`Delete "${d.title}"?`)) return;
     try {
       await api.del(`/api/admin/deals/${encodeURIComponent(d.id)}`, ctx.token);
       ctx.loadDeals();
@@ -275,7 +270,7 @@ export function DealsPage({ ctx }) {
     try {
       await api.patch(`/api/admin/deals/${encodeURIComponent(d.id)}`, { status: d.status === "Active" ? "Ended" : "Active" }, ctx.token);
       ctx.loadDeals();
-      ctx.flash(d.status === "Active" ? "Deal ended" : "Deal running again");
+      ctx.flash(d.status === "Active" ? "Deal ended" : "Deal restarted");
     } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
   };
 
@@ -284,15 +279,10 @@ export function DealsPage({ ctx }) {
   return (
     <main style={pageStyle}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Intro title="Deals & hot offers">
-          What fills the <strong>Deals</strong> tab on the storefront. A deal names its products, carries a badge, and runs between two
-          dates — when the end date passes it leaves the storefront on its own, with nothing to switch off. Any product whose
-          compare-at price is above its selling price also shows up there, deal or no deal.
-        </Intro>
+        <Intro title="Deals" />
         {!ctx.deals.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>No deals yet</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Build one beside this — a title, the pieces, and the dates it runs between.</div>
           </div>
         )}
         {ctx.deals.map((d) => (
@@ -301,18 +291,18 @@ export function DealsPage({ ctx }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: "var(--radius-pill)", background: "var(--accent-gold)", color: "var(--mr-purple-950)" }}>{d.badge}</span>
-                  <span style={{ fontSize: 11.5, color: d.live ? "#3f6b45" : "var(--text-muted)" }}>{d.live ? "Running now" : d.status === "Ended" ? "Ended" : "Outside its dates"}</span>
+                  <span style={{ fontSize: 11.5, color: d.live ? "#3f6b45" : "var(--text-muted)" }}>{d.live ? "Live" : d.status === "Ended" ? "Ended" : "Scheduled"}</span>
                 </div>
                 <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginTop: 8 }}>{d.title}</div>
                 {d.desc && <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--mr-purple-900)", marginTop: 4 }}>{d.desc}</div>}
                 <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
-                  {d.productIds.length} {d.productIds.length === 1 ? "piece" : "pieces"} · {d.startsAt || "starts now"} → {d.endsAt || "until ended"}
+                  {d.productIds.length} {d.productIds.length === 1 ? "product" : "products"} · {d.startsAt || "Now"} → {d.endsAt || "No end"}
                 </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={() => open(d)} style={linkBtn}>Edit →</button>
-              <button onClick={() => endNow(d)} style={linkBtn}>{d.status === "Active" ? "End now" : "Start again"}</button>
+              <button onClick={() => open(d)} style={linkBtn}>Edit</button>
+              <button onClick={() => endNow(d)} style={linkBtn}>{d.status === "Active" ? "End" : "Restart"}</button>
               <button onClick={() => remove(d)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
             </div>
           </div>
@@ -322,23 +312,21 @@ export function DealsPage({ ctx }) {
       <Panel title={editing && editing !== "new" ? "Edit deal" : "New deal"} onClose={editing ? close : null}>
         {!editing ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Put a set of pieces on the Deals tab for a period.</div>
-            <Button variant="primary" block onClick={() => open(null)}>Start a deal</Button>
+            <Button variant="primary" block onClick={() => open(null)}>New deal</Button>
           </>
         ) : (
           <>
             <Input label="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="e.g. Detty December" />
-            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="One line shoppers read under the title."
-              hint="The sales line — shown bold on the Deals page and under the deal's name on the home page. Keep it short and punchy: what it is and why now." />
-            <Input label="Badge" value={f.badge} onChange={(e) => setF({ ...f, badge: e.target.value })} placeholder="Hot deal" hint="The little tag on the deal card." />
+            <Textarea label="Description" value={f.desc} onChange={(e) => setF({ ...f, desc: e.target.value })} rows={2} placeholder="Optional" />
+            <Input label="Badge" value={f.badge} onChange={(e) => setF({ ...f, badge: e.target.value })} placeholder="Hot deal" />
             {/* Exactly the card the Deals page draws, updating as you type. */}
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 6 }}>Preview</div>
               <DealCard deal={f} meta={`${f.productIds.length} ${f.productIds.length === 1 ? "product" : "products"}${f.endsAt ? ` · ends ${f.endsAt}` : ""}`} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Input label="Starts" type="date" value={f.startsAt} onChange={(e) => setF({ ...f, startsAt: e.target.value })} hint="Blank = right away." />
-              <Input label="Ends" type="date" value={f.endsAt} onChange={(e) => setF({ ...f, endsAt: e.target.value })} hint="Inclusive. Blank = until you end it." />
+              <Input label="Starts" type="date" value={f.startsAt} onChange={(e) => setF({ ...f, startsAt: e.target.value })} hint="Optional" />
+              <Input label="Ends" type="date" value={f.endsAt} onChange={(e) => setF({ ...f, endsAt: e.target.value })} hint="Optional" />
             </div>
             <ProductMultiPicker ctx={ctx} ids={f.productIds} toggle={toggle} />
             <Button variant="primary" block disabled={busy || !f.title.trim()} onClick={save}>
@@ -401,7 +389,7 @@ export function BlogPage({ ctx }) {
   };
 
   const remove = async (p) => {
-    if (!window.confirm(`Delete "${p.title}"? Anyone holding a link to it will get a not-found page.`)) return;
+    if (!window.confirm(`Delete "${p.title}"?`)) return;
     try {
       await api.del(`/api/admin/blog/${p.id}`, ctx.token);
       ctx.loadPosts();
@@ -414,27 +402,17 @@ export function BlogPage({ ctx }) {
     try {
       await api.patch(`/api/admin/blog/${p.id}`, { status }, ctx.token);
       ctx.loadPosts();
-      ctx.flash(status === "published" ? "Published" : "Moved back to drafts");
+      ctx.flash(status === "published" ? "Published" : "Moved to drafts");
     } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
   };
 
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 20, alignItems: "start" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Intro title="The blog">
-          Stories on the storefront at <strong>/blog</strong>, with the three most recent on the home page. Write in plain text: leave a
-          blank line between paragraphs, start a line with <code>## </code> for a heading or <code>&gt; </code> for a pull quote, and put an
-          image on its own line to drop a picture in — upload it with the picker in the editor, or paste an address. Pictures are
-          optional, cover included. A draft is invisible until you publish it.
-          <br /><br />
-          Two boxes have a limit on them, and both are about how the blog <em>looks</em>: a heading has to sit on a card without
-          wrapping to four lines, and the <strong>preview</strong> is the two or three sentences a reader sees before they open the
-          story — not the story itself. Publishing asks for a preview; saving a draft does not.
-        </Intro>
+        <Intro title="Blog" />
         {!ctx.posts.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>Nothing written yet</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Start the first story in the editor beside this.</div>
           </div>
         )}
         {ctx.posts.map((p) => (
@@ -453,22 +431,21 @@ export function BlogPage({ ctx }) {
               {p.author}{p.tags ? ` · ${p.tags}` : ""}{p.publishedAt ? ` · ${String(p.publishedAt).slice(0, 10)}` : ""}
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={() => open(p)} style={linkBtn}>Edit →</button>
+              <button onClick={() => open(p)} style={linkBtn}>Edit</button>
               <button onClick={() => setStatus(p, p.status === "published" ? "draft" : "published")} style={linkBtn}>
-                {p.status === "published" ? "Move to drafts" : "Publish"}
+                {p.status === "published" ? "Unpublish" : "Publish"}
               </button>
-              {p.status === "published" && <a href={`/blog/${p.slug}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5 }}>View →</a>}
+              {p.status === "published" && <a href={`/blog/${p.slug}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12.5 }}>View</a>}
               <button onClick={() => remove(p)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
             </div>
           </div>
         ))}
       </div>
 
-      <Panel title={editing && editing !== "new" ? "Edit story" : "New story"} onClose={editing ? close : null}>
+      <Panel title={editing && editing !== "new" ? "Edit post" : "New post"} onClose={editing ? close : null}>
         {!editing ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Write about a launch, how to layer a scent, or how to make one last all day.</div>
-            <Button variant="primary" block onClick={() => open(null)}>Write a story</Button>
+            <Button variant="primary" block onClick={() => open(null)}>New post</Button>
           </>
         ) : (
           <>
@@ -479,13 +456,13 @@ export function BlogPage({ ctx }) {
               extra={`${words(f.title)} word${words(f.title) === 1 ? "" : "s"}${words(f.title) > TITLE_MAX_WORDS ? " — long for a card" : ""}`} />
             {editing !== "new" && (
               <Input label="URL slug" value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })}
-                hint="Changing this breaks any link already shared to the old address." />
+                hint="Changing this breaks old links" />
             )}
             <Textarea label="Preview" value={f.excerpt} maxLength={PREVIEW_MAX} rows={3}
               onChange={(e) => setF({ ...f, excerpt: e.target.value })}
-              hint="One or two short sentences — this is all a reader sees before they open the story, on the blog, on the home page and in search results. It is not the opening of the article: write the line that makes someone want to read it." />
+              hint="One or two sentences" />
             <Counter value={f.excerpt} max={PREVIEW_MAX}
-              extra={f.excerpt.trim() ? "" : "Empty — we'll use the story's first paragraph, cut short."} />
+              extra="" />
             {/* A post written before the limit existed can arrive holding the
                 whole article in this box — which is the "the preview is the
                 entire story" the house reported. Shoppers already see it cut
@@ -495,41 +472,37 @@ export function BlogPage({ ctx }) {
                 somebody trim it away. */}
             {f.excerpt.length > PREVIEW_MAX && (
               <div style={{ fontSize: 12, color: "#c0587a", lineHeight: 1.6, background: "#f7e3ea", borderRadius: "var(--radius-md)", padding: "10px 12px", marginTop: -4 }}>
-                This preview is {f.excerpt.length} characters — readers are already only shown the first {PREVIEW_MAX}, and saving
-                will trim it to there.
+                Too long — saving trims it to {PREVIEW_MAX} characters.
                 {!f.body.trim() && (
                   <>
-                    {" "}The story below is empty, so this box is the only copy of that writing.
                     <button
                       onClick={() => setF((cur) => ({ ...cur, body: cur.body.trim() ? `${cur.body.trim()}\n\n${cur.excerpt.trim()}` : cur.excerpt.trim(), excerpt: "" }))}
                       style={{ ...linkBtn, color: "#c0587a", fontWeight: 600, marginLeft: 4, textDecoration: "underline" }}>
-                      Move it into the story
+                      Move it into the post
                     </button>
-                    {" "}and write a short preview here instead.
                   </>
                 )}
               </div>
             )}
-            <ImagePicker ctx={ctx} label="Cover image (optional)" value={f.coverUrl} onChange={(url) => setF({ ...f, coverUrl: url })}
-              hint="Optional — a story without one still publishes. Wide images look best on the cards." />
+            <ImagePicker ctx={ctx} label="Cover image" value={f.coverUrl} onChange={(url) => setF({ ...f, coverUrl: url })}
+              hint="Wide image" />
             {/* A picture inside the story is just its address on a line of its
                 own, so uploading one appends that line rather than holding the
                 file anywhere in this form. */}
-            <ImagePicker ctx={ctx} label="Add a picture to the story" value="" clearAfterPick
+            <ImagePicker ctx={ctx} label="Add an image to the post" value="" clearAfterPick
               onChange={(url) => setF((cur) => ({ ...cur, body: `${cur.body.replace(/\s+$/, "")}\n\n${url}\n` }))}
-              hint="Added at the end of the text below — move the line to where you want the picture to sit." />
+              hint="" />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Author" value={f.author} onChange={(e) => setF({ ...f, author: e.target.value })} />
-              <Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} placeholder="layering, care" hint="Comma-separated." />
+              <Input label="Tags" value={f.tags} onChange={(e) => setF({ ...f, tags: e.target.value })} placeholder="layering, care" />
             </div>
-            <Textarea label="The story" value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={14}
-              hint="Paste straight from Google Docs, Word or WhatsApp — paragraphs are kept, and a short line on its own above a paragraph becomes a subheading. You can also use ## for a heading, **bold**, *italic*, - for a list and > for a pull quote."
-              placeholder={"Open with the thing worth knowing.\n\n## A heading\n\nAnother paragraph.\n\n> A line worth pulling out.\n\nhttps://…/an-image.jpg"} />
+            <Textarea label="Post" value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={14}
+              hint="## heading · **bold** · *italic* · - list · > quote" />
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <Button variant="primary" disabled={busy || !f.title.trim() || !f.excerpt.trim()} onClick={() => save("published")}>{busy ? "Saving…" : "Publish"}</Button>
               <Button variant="secondary" disabled={busy || !f.title.trim()} onClick={() => save("draft")}>Save as draft</Button>
               {f.title.trim() && !f.excerpt.trim() && (
-                <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Write the preview to publish.</span>
+                <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Add a preview to publish.</span>
               )}
             </div>
             {err && <div style={{ fontSize: 12, color: "#c0587a" }}>{err}</div>}
@@ -572,7 +545,7 @@ function ProductPicker({ products, value, onChange, label = "About which product
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, position: "relative" }}>
       <Input label={label} value={q} onChange={(e) => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)}
-        placeholder="Search the catalogue — name, brand or code" hint="Leave it empty if the review isn't about one piece." />
+        placeholder="Search products (optional)" />
       {open && (
         <>
           <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
@@ -621,17 +594,17 @@ export function TestimonialsPage({ ctx }) {
       if (editing === "new") await api.post("/api/admin/testimonials", body, ctx.token);
       else await api.patch(`/api/admin/testimonials/${editing}`, body, ctx.token);
       ctx.loadTestimonials();
-      ctx.flash(editing === "new" ? "Testimonial added" : "Testimonial updated");
+      ctx.flash(editing === "new" ? "Review added" : "Review updated");
       close();
     } catch (e) { ctx.authFail(e); setErr(e.message); } finally { setBusy(false); }
   };
 
   const remove = async (t) => {
-    if (!window.confirm("Remove this testimonial from the storefront?")) return;
+    if (!window.confirm("Delete this review?")) return;
     try {
       await api.del(`/api/admin/testimonials/${t.id}`, ctx.token);
       ctx.loadTestimonials();
-      ctx.flash("Testimonial removed");
+      ctx.flash("Review deleted");
       close();
     } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
   };
@@ -655,15 +628,10 @@ export function TestimonialsPage({ ctx }) {
   return (
     <main style={pageStyle}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Intro title="Reviews & testimonials">
-          The wall at <strong>/reviews</strong>, and the rail on the home page. Write a review out as your customer told it to you — with
-          a photo if you have one — or paste the link to their own Instagram post or reel, TikTok or YouTube video and it embeds exactly
-          as they published it. We work out which platform from the address, so a copied link with tracking on the end is fine.
-        </Intro>
+        <Intro title="Reviews" />
         {!ctx.testimonials.length && (
           <div style={{ ...card, padding: 24, textAlign: "center" }}>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>The wall is empty</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 6 }}>Add the first one beside this — write it out, or paste a link and it embeds itself.</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 18, color: "var(--text-strong)" }}>No reviews yet</div>
           </div>
         )}
         {ctx.testimonials.map((t, i, all) => (
@@ -680,19 +648,18 @@ export function TestimonialsPage({ ctx }) {
               <Switch checked={t.live} onChange={() => patch(t, { live: !t.live })} />
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={() => open(t)} style={linkBtn}>Edit →</button>
-              <button onClick={() => move(t, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑ Move up</button>
-              <button onClick={() => move(t, 1)} disabled={i === all.length - 1} style={{ ...linkBtn, opacity: i === all.length - 1 ? 0.4 : 1 }}>↓ Move down</button>
+              <button onClick={() => open(t)} style={linkBtn}>Edit</button>
+              <button onClick={() => move(t, -1)} disabled={i === 0} style={{ ...linkBtn, opacity: i === 0 ? 0.4 : 1 }}>↑ Up</button>
+              <button onClick={() => move(t, 1)} disabled={i === all.length - 1} style={{ ...linkBtn, opacity: i === all.length - 1 ? 0.4 : 1 }}>↓ Down</button>
               <button onClick={() => remove(t)} style={{ ...linkBtn, color: "#c0587a", marginLeft: "auto" }}>Delete</button>
             </div>
           </div>
         ))}
       </div>
 
-      <Panel title={editing && editing !== "new" ? "Edit testimonial" : "New testimonial"} onClose={editing ? close : null}>
+      <Panel title={editing && editing !== "new" ? "Edit review" : "New review"} onClose={editing ? close : null}>
         {!editing ? (
           <>
-            <div style={{ fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.6 }}>Write out what a customer told you, or embed their own post.</div>
             <Button variant="primary" block onClick={() => open(null)}>Add a review</Button>
           </>
         ) : (
@@ -708,7 +675,7 @@ export function TestimonialsPage({ ctx }) {
             {mode === "embed" && (
               <Input label="Post link" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })}
                 placeholder="https://www.instagram.com/p/…"
-                hint="Instagram post or reel, TikTok video, YouTube video, or a direct .mp4 link." />
+                hint="Instagram, TikTok, YouTube or .mp4" />
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Input label="Customer" value={f.author} onChange={(e) => setF({ ...f, author: e.target.value })} placeholder="Dorothy" />
@@ -721,13 +688,13 @@ export function TestimonialsPage({ ctx }) {
               </Select>
             </div>
             <Textarea label={mode === "written" ? "What they said" : "Quote"} value={f.quote} onChange={(e) => setF({ ...f, quote: e.target.value })} rows={3}
-              hint={mode === "written" ? "The review itself — this is what the card shows." : "Optional here; shown under the embed."} />
+              hint={mode === "written" ? "" : "Optional"} />
             {mode === "written" && (
               <ImagePicker ctx={ctx} label="Photo (optional)" value={f.thumbUrl || ""} onChange={(url) => setF({ ...f, thumbUrl: url })}
-                hint="A screenshot of the message, or a photo they sent. The review stands on its own without one." />
+                hint="" />
             )}
             <ProductPicker products={ctx.products} value={f.productId} onChange={(id) => setF({ ...f, productId: id })} />
-            <Switch label="Live on the storefront" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
+            <Switch label="Live" checked={f.live} onChange={(e) => setF({ ...f, live: e.target.checked })} />
             <Button variant="primary" block disabled={busy} onClick={save}>
               {busy ? "Saving…" : editing === "new" ? "Add testimonial" : "Save changes"}
             </Button>
@@ -775,12 +742,12 @@ export function PagesPage({ ctx }) {
     try {
       await api.patch(`/api/admin/pages/${encodeURIComponent(p.slug)}`, { live }, ctx.token);
       ctx.loadPages();
-      ctx.flash(live ? "Published" : "Taken off the storefront");
+      ctx.flash(live ? "Published" : "Unpublished");
     } catch (e) { ctx.authFail(e); ctx.flash(e.message); }
   };
 
   const remove = async (p) => {
-    if (!window.confirm(`Delete "${p.title}"? Anyone holding a link to /${p.slug} will get a not-found page.`)) return;
+    if (!window.confirm(`Delete "${p.title}"?`)) return;
     try {
       await api.del(`/api/admin/pages/${encodeURIComponent(p.slug)}`, ctx.token);
       ctx.loadPages();
@@ -792,12 +759,7 @@ export function PagesPage({ ctx }) {
   return (
     <main style={pageStyle}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Intro title="Information & legal pages">
-          Privacy, terms, returns, delivery — each one lives at its own address (<strong>/privacy</strong>, <strong>/terms</strong>) and is
-          written in plain text, the same way the blog is: a blank line between paragraphs, <code>## </code> to start a heading,
-          <code>&gt; </code> for a quote. A draft is invisible until you publish it, and the &ldquo;last updated&rdquo; line on the page is
-          stamped each time you save, so it can never quietly say something untrue.
-        </Intro>
+        <Intro title="Pages" />
         {ctx.pages.map((p) => (
           <div key={p.slug} style={{ ...card, padding: 18, opacity: p.live ? 1 : 0.68 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
@@ -805,43 +767,40 @@ export function PagesPage({ ctx }) {
                 {p.live ? "Live" : "Draft"}
               </span>
               <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>/{p.slug}</span>
-              {!p.inFooter && <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>· not in the footer</span>}
+              {!p.inFooter && <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>· hidden from footer</span>}
             </div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 17, color: "var(--text-strong)", marginTop: 8 }}>{p.title}</div>
             <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 6 }}>
-              {p.body.trim() ? `${p.body.trim().split(/\s+/).length} words` : "Nothing written yet"}
+              {p.body.trim() ? `${p.body.trim().split(/\s+/).length} words` : "Empty"}
               {p.updatedAt ? ` · saved ${String(p.updatedAt).slice(0, 10)}` : ""}
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={() => open(p)} style={linkBtn}>Edit →</button>
-              <button onClick={() => setLive(p, !p.live)} style={linkBtn}>{p.live ? "Take off the storefront" : "Publish"}</button>
-              {p.live && <a href={`/${p.slug}`} target="_blank" rel="noreferrer" style={{ ...linkBtn, textDecoration: "none" }}>View →</a>}
+              <button onClick={() => open(p)} style={linkBtn}>Edit</button>
+              <button onClick={() => setLive(p, !p.live)} style={linkBtn}>{p.live ? "Unpublish" : "Publish"}</button>
+              {p.live && <a href={`/${p.slug}`} target="_blank" rel="noreferrer" style={{ ...linkBtn, textDecoration: "none" }}>View</a>}
               {p.slug !== "privacy" && <button onClick={() => remove(p)} style={{ ...linkBtn, color: "#c0587a" }}>Delete</button>}
             </div>
           </div>
         ))}
-        <button onClick={() => open(null)} style={{ alignSelf: "flex-start", background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "8px 16px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ Write a new page</button>
+        <button onClick={() => open(null)} style={{ alignSelf: "flex-start", background: "none", border: "1px dashed var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "8px 16px", cursor: "pointer", fontFamily: "var(--font-sans)", fontSize: 12.5, color: "var(--mr-purple-800)" }}>+ New page</button>
       </div>
 
       <div style={{ ...card, padding: 22, display: "flex", flexDirection: "column", gap: 14, position: "sticky", top: 20 }}>
         {!f ? (
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Pick a page to edit, or start a new one.</div>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Select a page to edit.</div>
         ) : (
           <>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{editing === "new" ? "A new page" : `Editing /${editing}`}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{editing === "new" ? "New page" : `Edit /${editing}`}</div>
             <Input label="Title" value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Returns & refunds" />
             {editing === "new" && (
-              <Input label="Address (optional)" value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })} placeholder="returns"
-                hint="The page lives at /this. Left empty it is made from the title. It is fixed once the page exists, so a link someone has shared keeps working however the title is later reworded." />
+              <Input label="Address (optional)" value={f.slug} onChange={(e) => setF({ ...f, slug: e.target.value })} placeholder="returns" />
             )}
-            <Input label="Eyebrow (optional)" value={f.eyebrow} onChange={(e) => setF({ ...f, eyebrow: e.target.value })} placeholder="Legal"
-              hint="The small line above the title." />
+            <Input label="Eyebrow (optional)" value={f.eyebrow} onChange={(e) => setF({ ...f, eyebrow: e.target.value })} placeholder="Legal" />
             <Textarea label="The page" value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={18}
-              hint="Blank line between paragraphs. `## ` starts a heading, `> ` a quote, and an address on its own line becomes a picture." />
-            <Input label="Search title (optional)" value={f.seoTitle} onChange={(e) => setF({ ...f, seoTitle: e.target.value })}
-              hint="Left empty, the page's own title is used." />
+              hint="## heading · > quote" />
+            <Input label="Search title (optional)" value={f.seoTitle} onChange={(e) => setF({ ...f, seoTitle: e.target.value })} />
             <Textarea label="Search description (optional)" value={f.seoDesc} onChange={(e) => setF({ ...f, seoDesc: e.target.value })} rows={2} />
-            <Switch label="List it in the storefront footer" checked={f.inFooter} onChange={(e) => setF({ ...f, inFooter: e.target.checked })} />
+            <Switch label="Show in footer" checked={f.inFooter} onChange={(e) => setF({ ...f, inFooter: e.target.checked })} />
             {err && <div style={{ fontSize: 12.5, color: "#c0587a" }}>{err}</div>}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <Button variant="primary" size="sm" disabled={busy} onClick={() => save(true)}>{busy ? "Saving…" : "Save & publish"}</Button>

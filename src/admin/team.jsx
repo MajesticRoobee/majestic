@@ -16,7 +16,7 @@ function IssuedPassphrase({ label, value, onDone }) {
         <button onClick={() => navigator.clipboard && navigator.clipboard.writeText(value)} style={{ background: "none", border: "1px solid var(--border-strong)", borderRadius: "var(--radius-pill)", padding: "6px 12px", fontSize: 12, cursor: "pointer", color: "var(--mr-purple-800)", fontFamily: "var(--font-sans)" }}>Copy</button>
         <button onClick={onDone} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>Done</button>
       </div>
-      <div style={{ fontSize: 12, color: "var(--mr-gold-600)", marginTop: 8 }}>Shown once — copy it now and give it to the employee. They'll be asked to set their own on first login.</div>
+      <div style={{ fontSize: 12, color: "var(--mr-gold-600)", marginTop: 8 }}>Copy it now — it won't be shown again.</div>
     </div>
   );
 }
@@ -31,14 +31,14 @@ export function TeamPage({ ctx }) {
   const create = async () => {
     try {
       const r = await api.post("/api/admin/users", form, ctx.token);
-      setIssued({ label: `Passphrase for @${r.username}`, value: r.passphrase });
+      setIssued({ label: `Password for @${r.username}`, value: r.passphrase });
       setForm({ username: "", name: "", role: "manager", scope: "abuja" });
       setErr("");
       load();
     } catch (e) { ctx.authFail(e); setErr(e.message); }
   };
   const reset = async (u) => {
-    try { const r = await api.post(`/api/admin/users/${u.id}/reset`, {}, ctx.token); setIssued({ label: `New passphrase for @${u.username}`, value: r.passphrase }); load(); }
+    try { const r = await api.post(`/api/admin/users/${u.id}/reset`, {}, ctx.token); setIssued({ label: `New password for @${u.username}`, value: r.passphrase }); load(); }
     catch (e) { ctx.authFail(e); }
   };
   const toggle = async (u) => {
@@ -48,21 +48,18 @@ export function TeamPage({ ctx }) {
   return (
     <main style={{ padding: "26px 28px 48px", display: "grid", gridTemplateColumns: "1fr 1.6fr", gap: 20, alignItems: "start" }}>
       <div style={{ ...card, padding: 24, position: "sticky", top: 84 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 4 }}>Add an employee</div>
-        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 18 }}>Creates an account and issues a one-time passphrase. Only a super admin can add staff.</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 18 }}>Add staff</div>
         {issued && <IssuedPassphrase {...issued} onDone={() => setIssued(null)} />}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Input label="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, "") })} placeholder="amaka" hint="Lowercase, no spaces — their login handle." />
+          <Input label="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value.toLowerCase().replace(/\s/g, "") })} placeholder="amaka" />
           <Input label="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Amaka Okoro" />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Select label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               <option value="manager">Store manager</option>
-              <option value="super">Super admin</option>
+              <option value="super">Admin (all stores)</option>
             </Select>
             <Select label="Store" value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })} disabled={form.role === "super"}>
-              <option value="abuja">Abuja</option>
-              <option value="lagos">Lagos</option>
-              <option value="ibadan">Ibadan</option>
+              {ctx.openStores.map((l) => <option key={l.id} value={l.id}>{l.city}</option>)}
             </Select>
           </div>
           <Button variant="primary" block onClick={create}>Create account</Button>
@@ -116,11 +113,11 @@ export function AccountPage({ ctx }) {
 
   const changePw = async () => {
     setPwMsg("");
-    if (pw.next !== pw.confirm) return setPwMsg("The two new passphrases don't match.");
+    if (pw.next !== pw.confirm) return setPwMsg("Passwords don't match.");
     try {
       await api.post("/api/admin/account/password", { current: pw.current, next: pw.next }, ctx.token);
       setPw({ current: "", next: "", confirm: "" });
-      setPwMsg("Passphrase updated.");
+      setPwMsg("Password updated.");
       ctx.loadMe();
     } catch (e) { ctx.authFail(e); setPwMsg(e.message); }
   };
@@ -129,11 +126,11 @@ export function AccountPage({ ctx }) {
     catch (e) { ctx.authFail(e); setTotpMsg(e.message); }
   };
   const enableTotp = async () => {
-    try { await api.post("/api/admin/account/totp/enable", { code }, ctx.token); setTotp(null); setCode(""); setTotpMsg("Two-factor authentication is on."); ctx.loadMe(); }
+    try { await api.post("/api/admin/account/totp/enable", { code }, ctx.token); setTotp(null); setCode(""); setTotpMsg("2FA is on."); ctx.loadMe(); }
     catch (e) { ctx.authFail(e); setTotpMsg(e.message); }
   };
   const disableTotp = async () => {
-    try { await api.post("/api/admin/account/totp/disable", { code }, ctx.token); setCode(""); setTotpMsg("Two-factor authentication is off."); ctx.loadMe(); }
+    try { await api.post("/api/admin/account/totp/disable", { code }, ctx.token); setCode(""); setTotpMsg("2FA is off."); ctx.loadMe(); }
     catch (e) { ctx.authFail(e); setTotpMsg(e.message); }
   };
 
@@ -142,36 +139,35 @@ export function AccountPage({ ctx }) {
       <div style={section}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Signed in as {me.name || "—"}</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{isMaster ? "Master passphrase session" : `@${me.username} · ${me.role === "super" ? "Super admin" : `${me.scope} manager`}`}</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{isMaster ? "Owner" : `@${me.username} · ${me.role === "super" ? "Admin" : `${me.scope} manager`}`}</div>
         </div>
       </div>
 
       {!isMaster && (
         <div style={section}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Change passphrase</div>
-          <Input label="Current passphrase" type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Change password</div>
+          <Input label="Current password" type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Input label="New passphrase" type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} hint="At least 8 characters." />
+            <Input label="New password" type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} hint="At least 8 characters" />
             <Input label="Confirm new" type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
           </div>
-          <div><Button variant="primary" onClick={changePw}>Update passphrase</Button></div>
+          <div><Button variant="primary" onClick={changePw}>Update password</Button></div>
           {pwMsg && <div style={{ fontSize: 12.5, color: pwMsg.includes("updated") ? "#3f6b45" : "#c0587a" }}>{pwMsg}</div>}
         </div>
       )}
 
       {!isMaster && (
         <div style={section}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Two-factor authentication (2FA)</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Two-factor sign-in</div>
           <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
-            {me.totpEnabled ? "2FA is on — you'll be asked for a code from your authenticator app at login." : "Add a second step at login using an authenticator app (Google Authenticator, Authy, 1Password…)."}
+            {me.totpEnabled ? "On" : "Off"}
           </div>
           {!me.totpEnabled && !totp && <div><Button variant="secondary" onClick={initTotp}>Set up 2FA</Button></div>}
           {!me.totpEnabled && totp && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 12.5, color: "var(--text-body)" }}>1. Add this key to your authenticator app (manual entry):</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-body)" }}>1. Add this key to your authenticator app:</div>
               <code style={{ fontFamily: "monospace", fontSize: 15, background: "var(--surface-sunken)", padding: "10px 12px", borderRadius: "var(--radius-sm)", color: "var(--mr-purple-900)", wordBreak: "break-all" }}>{totp.secret}</code>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", wordBreak: "break-all" }}>or use setup URL: {totp.uri}</div>
-              <div style={{ fontSize: 12.5, color: "var(--text-body)" }}>2. Enter the 6-digit code it shows:</div>
+              <div style={{ fontSize: 12.5, color: "var(--text-body)" }}>2. Enter the 6-digit code:</div>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
                 <Input label="Code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" style={{ width: 140 }} />
                 <Button variant="primary" onClick={enableTotp}>Turn on 2FA</Button>
@@ -180,7 +176,7 @@ export function AccountPage({ ctx }) {
           )}
           {me.totpEnabled && (
             <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-              <Input label="Current 2FA code to disable" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" style={{ width: 200 }} />
+              <Input label="2FA code" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" style={{ width: 200 }} />
               <Button variant="secondary" onClick={disableTotp}>Turn off 2FA</Button>
             </div>
           )}
@@ -188,11 +184,6 @@ export function AccountPage({ ctx }) {
         </div>
       )}
 
-      {isMaster && (
-        <div style={section}>
-          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>You're signed in with the master passphrase. Create a named super-admin account under <strong>Team</strong> and use that day-to-day so you can enable 2FA and keep an audit trail.</div>
-        </div>
-      )}
     </main>
   );
 }

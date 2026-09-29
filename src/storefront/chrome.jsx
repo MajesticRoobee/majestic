@@ -32,10 +32,7 @@ function ProfileMenu({ ctx }) {
           </span>
         )}
         {!ctx.isMobile && (
-          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, textAlign: "left" }}>
-            <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{cust ? `Hello, ${firstName}` : "Hello, sign in"}</span>
-            <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--mr-purple-900)", whiteSpace: "nowrap" }}>Your account</span>
-          </span>
+          <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--mr-purple-900)", whiteSpace: "nowrap" }}>{cust ? firstName : "Sign in"}</span>
         )}
       </button>
       {open && (
@@ -43,19 +40,18 @@ function ProfileMenu({ ctx }) {
           <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", width: 224, background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)", zIndex: 171, padding: 8 }}>
             {cust ? (
               <>
-                <div style={{ padding: "8px 12px 10px", fontSize: 12.5, color: "var(--text-muted)" }}>Signed in as<br /><strong style={{ color: "var(--text-strong)", fontSize: 13.5 }}>{cust.name || cust.email}</strong></div>
-                {item("My account & orders", () => ctx.nav("account"))}
+                <div style={{ padding: "8px 12px 10px", fontSize: 13.5, fontWeight: 600, color: "var(--text-strong)" }}>{cust.name || cust.email}</div>
+                {item("Account & orders", () => ctx.nav("account"))}
                 {item("Sign out", () => ctx.custLogout(), "var(--mr-orchid-600)")}
               </>
             ) : (
               <>
-                <div style={{ padding: "8px 12px 6px", fontFamily: "var(--font-condensed)", fontSize: 11, letterSpacing: "var(--ls-eyebrow)", textTransform: "uppercase", color: "var(--accent-gold-ink)" }}>Your account</div>
                 {item("Sign in", () => ctx.nav("account"))}
                 {item("Create account", () => ctx.nav("account"))}
               </>
             )}
             <div style={{ borderTop: "1px solid var(--border-hairline)", margin: "6px 4px" }} />
-            <a href="/admin/" style={{ display: "block", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-muted)", padding: "9px 12px" }}>Staff portal →</a>
+            <a href="/admin/" style={{ display: "block", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-muted)", padding: "9px 12px" }}>Staff sign in</a>
           </div>
         </>
       )}
@@ -103,18 +99,6 @@ function PromoPopup({ ctx }) {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function CityGate({ ctx }) {
-  if (!ctx.gateOpen) return null;
-  return (
-    <div style={{ background: "var(--mr-lavender-200)", borderBottom: "1px solid var(--border-hairline)", padding: "12px 20px", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "center" }}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mr-purple-700)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
-      <span style={{ fontSize: 13, color: "var(--mr-purple-800)" }}>Shopping from <strong style={{ fontWeight: 600 }}>{ctx.cityName}</strong>? We'll show you what's in stock there first.</span>
-      <Button variant="primary" size="sm" onClick={() => ctx.setCityConfirmed(ctx.city)}>Yes, that's right</Button>
-      <CitySelect ctx={ctx} style={{ fontSize: 13, padding: "7px 10px", border: "1px solid var(--border-strong)" }} />
     </div>
   );
 }
@@ -407,7 +391,7 @@ function Wordmark({ ctx, height, tone = "dark", onClick }) {
 
 // One of the three labelled destinations on the right of the top bar: an icon,
 // a quiet line, and the line that carries the state.
-function HeaderAction({ icon, kicker, label, onClick, href, badge }) {
+function HeaderAction({ icon, label, onClick, href, badge }) {
   const body = (
     <>
       <span style={{ position: "relative", display: "flex", color: "var(--mr-purple-800)" }}>
@@ -416,10 +400,7 @@ function HeaderAction({ icon, kicker, label, onClick, href, badge }) {
           <span style={{ position: "absolute", top: -5, right: -6, background: "var(--accent-gold)", color: "var(--mr-purple-950)", fontSize: 10.5, fontWeight: 600, minWidth: 17, height: 17, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{badge}</span>
         )}
       </span>
-      <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.25, textAlign: "left" }}>
-        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9.5, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{kicker}</span>
-        <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--mr-purple-900)", whiteSpace: "nowrap" }}>{label}</span>
-      </span>
+      <span style={{ fontFamily: "var(--font-condensed)", fontSize: 11.5, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--mr-purple-900)", whiteSpace: "nowrap" }}>{label}</span>
     </>
   );
   const style = { display: "flex", alignItems: "center", gap: 9, background: "none", border: "none", cursor: "pointer", padding: 0 };
@@ -456,7 +437,7 @@ function Header({ ctx }) {
     <div style={{ display: "flex", alignItems: "center", gap: 10, alignSelf: "center", flex: dark ? "0 1 320px" : undefined, minWidth: dark ? 160 : undefined, background: "var(--surface-card)", borderRadius: "var(--radius-sm)", padding: "8px 14px", border: dark ? "none" : "1px solid var(--border-hairline)" }}>
       <input value={ctx.search} onChange={(e) => ctx.setSearch(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && ctx.nav("shop", { fSeg: null, fCol: null })}
-        placeholder="Search for a perfume, oil or mist…" aria-label="Search the store"
+        placeholder="Search products" aria-label="Search the store"
         style={{ border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-sans)", fontSize: 13, color: "var(--text-strong)", width: "100%" }} />
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mr-mute)" strokeWidth="1.6" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></svg>
     </div>
@@ -480,9 +461,9 @@ function Header({ ctx }) {
         </div>
         {!ctx.isMobile ? (
           <div style={{ display: "flex", alignItems: "center", gap: "clamp(16px, 2.2vw, 30px)" }}>
-            <HeaderAction icon={ICON_HEART} href="/wishlist" kicker="Welcome" label={`Wish list${wishCount ? ` (${wishCount})` : ""}`} onClick={() => ctx.nav("wishlist")} />
+            <HeaderAction icon={ICON_HEART} href="/wishlist" label={`Wishlist${wishCount ? ` (${wishCount})` : ""}`} onClick={() => ctx.nav("wishlist")} />
             <ProfileMenu ctx={ctx} />
-            <HeaderAction icon={ICON_BAG} kicker="Your cart" label={ctx.fmt(ctx.cc.sub)} badge={cartCount || null} onClick={() => ctx.setCartOpen(true)} />
+            <HeaderAction icon={ICON_BAG} label={cartCount ? ctx.fmt(ctx.cc.sub) : "Cart"} badge={cartCount || null} onClick={() => ctx.setCartOpen(true)} />
           </div>
         ) : (
           <>
@@ -661,31 +642,25 @@ export function LeaveNudge({ ctx }) {
       )}
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
         <Button variant="primary" onClick={ctx.takeNudge}>{st.nudgeCta || "Back to my cart"}</Button>
-        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{n} item{n === 1 ? "" : "s"} waiting</span>
+        <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{n} item{n === 1 ? "" : "s"} in cart</span>
       </div>
     </div>
   );
 }
 
-// The floating dock: currency, city, and the way into the Perfume Studio's
-// calendar — a horizontal row sitting just above the support button.
-//
-// Currency and city were at the right-hand end of the purple band, which is
-// the last place a shopper looks once they have started shopping and is not on
-// the page at all on a phone until they open the menu. The house asked for
-// them to float instead, with "Book a consultation" beside them. That turns
-// out to be the right place for all three: a shopper works out halfway down a
-// product page that the price is in the wrong currency, or that they are
-// looking at Lagos stock, and the control is under their thumb rather than a
-// scroll away.
+// The floating dock: city and currency, folded into one small pill above the
+// support button. It opens on a tap and closes again, so the corner holds one
+// quiet control instead of a stack of three — "Book a consultation" already has
+// its place in the header.
 //
 // It stands down for the chat panel, which occupies the same corner when open.
 function SupportDock({ ctx }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  useDismiss(wrap, open, useCallback(() => setOpen(false), []));
   if (ctx.chat.open) return null;
-  const consult = ctx.consultation || {};
   // The chat button is 56px at bottom:20. The consent banner owns the bottom of
-  // the screen until it is answered, and on a phone it is full width, so the
-  // dock climbs over it rather than hiding behind it.
+  // the screen until it is answered, so the dock climbs over it.
   const bottom = ctx.showConsent ? 168 : 88;
   const pill = {
     display: "inline-flex", alignItems: "center", gap: 6, background: "var(--surface-card)",
@@ -695,24 +670,19 @@ function SupportDock({ ctx }) {
     appearance: "none", lineHeight: 1.2,
   };
   return (
-    <div style={{ position: "fixed", right: 20, bottom, zIndex: 158, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, maxWidth: "calc(100vw - 40px)" }}>
-      {consult.on && (
-        <a href="/consultation" onClick={(e) => { e.preventDefault(); ctx.nav("consultation"); }}
-          style={{ ...pill, background: "var(--accent-gold)", borderColor: "transparent", color: "var(--mr-purple-950)", fontWeight: 600, boxShadow: "var(--shadow-gold)", textDecoration: "none" }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" />
-          </svg>
-          {consult.ctaLabel || "Book a consultation"}
-        </a>
+    <div ref={wrap} style={{ position: "fixed", right: 20, bottom, zIndex: 158, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, maxWidth: "calc(100vw - 40px)" }}>
+      {open && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+          <CitySelect ctx={ctx} style={{ ...pill, paddingRight: 11 }} />
+          <button onClick={ctx.toggleCurrency} aria-label={`Prices in ${ctx.currency}. Switch currency.`} style={pill}>
+            {ctx.currency === "NGN" ? "Switch to $ USD" : "Switch to \u20a6 NGN"}
+          </button>
+        </div>
       )}
-      {/* Stacked, not side by side: two pills in a row push out from the edge
-          far enough to sit over the page, and the one underneath the thumb on
-          a phone is the one nobody meant to press. Right-aligned so they read
-          as one column with the button above them. */}
-      <button onClick={ctx.toggleCurrency} title="Switch currency" aria-label={`Prices in ${ctx.currency}. Switch currency.`} style={pill}>
-        {ctx.currency === "NGN" ? "\u20a6 NGN" : "$ USD"}
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label={`${ctx.cityName}, prices in ${ctx.currency}. Change.`} style={pill}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></svg>
+        {ctx.cityName} · {ctx.currency === "NGN" ? "\u20a6" : "$"}
       </button>
-      <CitySelect ctx={ctx} style={{ ...pill, paddingRight: 11 }} />
     </div>
   );
 }
@@ -726,7 +696,7 @@ export function ChatWidget({ ctx, mobile = false }) {
           <div style={{ background: "var(--mr-purple-900)", color: "var(--mr-cream)", padding: "14px 18px", display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#8fd694" }} />
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600 }}>Majestic Roobee customer service</div>
+              <div style={{ fontSize: 13.5, fontWeight: 600 }}>Customer service</div>
               <div style={{ fontSize: 11, color: "var(--text-on-dark-muted)" }}>Usually replies in minutes</div>
             </div>
             <button onClick={() => setChat((s) => ({ ...s, open: false }))} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-on-dark-muted)", fontSize: 15 }}>✕</button>
@@ -849,9 +819,8 @@ function Footer({ ctx }) {
         <div style={{ maxWidth: 1280, margin: "0 auto", padding: "18px clamp(16px, 4vw, 40px)", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 12 }}>
           <span>© {new Date().getFullYear()} Majestic Roobee. All rights reserved.</span>
           <span style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: "var(--font-condensed)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--mr-gold-400)" }}>Elevate Your Smellgame</span>
             <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--text-on-dark-muted)" }}>Privacy &amp; cookies</a>
-            <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff portal</a>
+            <a href="/admin/" style={{ color: "var(--text-on-dark-muted)" }}>Staff sign in</a>
           </span>
         </div>
       </div>
@@ -867,7 +836,7 @@ export function ConsentBanner({ ctx }) {
   return (
     <div style={{ position: "fixed", left: 16, right: 16, bottom: "calc(16px + var(--mr-tabs-h, 0px) + var(--mr-bar-h, 0px))", zIndex: 180, maxWidth: 720, margin: "0 auto", background: "var(--mr-purple-950)", color: "var(--text-on-dark-muted)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-lg)", padding: "14px 16px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span style={{ fontSize: 13, lineHeight: 1.5, flex: 1, minWidth: 220 }}>
-        We use cookies to run the store and, if you accept, to measure and improve it.
+        We use cookies to improve your experience.
         {" "}<a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--mr-gold-400)" }}>Privacy policy</a>
       </span>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -934,11 +903,11 @@ export function PurchaseProof({ ctx }) {
     if (closed || !list.length) return undefined;
     // A quiet beat before the first one, so it doesn't land on top of the page
     // the shopper has only just opened.
-    const first = setTimeout(() => setShown(true), 6000);
+    const first = setTimeout(() => setShown(true), 20000);
     const every = setInterval(() => {
       setShown(false);
       setTimeout(() => { setI((n) => (n + 1) % list.length); setShown(true); }, 600);
-    }, Math.max(6000, ctx.proof.intervalMs || 14000));
+    }, Math.max(30000, ctx.proof.intervalMs || 30000));
     return () => { clearTimeout(first); clearInterval(every); };
   }, [closed, list.length, ctx.proof.intervalMs]);
 
@@ -965,7 +934,6 @@ export function Chrome({ ctx, children }) {
       <PromoPopup ctx={ctx} />
       <ConsentBanner ctx={ctx} />
       <AnnouncementBar ctx={ctx} />
-      <CityGate ctx={ctx} />
       <Header ctx={ctx} />
       {children}
       <CartDrawer ctx={ctx} />

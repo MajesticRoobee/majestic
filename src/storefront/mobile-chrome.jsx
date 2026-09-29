@@ -13,7 +13,7 @@
 import React, { useState } from "react";
 import { catTree, countIn } from "../lib/categories.js";
 import { ImageSlot } from "../ds/components.jsx";
-import { AnnouncementBar, ConsentBanner, LeaveNudge, PurchaseProof, ChatWidget } from "./chrome.jsx";
+import { AnnouncementBar, ConsentBanner, LeaveNudge, ChatWidget } from "./chrome.jsx";
 import { I, BtnM, Sheet, Radio, Stepper, FreeShipBar, RailEnd, chipTone, eyebrowM, fieldM } from "./mobile-ui.jsx";
 
 const LOGO = { dark: "/logo.png", light: "/logo-light.png" };
@@ -87,14 +87,14 @@ function SearchRow({ ctx }) {
       <button onClick={() => ctx.setSheet({ kind: "search" })}
         style={{ height: 46, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", background: "var(--surface-card)", border: "1px solid var(--border-hairline)", borderRadius: "var(--radius-md)", cursor: "pointer", textAlign: "left", boxShadow: "var(--shadow-xs)", color: "var(--mr-mute)" }}>
         {I.search(18)}
-        <span style={{ fontFamily: "var(--font-sans)", fontSize: 14, color: "var(--text-muted)" }}>{ctx.search ? `“${ctx.search}”` : "Search for a perfume, oil or mist…"}</span>
+        <span style={{ fontFamily: "var(--font-sans)", fontSize: 14, color: "var(--text-muted)" }}>{ctx.search ? `“${ctx.search}”` : "Search products"}</span>
       </button>
       {/* Bleeds to the screen's edges so the last chip scrolls fully into view
           rather than stopping clipped at the gutter. */}
       <div className="mr-rail" style={{ display: "flex", gap: 8, overflowX: "auto", margin: "0 -16px", padding: "0 16px" }}>
         <button onClick={() => ctx.setSheet({ kind: "city" })} style={pill} aria-label={`Delivering to ${ctx.cityName}. Change city.`}>
           {I.pin(14)}
-          <span>Deliver to <strong style={{ fontWeight: 600 }}>{ctx.cityName}</strong>{L && L.eta ? ` · ${L.eta}` : ""}</span>
+          <span><strong style={{ fontWeight: 600 }}>{ctx.cityName}</strong>{L && L.eta ? ` · ${L.eta}` : ""}</span>
           {I.chevDown(12)}
         </button>
         <button onClick={ctx.toggleCurrency} style={{ ...pill, fontWeight: 500 }} aria-label={`Prices in ${ctx.currency}. Switch currency.`}>
@@ -107,20 +107,6 @@ function SearchRow({ ctx }) {
           </button>
         )}
         <RailEnd />
-      </div>
-    </div>
-  );
-}
-
-// "Shopping from Abuja?" — once, on the home page, as a card in the flow rather
-// than a bar across the top of every page.
-function GateCard({ ctx }) {
-  return (
-    <div style={{ margin: "12px 16px 0", background: "var(--mr-lavender-200)", borderRadius: "var(--radius-md)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-      <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--mr-purple-800)" }}>Shopping from <strong style={{ fontWeight: 600 }}>{ctx.cityName}</strong>? We&apos;ll show you what&apos;s in stock there first.</span>
-      <div style={{ display: "flex", gap: 8 }}>
-        <BtnM size="sm" onClick={() => ctx.setCityConfirmed(ctx.city)}>Yes, that&apos;s right</BtnM>
-        <BtnM size="sm" variant="secondary" onClick={() => ctx.setSheet({ kind: "city" })}>Change city</BtnM>
       </div>
     </div>
   );
@@ -186,10 +172,7 @@ function MenuSheet({ ctx, close }) {
       <div className="mr-rail" style={{ flex: 1, overflowY: "auto", paddingBottom: "calc(24px + env(safe-area-inset-bottom))" }}>
         <button onClick={() => ctx.nav("account")} style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "var(--mr-lavender-200)", border: "none", cursor: "pointer", textAlign: "left", color: "var(--mr-purple-900)" }}>
           {I.user(22)}
-          <span style={{ flex: 1 }}>
-            <span style={{ display: "block", fontSize: 14, fontWeight: 600 }}>{ctx.cust ? `Hello, ${first}` : "Hello, sign in"}</span>
-            <span style={{ display: "block", fontSize: 12, color: "var(--text-body)" }}>Orders, rewards and your wishlist</span>
-          </span>
+          <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{ctx.cust ? `Hello, ${first}` : "Sign in"}</span>
           {I.chevRight(16)}
         </button>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "14px 16px 6px" }}>
@@ -244,7 +227,10 @@ function MenuSheet({ ctx, close }) {
           <button onClick={() => ctx.setSheet({ kind: "city" })} style={{ ...pill, flex: 1, height: 42, justifyContent: "center", fontSize: 13 }}>{I.pin(14)}{ctx.cityName}</button>
           <button onClick={ctx.toggleCurrency} style={{ ...pill, flex: 1, height: 42, justifyContent: "center", fontSize: 13, fontWeight: 500 }}>{ctx.currency === "NGN" ? "₦ NGN" : "$ USD"}</button>
         </div>
-        <a href="/admin/" style={{ display: "block", padding: "14px 16px 0", fontSize: 12.5, color: "var(--text-muted)" }}>Staff portal →</a>
+        {/* A full-height row like every other link here, not a line of small
+            print under the currency buttons. */}
+        <div style={{ height: 1, background: "var(--border-hairline)", margin: "10px 16px 0" }} />
+        <a href="/admin/" style={{ ...link, display: "flex", alignItems: "center", gap: 10, fontSize: 13.5, color: "var(--text-muted)", textDecoration: "none" }}>{I.lock(16)} Staff sign in</a>
       </div>
     </Sheet>
   );
@@ -287,7 +273,7 @@ function SearchSheet({ ctx, close }) {
           {I.search(18)}
           {/* autoFocus lands inside the tap that opened the sheet, which is the
               only focus iOS will raise the keyboard for. */}
-          <input autoFocus type="search" className="mr-search" enterKeyHint="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search for a perfume, oil or mist…" aria-label="Search the store"
+          <input autoFocus type="search" className="mr-search" enterKeyHint="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products" aria-label="Search the store"
             style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-sans)", fontSize: 16, color: "var(--text-strong)" }} />
           {q && <button type="button" onClick={() => setQ("")} aria-label="Clear" style={{ width: 28, height: 28, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>{I.close(14, 2)}</button>}
         </div>
@@ -344,7 +330,6 @@ function SearchSheet({ ctx, close }) {
         {term && !results.length && (
           <div style={{ padding: "24px 0", display: "flex", flexDirection: "column", gap: 14 }}>
             <p style={{ fontFamily: "var(--font-serif)", fontSize: 20, color: "var(--text-strong)", margin: 0 }}>Nothing found for “{q.trim()}”.</p>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>Try a note like oud or vanilla, or browse a category.</p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {browse.map((c) => <button key={c.id} onClick={() => goShop(ctx, { fCat: c.id })} style={{ ...chipBtn, background: "var(--mr-lavender-200)", border: "1px solid var(--border-strong)", color: "var(--mr-purple-900)" }}>{c.label}</button>)}
             </div>
@@ -360,8 +345,7 @@ function CitySheet({ ctx, close }) {
   return (
     <Sheet onClose={close} z={195} label="City and currency">
       <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 6 }}>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)" }}>Where are you shopping from?</div>
-        <p style={{ fontSize: 13, lineHeight: 1.5, margin: "0 0 4px", color: "var(--text-body)" }}>We&apos;ll show you what&apos;s in stock at your nearest store first.</p>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 20, color: "var(--text-strong)", marginBottom: 4 }}>Your city</div>
         {ctx.locations.map((l) => {
           const on = l.id === ctx.city;
           return (
@@ -375,7 +359,7 @@ function CitySheet({ ctx, close }) {
             </button>
           );
         })}
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)", paddingTop: 8 }}>Show prices in</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-strong)", paddingTop: 8 }}>Currency</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <button onClick={() => ctx.setCurrency("NGN")} style={cur(ctx.currency === "NGN")}>₦ Naira</button>
           <button onClick={() => ctx.setCurrency("USD")} style={cur(ctx.currency === "USD")}>$ US Dollar</button>
@@ -479,12 +463,11 @@ function ChatSheet({ ctx, close }) {
     <Sheet onClose={close} label="Chat with us">
       <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 10 }}>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 21, color: "var(--text-strong)" }}>Chat with us</div>
-        <p style={{ fontSize: 13.5, lineHeight: 1.55, margin: 0, color: "var(--text-body)" }}>Ask about a scent, an order or a gift.</p>
         {wa && <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" style={{ ...big, background: "var(--mr-purple-900)", color: "var(--mr-cream)", fontWeight: 500 }}>WhatsApp {phone}</a>}
-        <button onClick={() => { close(); ctx.setChat((c) => ({ ...c, open: true })); }} style={{ ...big, background: wa ? "none" : "var(--mr-purple-900)", color: wa ? "var(--mr-purple-800)" : "var(--mr-cream)", border: wa ? "1px solid var(--border-strong)" : "none" }}>{I.chat(18)} Message us here</button>
+        <button onClick={() => { close(); ctx.setChat((c) => ({ ...c, open: true })); }} style={{ ...big, background: wa ? "none" : "var(--mr-purple-900)", color: wa ? "var(--mr-purple-800)" : "var(--mr-cream)", border: wa ? "1px solid var(--border-strong)" : "none" }}>{I.chat(18)} Live chat</button>
         {phone && <a href={`tel:${phone.replace(/\s+/g, "")}`} style={{ ...big, border: "1px solid var(--border-strong)", color: "var(--mr-purple-800)" }}>Call us</a>}
         {consult.on && <button onClick={() => ctx.nav("consultation")} style={{ ...big, border: "none", background: "var(--accent-gold)", color: "var(--mr-purple-950)", fontWeight: 500 }}>{consult.ctaLabel || "Book a consultation"}</button>}
-        <button onClick={() => ctx.nav("track")} style={{ height: 44, background: "none", border: "none", fontFamily: "var(--font-sans)", fontSize: 13.5, color: "var(--mr-purple-700)", cursor: "pointer" }}>Track an order instead</button>
+        <button onClick={() => ctx.nav("track")} style={{ height: 44, background: "none", border: "none", fontFamily: "var(--font-sans)", fontSize: 13.5, color: "var(--mr-purple-700)", cursor: "pointer" }}>Track order</button>
       </div>
     </Sheet>
   );
@@ -553,7 +536,7 @@ function MobileFooter({ ctx }) {
       <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
         {[s.contactPhone && `WhatsApp ${s.contactPhone}`, s.contactEmail].filter(Boolean).join(" · ")}
         {(s.contactPhone || s.contactEmail) && <br />}
-        Secure payment with Paystack · © {new Date().getFullYear()} Majestic Roobee
+        © {new Date().getFullYear()} Majestic Roobee
         <br />
         {/* The published pages above already name the privacy policy when
             there is one; only link it here when they don't. */}
@@ -561,7 +544,7 @@ function MobileFooter({ ctx }) {
           <a href="/privacy" onClick={(e) => { e.preventDefault(); ctx.nav("info", { pageSlug: "privacy" }); }} style={{ color: "var(--text-on-dark-muted)", textDecoration: "underline" }}>Privacy &amp; cookies</a>
           {" · "}
         </>}
-        <a href="/admin/" style={{ color: "var(--text-on-dark-muted)", textDecoration: "underline" }}>Staff portal</a>
+        <a href="/admin/" style={{ color: "var(--text-on-dark-muted)", textDecoration: "underline" }}>Staff sign in</a>
       </div>
     </footer>
   );
@@ -573,9 +556,6 @@ export function MobileChrome({ ctx, children }) {
   const tabs = !NO_TABS.includes(ctx.page);
   const close = () => ctx.setSheet(null);
   const kind = ctx.sheet && ctx.sheet.kind;
-  // The purchase note and the chat button stay off the pages where a shopper
-  // is deciding or paying — they're already doing the thing both are for.
-  const quiet = ["product", "checkout", "confirm", "cart"].includes(ctx.page);
   return (
     <div style={{
       fontFamily: "var(--font-sans)", color: "var(--text-body)", background: "var(--mr-cream)", minHeight: "100vh",
@@ -587,14 +567,12 @@ export function MobileChrome({ ctx, children }) {
       <AnnouncementBar ctx={ctx} />
       <MobileHeader ctx={ctx} />
       {SEARCH_ROW_PAGES.includes(ctx.page) && <SearchRow ctx={ctx} />}
-      {ctx.page === "home" && ctx.gateOpen && <GateCard ctx={ctx} />}
       {children}
       <MobileFooter ctx={ctx} />
 
       {tabs && <BottomTabs ctx={ctx} />}
       {["home", "categories", "shop"].includes(ctx.page) && !ctx.chat.open && <ChatFab ctx={ctx} />}
       <NoteToast ctx={ctx} />
-      {!quiet && <PurchaseProof ctx={ctx} />}
       <LeaveNudge ctx={ctx} />
       <ConsentBanner ctx={ctx} />
       <ChatWidget ctx={ctx} mobile />

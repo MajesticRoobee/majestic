@@ -39,14 +39,13 @@ export default function App() {
   const [consent, setConsentState] = useState(getConsent());
   const [prQty, setPrQty] = useState(1);
   const [city, setCity] = useState("");
-  const [gateOpen, setGateOpen] = useState(false);
   const [currency, setCurrency] = useState("NGN");
   const [cart, setCart] = useState(() => {
     try { return JSON.parse(localStorage.getItem("mr-cart") || "[]"); } catch { return []; }
   });
   const [cartOpen, setCartOpen] = useState(false);
   const [mnav, setMnav] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialRoute.q || "");
   const [fCat, setFCat] = useState(initialRoute.fCat || "all");
   const [fCol, setFCol] = useState(initialRoute.fCol || null);   // a collection, when one is chosen
   // The header's merchandising shelves: "new-arrivals" | "best-sellers" |
@@ -130,11 +129,7 @@ export default function App() {
   // Bootstrap
   useEffect(() => {
     let stored = null;
-    let confirmed = false;
-    try {
-      stored = localStorage.getItem("mr-city");
-      confirmed = localStorage.getItem("mr-city-ok") === "1";
-    } catch { /* private mode — treat as a first visit */ }
+    try { stored = localStorage.getItem("mr-city"); } catch { /* private mode — treat as a first visit */ }
     api.get("/api/store").then((d) => {
       dataRef.current = d;
       setD(d);
@@ -144,7 +139,6 @@ export default function App() {
       const fallback = open.includes(d.settings.defaultCity) ? d.settings.defaultCity : open[0] || "";
       setCity(stored && open.includes(stored) ? stored : fallback);
     }).catch(() => {});
-    setGateOpen(!confirmed);
   }, []);
 
   // Re-read the catalogue without reloading the page. The daily deal is what
@@ -179,7 +173,9 @@ export default function App() {
       try { visits = parseInt(localStorage.getItem("mr-visits") || "0", 10) || 0; } catch { visits = 0; }
       if (visits < 2) return;
     }
-    const t = setTimeout(() => setPopup(true), 1800);
+    // A beat after arrival, not on it: the offer waits until the shopper has
+    // had a look round.
+    const t = setTimeout(() => setPopup(true), 15000);
     return () => clearTimeout(t);
   }, [D, cart.length]);
 
@@ -750,12 +746,13 @@ export default function App() {
     const variant = product && (product.variants.find((v) => v.id === prVariantId || (prSku && v.sku === prSku)) || defaultVariant(product.variants));
     setHead(headFor({
       page, product, variant, settings, categories,
+      variantInUrl: !!new URLSearchParams(window.location.search).get("variant"),
       segment: fSeg,
       category: page === "shop" && fCat && fCat !== "all" ? fCat : "",
       brand: fBrand ? (brands.find((b) => b.id === fBrand) || { name: fBrand }).name : "",
       post: post && post.post ? post.post : null,
       infoPage: infoPage && infoPage.page ? infoPage.page : null,
-    }));
+    }), settings);
     trackEvent("page_view");
     mrRecord("page_view", { path: window.location.pathname });
     if (product && variant) {
@@ -983,9 +980,8 @@ export default function App() {
     city, cityName, L,
     setCityConfirmed: (c) => {
       try { localStorage.setItem("mr-city", c); localStorage.setItem("mr-city-ok", "1"); } catch {}
-      setCity(c); setGateOpen(false);
+      setCity(c);
     },
-    gateOpen,
     currency, setCurrency, toggleCurrency: () => setCurrency((c) => (c === "NGN" ? "USD" : "NGN")),
     fmt, catLabel, availInfo, variantAvail, defaultVariant, bestAlt, lowLine, scarcity, card, listings, payMethods,
     cart, cc, addToCart, cartOpen, setCartOpen, mnav, setMnav,

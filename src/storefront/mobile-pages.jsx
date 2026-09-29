@@ -52,7 +52,7 @@ export function MobileHome({ ctx }) {
       {cats.length > 0 && (
         <section style={{ padding: "18px 0 0" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px 10px" }}>
-            <span style={eyebrowM}>Shop by category</span>
+            <span style={eyebrowM}>Categories</span>
             <button onClick={() => ctx.nav("categories")} style={{ ...linkBtn, padding: "6px 0" }}>See all</button>
           </div>
           <div className="mr-rail" style={{ display: "flex", gap: 12, overflowX: "auto", padding: "0 16px 2px" }}>
@@ -92,7 +92,7 @@ export function MobileHome({ ctx }) {
             <a key={t.id} href={t.ctaTarget || "/shop"} onClick={blockNav(ctx, t.ctaTarget || "/shop")} style={{ position: "relative", height: 118, borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--mr-purple-800)", display: "block" }}>
               <ImageSlot src={t.imageUrl} name={t.title} sizes="33vw" style={{ width: "100%", height: "100%" }} />
               <span style={{ position: "absolute", inset: 0, background: "linear-gradient(0deg, rgba(36,20,48,0.92), rgba(36,20,48,0.1))", display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: 2, padding: 10 }}>
-                <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--accent-gold)" }}>{fill(t.eyebrow, vars)}</span>
+                {t.eyebrow && <span style={{ fontFamily: "var(--font-condensed)", fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--accent-gold)" }}>{fill(t.eyebrow, vars)}</span>}
                 <span style={{ fontFamily: "var(--font-display)", fontSize: 15, lineHeight: 1.15, color: "var(--mr-cream)" }}>{fill(t.title, vars)}</span>
               </span>
             </a>
@@ -154,14 +154,14 @@ function MobileDealCard({ ctx }) {
   );
 }
 
-function RecentRail({ ctx, exclude = null, title = "Pick up where you left off" }) {
+function RecentRail({ ctx, exclude = null, title = "Recently viewed" }) {
   const picks = (ctx.recentIds || []).filter((id) => id !== exclude)
     .map((id) => ctx.listings.find((e) => e.product.id === id)).filter(Boolean)
     .map(ctx.card).filter(Boolean).slice(0, 8);
   if (ctx.settings.recentlyViewedOn === false || picks.length < 2) return null;
   return (
     <section style={{ paddingTop: 30 }}>
-      <HeadM eyebrow="Recently viewed" title={title} action="Clear" onAction={ctx.clearRecent} />
+      <HeadM title={title} action="Clear" onAction={ctx.clearRecent} />
       <Rail>{picks.map((p) => <MobileProductCard key={p.key} p={p} />)}</Rail>
     </section>
   );
@@ -182,11 +182,11 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
     case "perks": {
       const reward = settings.rewardsOn;
       const perks = [
-        { icon: I.truck(18), t: "Fast delivery", s: ctx.L && ctx.L.eta ? `${ctx.L.eta} from your nearest store` : "From your nearest store" },
-        { icon: I.lock(18), t: "Secure payment", s: "Card, bank transfer, or order on WhatsApp." },
+        { icon: I.truck(18), t: "Fast delivery", s: ctx.L && ctx.L.eta ? ctx.L.eta : "Nationwide" },
+        { icon: I.lock(18), t: "Secure payment", s: "Card or transfer" },
         reward
-          ? { icon: I.gift(18), t: "Rewards", s: "A reward code on every qualifying order" }
-          : { icon: I.pin(18), t: "Worldwide", s: "Naira and US Dollar pricing, delivered anywhere." },
+          ? { icon: I.gift(18), t: "Rewards", s: "On every order" }
+          : { icon: I.pin(18), t: "Worldwide", s: "Pay in ₦ or $" },
       ];
       return (
         <section style={{ padding: "16px 16px 0", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
@@ -208,7 +208,7 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
       const named = isDeals && runningDeal;
       return (
         <section style={{ paddingTop: 30 }}>
-          <HeadM eyebrow={eyebrow} title={named ? runningDeal.title : (title || (isDeals ? "Hot deals" : ""))} action={block.ctaLabel || (go ? "See all" : "")} onAction={go} />
+          <HeadM eyebrow={eyebrow} title={named ? runningDeal.title : (title || (isDeals ? "Deals" : ""))} action={block.ctaLabel || (go ? "See all" : "")} onAction={go} />
           {named && runningDeal.desc && (
             <p style={{ margin: "-4px 16px 12px", fontSize: 13.5, fontWeight: 700, color: "var(--mr-cream)", background: "var(--mr-purple-900)", borderLeft: "4px solid var(--accent-gold)", borderRadius: "var(--radius-sm)", padding: "8px 12px", lineHeight: 1.45 }}>{runningDeal.desc}</p>
           )}
@@ -283,7 +283,7 @@ function MobileBlock({ block, ctx, vars, runningDeal }) {
       if (!ctx.testimonials.length) return null;
       return (
         <section style={{ paddingTop: 30 }}>
-          <HeadM eyebrow={eyebrow} title={title || settings.reviewsHeadline || "Don't just take our word for it"} action={block.ctaLabel} onAction={go} />
+          <HeadM eyebrow={eyebrow} title={title || settings.reviewsHeadline || "Reviews"} action={block.ctaLabel} onAction={go} />
           <Rail width={260}>{ctx.testimonials.slice(0, 9).map((t) => <EmbedCard key={t.id} t={t} />)}</Rail>
         </section>
       );
@@ -324,13 +324,13 @@ function MobileNewsletter({ ctx, title, sub }) {
   return (
     <section style={sec()}>
       <div style={{ background: "var(--mr-lavender-200)", borderRadius: "var(--radius-lg)", padding: "22px 18px" }}>
-        <h2 style={{ ...h2M, fontSize: 22, margin: "0 0 8px" }}>{title || "Join the list"}</h2>
+        <h2 style={{ ...h2M, fontSize: 22, margin: "0 0 8px" }}>{title || "Newsletter"}</h2>
         {sub && <p style={{ fontSize: 13, lineHeight: 1.55, margin: "0 0 14px", color: "var(--text-body)" }}>{sub}</p>}
         {done
-          ? <div style={{ fontSize: 14, fontWeight: 500, color: "var(--mr-purple-900)" }}>You&apos;re on the list. Watch your inbox.</div>
+          ? <div style={{ fontSize: 14, fontWeight: 500, color: "var(--mr-purple-900)" }}>You&apos;re subscribed.</div>
           : (
             <form onSubmit={(e) => { e.preventDefault(); if (ctx.joinList(email, "newsletter")) setDone(true); }} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" aria-label="Your email address" style={fieldM} />
+              <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" aria-label="Your email address" style={fieldM} />
               <BtnM type="submit" block>Subscribe</BtnM>
             </form>
           )}
@@ -428,7 +428,9 @@ export function MobileShop({ ctx }) {
   const title = searching ? `Results for “${ctx.search}”`
     : segCopy ? (activeCat ? `${segCopy.title} · ${activeCat.label}` : segCopy.title)
       : brand ? brandName : collection ? collection.title : activeCat ? activeCat.label : SHOP_TITLE;
-  const eyebrow = segCopy ? segCopy.eyebrow : brand ? "By the label" : collection ? "Collection" : trail.length > 1 ? trail[0].label : activeCat ? "Category" : "Shop";
+  // Under a sub-category the parent's name sits above the heading; otherwise
+  // the heading stands alone.
+  const eyebrow = trail.length > 1 ? trail[0].label : "";
   const desc = !searching && !segCopy && (collection ? collection.desc : activeCat ? activeCat.desc : "");
 
   // Sub-categories of wherever the shopper is, as a second row of chips.
@@ -450,7 +452,7 @@ export function MobileShop({ ctx }) {
   if (mf.gender !== "all") active.push({ label: GENDER_LABEL[mf.gender] || mf.gender, clear: () => setMf({ gender: "all" }) });
   if (mf.fam !== "all") active.push({ label: mf.fam, clear: () => setMf({ fam: "all" }) });
   const filterCount = ["price", "gender", "fam"].filter((k) => mf[k] !== "all").length + (ctx.fScope === "all" ? 1 : 0);
-  const sortOpts = [["featured", seg ? `${segCopy.title} first` : `${ctx.cityName} stock first`], ["best", "Best sellers"], ["new", "Newest"], ["low", "Price: low to high"], ["high", "Price: high to low"], ["name", "Name A–Z"]];
+  const sortOpts = [["featured", "Featured"], ["best", "Best sellers"], ["new", "Newest"], ["low", "Price: low to high"], ["high", "Price: high to low"], ["name", "Name A–Z"]];
   const resetAll = () => { ctx.setMf({ price: "all", gender: "all", fam: "all" }); ctx.setFScope("city"); ctx.setSearch(""); };
 
   const chipRow = (items, small) => (
@@ -470,8 +472,8 @@ export function MobileShop({ ctx }) {
   return (
     <main style={{ paddingBottom: 24 }}>
       <div style={{ padding: "18px 16px 12px" }}>
-        <div style={eyebrowM}>{eyebrow}</div>
-        <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, lineHeight: 1.15, color: "var(--text-strong)", margin: "4px 0 0", textWrap: "pretty" }}>{title}</h1>
+        {eyebrow && <div style={eyebrowM}>{eyebrow}</div>}
+        <h1 style={{ fontFamily: "var(--font-display)", fontSize: 26, lineHeight: 1.15, color: "var(--text-strong)", margin: eyebrow ? "4px 0 0" : 0, textWrap: "pretty" }}>{title}</h1>
         {desc && <p style={{ fontSize: 13, lineHeight: 1.5, margin: "6px 0 0", color: "var(--text-body)" }}>{desc}</p>}
       </div>
       {chipRow(SEG_CHIPS.map(([id, label]) => ({ label, on: (seg || null) === id, pick: () => refine({ fSeg: id }) })))}
@@ -500,8 +502,8 @@ export function MobileShop({ ctx }) {
       </div>
       {!searching && ctx.fScope === "city" && scopedOut > 0 && list.length > 0 && (
         <div style={{ padding: "6px 16px 0", fontSize: 12, color: "var(--text-muted)" }}>
-          Showing what&apos;s in {ctx.cityName}. {scopedOut} more ship from our other stores —{" "}
-          <button onClick={() => ctx.setFScope("all")} style={{ background: "none", border: "none", padding: 0, fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "var(--mr-purple-700)", textDecoration: "underline", cursor: "pointer" }}>show them</button>
+          In stock in {ctx.cityName} ·{" "}
+          <button onClick={() => ctx.setFScope("all")} style={{ background: "none", border: "none", padding: 0, fontFamily: "var(--font-sans)", fontSize: 12, fontWeight: 500, color: "var(--mr-purple-700)", textDecoration: "underline", cursor: "pointer" }}>Show all stores (+{scopedOut})</button>
         </div>
       )}
 
@@ -516,7 +518,7 @@ export function MobileShop({ ctx }) {
         if (!picks.length) return null;
         return (
           <section key={col.id} style={{ paddingTop: 22 }}>
-            <HeadM eyebrow="Collection" title={col.title} action={picks.length > 2 ? `See all ${picks.length}` : ""} onAction={() => ctx.nav("shop", { fCol: col.id })} />
+            <HeadM title={col.title} action={picks.length > 2 ? "See all" : ""} onAction={() => ctx.nav("shop", { fCol: col.id })} />
             <Rail>{picks.slice(0, 8).map((e) => <MobileProductCard key={e.key} p={ctx.card(e)} />)}</Rail>
           </section>
         );
@@ -527,10 +529,9 @@ export function MobileShop({ ctx }) {
         : (
           <div style={{ padding: "48px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
             <p style={{ fontFamily: "var(--font-serif)", fontSize: 21, color: "var(--text-strong)", margin: 0 }}>
-              {searching ? `Nothing matches “${ctx.search}”.` : `Nothing in ${ctx.cityName} under these filters.`}
+              {searching ? `No results for “${ctx.search}”.` : `Nothing in stock in ${ctx.cityName}.`}
             </p>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 6px" }}>Try a different search, or clear what&apos;s set.</p>
-            {!searching && ctx.fScope === "city" && scopedOut > 0 && <BtnM variant="secondary" onClick={() => ctx.setFScope("all")}>Search every store</BtnM>}
+            {!searching && ctx.fScope === "city" && scopedOut > 0 && <BtnM variant="secondary" onClick={() => ctx.setFScope("all")}>Show all stores</BtnM>}
             <BtnM onClick={resetAll}>Clear filters</BtnM>
           </div>
         )}
@@ -547,7 +548,6 @@ export function MobileShop({ ctx }) {
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 56, padding: "0 14px", ...card16, cursor: "pointer", textAlign: "left", fontFamily: "var(--font-sans)" }}>
                 <span>
                   <span style={{ display: "block", fontSize: 14, fontWeight: 500, color: "var(--text-strong)" }}>In stock in {ctx.cityName}</span>
-                  <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Off shows what ships from our other stores too</span>
                 </span>
                 <span style={{ width: 44, height: 24, borderRadius: 12, background: ctx.fScope === "city" ? "var(--mr-purple-900)" : "var(--border-strong)", position: "relative", flex: "none", transition: "background 200ms" }}>
                   <span style={{ position: "absolute", top: 2, left: 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "var(--shadow-sm)", transform: ctx.fScope === "city" ? "translateX(20px)" : "none", transition: "transform 200ms" }} />
@@ -776,7 +776,7 @@ export function MobileProduct({ ctx }) {
           <Rail>{related.map((p) => <MobileProductCard key={p.key} p={p} />)}</Rail>
         </section>
       )}
-      <RecentRail ctx={ctx} exclude={pr.id} title="You looked at these too" />
+      <RecentRail ctx={ctx} exclude={pr.id} />
 
       <ActionBar>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

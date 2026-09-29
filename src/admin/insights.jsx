@@ -47,10 +47,7 @@ function Funnel({ funnel }) {
   const top = funnel[0] ? funnel[0].n : 0;
   return (
     <div style={{ ...card, padding: 22 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>From the front door to the till</div>
-      <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3, marginBottom: 16 }}>
-        People, not clicks — four looks by one shopper is one person who browsed.
-      </div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 16 }}>Visitors to orders</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {funnel.map((s, i) => {
           const prev = i ? funnel[i - 1].n : s.n;
@@ -98,11 +95,10 @@ function Sparkline({ series }) {
   );
 }
 
-function Table({ title, note, head, rows, empty }) {
+function Table({ title, head, rows, empty }) {
   return (
     <div style={{ ...card, padding: 22 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>{title}</div>
-      {note && <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3 }}>{note}</div>}
       {!rows.length ? (
         <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 14 }}>{empty}</div>
       ) : (
@@ -155,41 +151,39 @@ export function InsightsPage({ ctx }) {
     catch (e) { ctx.authFail(e); } finally { setBusy(false); }
   };
 
-  if (!d) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Reading the numbers…</span></main>;
+  if (!d) return <main style={{ padding: "26px 28px" }}><span style={{ fontSize: 13, color: "var(--text-muted)" }}>Loading…</span></main>;
 
   const k = d.kpis;
   return (
     <main style={{ padding: "26px 28px 48px", display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
         <Select value={String(days)} onChange={(e) => setDays(parseInt(e.target.value, 10))} style={{ width: 180 }}>
-          <option value="7">The last 7 days</option>
-          <option value="30">The last 30 days</option>
-          <option value="90">The last 90 days</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="90">Last 90 days</option>
         </Select>
         <div style={{ flex: 1 }} />
         {!d.cfg.on && (
           <span style={{ fontSize: 12.5, color: "#c0587a" }}>
-            Measuring is switched off in Settings → Insights — nothing new is being recorded.
+            Tracking is off (Settings → Insights)
           </span>
         )}
-        <Button variant="ghost" size="sm" disabled={busy} onClick={rollNow}>{busy ? "Catching up…" : "Catch the numbers up now"}</Button>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={rollNow}>{busy ? "Refreshing…" : "Refresh"}</Button>
       </div>
 
       {d.warming && (
         <div style={{ ...card, padding: 18, background: "var(--mr-gold-200)", border: "1px solid var(--mr-gold-400)" }}>
           <div style={{ fontSize: 13.5, color: "var(--mr-gold-600)", lineHeight: 1.6 }}>
-            <strong>Still warming up.</strong> Whole days are folded in overnight, so this screen fills out from tomorrow.
-            Today&apos;s figures are live below either way — an empty chart here means the shop has not been measured yet, not
-            that nobody came.
+            Charts fill in from tomorrow. Today&apos;s figures are below.
           </div>
         </div>
       )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 }}>
         <Kpi label="Visitors" value={k.visitors.toLocaleString()} delta={pct(k.visitors, k.prevVisitors)} />
-        <Kpi label="Bought something" value={`${k.conversion}%`} note={`${k.orders.toLocaleString()} order${k.orders === 1 ? "" : "s"}`} delta={pct(k.orders, k.prevOrders)} />
+        <Kpi label="Conversion" value={`${k.conversion}%`} note={`${k.orders.toLocaleString()} order${k.orders === 1 ? "" : "s"}`} delta={pct(k.orders, k.prevOrders)} />
         <Kpi label="Revenue" value={fmtN(k.revenue)} note={`${fmtN(k.aov)} an order`} />
-        <Kpi label="Worth per visitor" value={fmtN(k.perVisitor)} note="Revenue ÷ everyone who came" />
+        <Kpi label="Revenue per visitor" value={fmtN(k.perVisitor)} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(380px, 100%), 1fr))", gap: 18 }}>
@@ -200,24 +194,20 @@ export function InsightsPage({ ctx }) {
       {/* The segments. Each is a question the client asked, with the people it
           found and something to do about them. */}
       <div style={{ ...card, padding: 22 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)" }}>Who is in the shop</div>
-        <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 3, marginBottom: 16 }}>
-          Each of these is a group of real visits over the period. Open one to see who, what they were looking at, and what to do.
-        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-strong)", marginBottom: 16 }}>Shopper groups</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(250px, 100%), 1fr))", gap: 12 }}>
           {d.segments.map((s) => (
             <button key={s.id} onClick={() => openSegment(s.id)}
               style={{ textAlign: "left", cursor: "pointer", background: open === s.id ? "var(--surface-sunken)" : "var(--surface-card)", border: `1px solid ${open === s.id ? "var(--mr-purple-700)" : "var(--border-hairline)"}`, borderRadius: "var(--radius-lg)", padding: "16px 18px", fontFamily: "var(--font-sans)" }}>
               <div style={{ fontFamily: "var(--font-display)", fontSize: 24, color: s.count ? "var(--text-strong)" : "var(--text-muted)" }}>{s.count.toLocaleString()}</div>
               <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-strong)", marginTop: 2 }}>{s.name}</div>
-              <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>{s.why}</div>
               {s.value > 0 && <div style={{ fontSize: 11.5, color: "var(--accent-gold-ink)", marginTop: 6 }}>{fmtN(s.value)} left in carts</div>}
             </button>
           ))}
         </div>
         {open && (
           <div style={{ marginTop: 18, borderTop: "1px solid var(--border-hairline)", paddingTop: 16 }}>
-            {!rows ? <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Looking…</span> : (
+            {!rows ? <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Loading…</span> : (
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
                   <div>
@@ -227,7 +217,7 @@ export function InsightsPage({ ctx }) {
                   <button onClick={() => { setOpen(null); setRows(null); }} style={{ ...linkBtn, color: "var(--text-muted)" }}>Close</button>
                 </div>
                 {!rows.rows.length ? (
-                  <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 12 }}>Nobody in this group over the period.</div>
+                  <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 12 }}>No one in this group.</div>
                 ) : (
                   <div style={{ marginTop: 12, overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
@@ -265,36 +255,32 @@ export function InsightsPage({ ctx }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(380px, 100%), 1fr))", gap: 18 }}>
         <Table
-          title="Looked at, rarely bought"
-          note="Plenty of people opened these and few put one in a basket. Usually the price, the photograph or what the page does not say."
-          head={["Product", "Opened", "Basketed", "Rate"]}
+          title="Viewed but rarely bought"
+          head={["Product", "Views", "Added to cart", "Rate"]}
           rows={d.coldest.map((p) => [p.name, p.views, p.carts, `${p.rate}%`])}
-          empty="Not enough looks yet to tell one product from another."
+          empty="Not enough data yet."
         />
         <Table
-          title="Looked at most"
-          head={["Product", "Opened", "Basketed", "Rate"]}
+          title="Most viewed"
+          head={["Product", "Views", "Added to cart", "Rate"]}
           rows={d.hottest.map((p) => [p.name, p.views, p.carts, `${p.rate}%`])}
-          empty="No product views recorded yet."
+          empty="No product views yet."
         />
         <Table
-          title="Where people come from"
-          note="First-party, so it still counts the visitors whose ad-blocker stops a pixel loading."
+          title="Traffic sources"
           head={["Source", "Visits"]}
           rows={d.sources.map((s) => [s.dim, s.v])}
-          empty="Nothing folded in yet."
+          empty="No data yet."
         />
         <Table
-          title="Searched for, found nothing"
-          note="A buying list and an SEO brief at once, written by customers."
-          head={["They typed", "Times"]}
+          title="Searches with no results"
+          head={["Search", "Times"]}
           rows={d.searchMisses.map((s) => [s.dim, s.v])}
-          empty="Every search has found something so far."
+          empty="None."
         />
         <Table
           title="Sold out, still wanted"
-          note="Ranked by who asked to be told when it is back. Order these first."
-          head={["Piece", "Waiting", "Opened", "Missed"]}
+          head={["Product", "Waiting", "Views", "Missed sales"]}
           rows={d.soldOut.map((r) => [`${r.name} — ${r.size}`, r.waiting, r.views, r.missed ? fmtN(r.missed) : "—"])}
           empty="Nothing is sold out."
         />
@@ -302,7 +288,7 @@ export function InsightsPage({ ctx }) {
           title="On what"
           head={["Device", "Visits"]}
           rows={d.devices.map((s) => [s.dim, s.v])}
-          empty="Nothing folded in yet."
+          empty="No data yet."
         />
       </div>
     </main>
